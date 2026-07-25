@@ -9,6 +9,8 @@ export interface RedisConnectionOptions {
   port: number;
   username?: string;
   password?: string;
+  /** Set when the URL scheme is `rediss:` (TLS) — e.g. Upstash. */
+  tls?: Record<string, never>;
 }
 
 export function redisConnectionFromUrl(url: string): RedisConnectionOptions {
@@ -18,5 +20,10 @@ export function redisConnectionFromUrl(url: string): RedisConnectionOptions {
     port: Number(parsed.port) || 6379,
     username: parsed.username || undefined,
     password: parsed.password || undefined,
+    // ioredis only auto-negotiates TLS when given the raw URL string; since
+    // we deconstruct into host/port/user/pass, the `rediss:` scheme has to
+    // be re-applied explicitly or the connection silently downgrades to a
+    // plaintext connection that TLS-only providers (Upstash) will reject.
+    ...(parsed.protocol === 'rediss:' ? { tls: {} } : {}),
   };
 }

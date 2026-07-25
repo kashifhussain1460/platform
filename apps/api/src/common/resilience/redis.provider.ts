@@ -25,6 +25,7 @@ export function createResilienceRedis(config: ConfigService): Redis {
     port: conn.port,
     username: conn.username,
     password: conn.password,
+    tls: conn.tls,
     // Commands reject immediately while disconnected → in-memory fallback kicks in.
     enableOfflineQueue: false,
     maxRetriesPerRequest: 2,

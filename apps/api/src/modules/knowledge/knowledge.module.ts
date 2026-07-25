@@ -20,15 +20,12 @@ import {
 import { LocalStorageProvider } from './storage/local-storage.provider';
 import { S3StorageProvider } from './storage/s3-storage.provider';
 import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
+import { redisConnectionFromUrl } from '../../common/resilience/redis-connection';
 
 /** Parse REDIS_URL into ioredis connection options for BullMQ. */
 function redisConnection(config: ConfigService) {
-  const url = new URL(config.getOrThrow<string>('REDIS_URL'));
   return {
-    host: url.hostname,
-    port: Number(url.port) || 6379,
-    username: url.username || undefined,
-    password: url.password || undefined,
+    ...redisConnectionFromUrl(config.getOrThrow<string>('REDIS_URL')),
     // Required by BullMQ blocking commands (workers) on ioredis.
     maxRetriesPerRequest: null,
   };
