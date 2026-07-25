@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Company, User } from '@prisma/client';
@@ -28,6 +29,8 @@ export interface AuthOutcome {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(AUTH_PROVIDER) private readonly auth: AuthProvider,
@@ -36,8 +39,13 @@ export class AuthService {
 
   /** Register creates the Company + owner User atomically, then issues tokens. */
   async register(dto: RegisterDto): Promise<AuthOutcome> {
+    this.logger.log(`register: start companyName="${dto.companyName}" email="${dto.email}"`);
+
     const slug = await this.uniqueSlug(dto.companyName);
+    this.logger.log(`register: slug resolved slug="${slug}"`);
+
     const passwordHash = await this.auth.hash(dto.password);
+    this.logger.log('register: password hashed');
 
     const { company, user } = await this.prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
@@ -65,64 +73,99 @@ export class AuthService {
       });
       return { company, user };
     });
+    this.logger.log(`register: company+user created companyId=${company.id} userId=${user.id}`);
 
     // Give the new company a default STARTER/ACTIVE subscription (Step 1).
     // Idempotent; response structure is unchanged.
-    await this.billing.ensureDefaultSubscription(company.id);
+    try {
+      await this.billing.ensureDefaultSubscription(company.id);
+      this.logger.log(`register: default subscription ensured companyId=${company.id}`);
+    } catch (err) {
+      this.logger.error(
+        `register: ensureDefaultSubscription failed companyId=${company.id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw err;
+    }
 
-    return this.buildOutcome(user, company);
+    const outcome = await this.buildOutcome(user, company);
+    this.logger.log(`register: complete userId=${user.id}`);
+    return outcome;
   }
 
   async login(dto: LoginDto): Promise<AuthOutcome> {
+    this.logger.log(`login: start email="${dto.email}"`);
+
     // NOTE: email is unique per-company, not global. For this slice we resolve
     // by email alone; a later pass adds company-scoped login (slug/subdomain).
     const user = await this.prisma.user.findFirst({
       where: { email: dto.email },
     });
     if (!user) {
+      this.logger.warn(`login: no user found email="${dto.email}"`);
       throw new UnauthorizedException('Invalid credentials');
     }
+    this.logger.log(`login: user found userId=${user.id}`);
+
     const ok = await this.auth.verify(user.passwordHash, dto.password);
     if (!ok) {
+      this.logger.warn(`login: password mismatch userId=${user.id}`);
       throw new UnauthorizedException('Invalid credentials');
     }
+    this.logger.log(`login: password verified userId=${user.id}`);
+
     // Disabled accounts may hold valid credentials but must not authenticate.
     if (user.status === 'DISABLED') {
+      this.logger.warn(`login: account disabled userId=${user.id}`);
       throw new UnauthorizedException('Account is disabled');
     }
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: user.companyId },
     });
-    return this.buildOutcome(user, company);
+    const outcome = await this.buildOutcome(user, company);
+    this.logger.log(`login: complete userId=${user.id}`);
+    return outcome;
   }
 
   async refresh(refreshToken: string | undefined): Promise<AuthOutcome> {
+    this.logger.log('refresh: start');
     if (!refreshToken) {
+      this.logger.warn('refresh: missing refresh token cookie');
       throw new UnauthorizedException('Missing refresh token');
     }
     let payload: JwtPayload;
     try {
       payload = await this.auth.verifyRefresh(refreshToken);
     } catch {
+      this.logger.warn('refresh: refresh token failed verification');
       throw new UnauthorizedException('Invalid refresh token');
     }
+    this.logger.log(`refresh: token verified userId=${payload.sub}`);
+
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) {
+      this.logger.warn(`refresh: user no longer exists userId=${payload.sub}`);
       throw new UnauthorizedException('User no longer exists');
     }
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: user.companyId },
     });
-    return this.buildOutcome(user, company);
+    const outcome = await this.buildOutcome(user, company);
+    this.logger.log(`refresh: complete userId=${user.id}`);
+    return outcome;
   }
 
   async me(userId: string): Promise<MeDto> {
+    this.logger.log(`me: start userId=${userId}`);
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: user.companyId },
     });
+    this.logger.log(`me: complete userId=${userId}`);
     return { user: toUserDto(user), company: toCompanyDto(company) };
   }
 
@@ -132,7 +175,20 @@ export class AuthService {
       companyId: user.companyId,
       role: user.role,
     };
-    const { accessToken, refreshToken } = await this.auth.issueTokens(payload);
+    let accessToken: string;
+    let refreshToken: string;
+    try {
+      ({ accessToken, refreshToken } = await this.auth.issueTokens(payload));
+    } catch (err) {
+      this.logger.error(
+        `buildOutcome: issueTokens failed userId=${user.id}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw err;
+    }
+    this.logger.log(`buildOutcome: tokens issued userId=${user.id}`);
     const response: AuthResponse = {
       user: toUserDto(user),
       company: toCompanyDto(company),

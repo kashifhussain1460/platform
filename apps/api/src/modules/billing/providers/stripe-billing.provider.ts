@@ -236,8 +236,6 @@ export class StripeBillingProvider implements BillingProvider {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async sdk(): Promise<any> {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error optional dep — installed only when BILLING_PROVIDER=stripe
     return import('stripe');
   }
 
