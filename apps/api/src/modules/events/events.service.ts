@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import type {
@@ -94,17 +95,24 @@ export class EventsService {
       throw new UnauthorizedException('Invalid webhook signature');
     }
 
-    // 3) Dedupe on the provider delivery id (at-least-once delivery is expected).
-    const externalId = driver.externalId(headers);
-    if (externalId) {
-      const existing = await this.prisma.rawEvent.findUnique({
-        where: {
-          connectorId_externalId: { connectorId: connector.id, externalId },
-        },
-      });
-      if (existing) {
-        return { deduped: true, rawEventId: existing.id };
-      }
+    // 3) Dedupe on a hash of the SIGNED body, not the unsigned delivery header.
+    // The HMAC covers the body but NOT the `X-*-Delivery`/`X-Event-Id` header, so
+    // an attacker who captures one valid signed request can replay it while
+    // mutating/omitting that header to defeat header-based dedupe — each replay
+    // would otherwise mint a fresh RawEvent → CanonicalEvent → a new workflow run
+    // with real side effects (unbounded amplification). Keying dedupe on the
+    // body hash makes an identical signed delivery at-most-once regardless of the
+    // header. (The raw provider delivery id is still retained in `headers` for
+    // observability.) A signed timestamp/nonce window would additionally bound
+    // capture-replay of distinct-but-stale bodies — tracked as a follow-up.
+    const externalId = `sha256:${createHash('sha256').update(rawBody).digest('hex')}`;
+    const existing = await this.prisma.rawEvent.findUnique({
+      where: {
+        connectorId_externalId: { connectorId: connector.id, externalId },
+      },
+    });
+    if (existing) {
+      return { deduped: true, rawEventId: existing.id };
     }
 
     // 4) Persist the raw event (append-only) + 5) enqueue normalization.

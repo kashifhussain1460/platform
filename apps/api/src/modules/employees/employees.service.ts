@@ -43,7 +43,7 @@ export class EmployeesService {
 
   /**
    * Hiring is gated by the company's subscription (docs/specs/hiring-and-
-   * subscription-linkage.md): a non-ACTIVE subscription (PAST_DUE/CANCELED)
+   * subscription-linkage.md): a non-ACTIVE subscription (PAST_DUE/CANCELLED)
    * blocks new hires outright, and the plan's employee seat limit is enforced
    * against ACTIVE+PAUSED employees (DISABLED ones don't hold a seat, so
    * retiring one frees it up). A downgrade that leaves a company already over
@@ -238,7 +238,13 @@ export class EmployeesService {
       throw new NotFoundException('Employee not found');
     }
     // Runtime throws 409 (ConflictException) if the employee is PAUSED/DISABLED.
-    return this.runtime.run(employee, conversation, content);
+    // Chat runs the full tool loop, so an external-action tool (send/egress) is
+    // routed to a human approval rather than executed autonomously — the message
+    // may carry untrusted pasted content (a CV/email) with an injected
+    // instruction. Read-only tools still run autonomously.
+    return this.runtime.run(employee, conversation, content, {
+      forceApprovalForExternalActions: true,
+    });
   }
 
   // --- Ownership helpers ---------------------------------------------------

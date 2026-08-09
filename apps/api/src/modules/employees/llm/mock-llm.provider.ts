@@ -7,6 +7,8 @@ import {
   TOOL_RESULT_MARKER,
 } from '../employees.constants';
 import { SkillCatalog } from '../../skills/catalog';
+import { ASSIST_AGENT_MARKER } from '../../assist/agent/assist-prompt';
+import { completeAssistTurn } from './mock-assist-script';
 import {
   EMPLOYEES_CLOSE,
   EMPLOYEES_OPEN,
@@ -18,7 +20,24 @@ import type {
   LlmCompletionInput,
   LlmCompletionResult,
   LlmProvider,
+  LlmStreamChunk,
 } from './llm.provider';
+
+/** Split text into ~`size`-char pieces, breaking on whitespace where possible. */
+function chunkText(text: string, size: number): string[] {
+  if (!text) return [];
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > size) {
+    const window = rest.slice(0, size);
+    const cut = window.lastIndexOf(' ');
+    const at = cut > size / 2 ? cut + 1 : size;
+    out.push(rest.slice(0, at));
+    rest = rest.slice(at);
+  }
+  if (rest) out.push(rest);
+  return out;
+}
 
 /** Truncate to `n` chars with an ellipsis, collapsing surrounding whitespace. */
 function clip(text: string, n: number): string {
@@ -244,11 +263,43 @@ export class MockLlmProvider implements LlmProvider {
     };
   }
 
+  /**
+   * Streaming for the offline provider: run the same deterministic completion,
+   * then hand the text back in small pieces. Real providers stream because the
+   * model is slow; this exists so streaming CONSUMERS (the SSE endpoint, the
+   * assist agent loop) are fully testable with no network and no API key —
+   * which is what keeps CI offline.
+   */
+  async *completeStream(
+    input: LlmCompletionInput,
+    tools?: ToolDefinitionDto[],
+  ): AsyncIterable<LlmStreamChunk> {
+    const result = await this.complete(input, tools);
+
+    if (result.toolCall) {
+      yield { kind: 'toolCall', call: result.toolCall };
+    } else {
+      // ~24-char pieces on word boundaries — enough chunks to exercise a
+      // consumer's accumulation without making tests slow.
+      for (const piece of chunkText(result.content ?? '', 24)) {
+        yield { kind: 'text', text: piece };
+      }
+    }
+    if (result.usage) yield { kind: 'usage', usage: result.usage };
+    yield { kind: 'done' };
+  }
+
   private async completeInner(
     input: LlmCompletionInput,
     tools?: ToolDefinitionDto[],
   ): Promise<LlmCompletionResult> {
     const { system, messages } = input;
+
+    if (system.includes(ASSIST_AGENT_MARKER)) {
+      // The conversational builder: a multi-step tool loop, scripted so it can
+      // be exercised offline (see mock-assist-script.ts).
+      return completeAssistTurn(input, tools);
+    }
 
     if (system.includes(WORKFLOW_GENERATOR_MARKER)) {
       return completeWorkflowGeneration(input);

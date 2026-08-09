@@ -22,6 +22,7 @@ import { SkillsOAuthController } from './oauth/oauth.controller';
 import { OAuthService } from './oauth/oauth.service';
 import { SkillsController } from './skills.controller';
 import { SkillsService } from './skills.service';
+import { SkillRequirementsService } from './skill-requirements.service';
 import { SchedulingModule } from '../scheduling/scheduling.module';
 import { SchedulingService } from '../scheduling/scheduling.service';
 import { PostizClientService } from '../engines/marketing/postiz-client.service';
@@ -94,6 +95,7 @@ function skillExecutorFactory(
   ],
   providers: [
     SkillsService,
+    SkillRequirementsService,
     OAuthService,
     ConnectorHealthService,
     ConnectorTokenService,
@@ -120,6 +122,11 @@ function skillExecutorFactory(
       useValue: ((url, init) => fetch(url, init)) as FetchLike,
     },
   ],
-  exports: [SkillsService, ConnectorHealthService, ConnectorTokenService],
+  exports: [
+    SkillsService,
+    SkillRequirementsService,
+    ConnectorHealthService,
+    ConnectorTokenService,
+  ],
 })
 export class SkillsModule {}

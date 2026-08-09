@@ -57,9 +57,18 @@ export function resolveTemplate(
   if (typeof template !== 'string') {
     return template == null ? '' : String(template);
   }
-  return template.replace(TEMPLATE_RE, (_match, path: string) =>
-    stringifyValue(lookup(context, path)),
-  );
+  return template.replace(TEMPLATE_RE, (match, path: string) => {
+    // Leave the `{{secret.NAME}}` namespace UNTOUCHED — it is resolved later and
+    // only at the connector boundary by SecretResolverService (P2-01). Consuming
+    // it here would blank the placeholder (context has no `secret` key), so the
+    // secret would silently resolve to '' and the tool would call with no
+    // credential. Secret refs are safe to leave as literals; they are never a
+    // value, and anything persisted keeps the reference, not the secret.
+    if (path === 'secret' || path.startsWith('secret.')) {
+      return match;
+    }
+    return stringifyValue(lookup(context, path));
+  });
 }
 
 /** Resolve every value of a `{ key: template }` map into a string map. */

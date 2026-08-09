@@ -18,7 +18,18 @@ interface OAuthState {
   nonce: string;
   /** Issued-at (epoch ms) — the state is rejected after STATE_TTL_MS. */
   iat: number;
+  /**
+   * Same-origin relative path to bounce the browser back to after the callback
+   * (e.g. `/assist/<sessionId>`), so an in-chat connect resumes where it started
+   * instead of dumping the user on /skills. Validated again on the way out.
+   */
+  returnTo?: string;
+  /** The user who started the flow — bound into the signed state for traceability. */
+  userId?: string;
 }
+
+/** Where an in-chat/builder connect flow may return to (open-redirect guard). */
+const RETURN_TO_PREFIXES = ['/assist/', '/workflows/'] as const;
 
 /** Signed OAuth state lifetime (defends against stale/replayed authorize links). */
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -46,6 +57,7 @@ export class OAuthService {
   async buildAuthorizeUrl(
     companyId: string,
     installedSkillId: string,
+    opts: { returnTo?: string; userId?: string } = {},
   ): Promise<string> {
     const installed = await this.skills.getOwnedInstalled(
       companyId,
@@ -53,12 +65,15 @@ export class OAuthService {
     );
     const provider = this.resolveOrThrow(installed.skillKey);
 
+    const returnTo = this.safeReturnPath(opts.returnTo);
     const state = this.signState({
       installedSkillId,
       companyId,
       skillKey: installed.skillKey,
       nonce: randomBytes(12).toString('hex'),
       iat: Date.now(),
+      ...(returnTo ? { returnTo } : {}),
+      ...(opts.userId ? { userId: opts.userId } : {}),
     });
 
     const params = new URLSearchParams({
@@ -87,11 +102,15 @@ export class OAuthService {
     try {
       state = this.parseState(stateRaw);
     } catch (err) {
-      return `${webBase}/skills?error=${encodeURIComponent(
-        err instanceof Error ? err.message : 'invalid_state',
-      )}`;
+      // No trusted returnTo when the state itself is bad — land on /skills.
+      return this.callbackUrl(webBase, '/skills', {
+        error: err instanceof Error ? err.message : 'invalid_state',
+      });
     }
 
+    // Re-validate on the way out (defence in depth) — the destination is a
+    // same-origin relative path or nothing.
+    const returnTo = this.safeReturnPath(state.returnTo) ?? '/skills';
     try {
       if (!code) {
         throw new Error('Missing authorization code');
@@ -103,12 +122,38 @@ export class OAuthService {
         state.installedSkillId,
         tokens,
       );
-      return `${webBase}/skills?connected=${encodeURIComponent(state.skillKey)}`;
+      return this.callbackUrl(webBase, returnTo, { connected: state.skillKey });
     } catch (err) {
-      return `${webBase}/skills?error=${encodeURIComponent(
-        err instanceof Error ? err.message : 'oauth_failed',
-      )}`;
+      // Errors from an in-chat connect use `skillError` so the assist page can
+      // surface them without colliding with its own `error` handling.
+      const key = returnTo === '/skills' ? 'error' : 'skillError';
+      return this.callbackUrl(webBase, returnTo, {
+        [key]: err instanceof Error ? err.message : 'oauth_failed',
+      });
     }
+  }
+
+  /** Compose an absolute redirect from a validated same-origin path + params. */
+  private callbackUrl(
+    webBase: string,
+    path: string,
+    params: Record<string, string>,
+  ): string {
+    const query = new URLSearchParams(params).toString();
+    const sep = path.includes('?') ? '&' : '?';
+    return `${webBase}${path}${sep}${query}`;
+  }
+
+  /**
+   * Accept only a SAME-ORIGIN relative path under a known app area — never a
+   * protocol-relative (`//host`) or absolute URL — so a crafted `returnTo` can't
+   * turn the callback into an open redirect.
+   */
+  private safeReturnPath(returnTo: string | undefined): string | null {
+    if (!returnTo || typeof returnTo !== 'string') return null;
+    if (!returnTo.startsWith('/') || returnTo.startsWith('//')) return null;
+    if (returnTo.includes('\\') || returnTo.includes('://')) return null;
+    return RETURN_TO_PREFIXES.some((p) => returnTo.startsWith(p)) ? returnTo : null;
   }
 
   // --- Token exchange -------------------------------------------------------

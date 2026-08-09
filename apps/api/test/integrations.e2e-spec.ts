@@ -127,6 +127,8 @@ describeIfDb('Integrations e2e (auto executor · OAuth · Stripe webhook)', () =
   const auth = () => ({ Authorization: `Bearer ${accessToken}` });
 
   beforeAll(async () => {
+    // OAuth credentials are neutralised globally in test/setup-e2e-env.ts —
+    // it must happen before ConfigModule.forRoot() runs at import time.
     // Force the AUTO executor for this app (the suite otherwise runs mock) so we
     // can prove an UNCONNECTED skill falls back to the offline mock (no network).
     const moduleRef: TestingModule = await Test.createTestingModule({

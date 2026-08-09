@@ -1,33 +1,22 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { OnboardingWizard } from '@/features/onboarding/components/OnboardingWizard';
-import { useOnboardingStatus } from '@/features/onboarding/hooks';
-import { useSessionStore } from '@/stores/session.store';
 
+/**
+ * The onboarding wizard route.
+ *
+ * Deliberately holds NO auth/redirect logic of its own. `AppLayout` (the (app)
+ * route-group guard) already owns every decision for protected routes: it waits
+ * for session rehydration, sends guests to /login, forces un-onboarded users
+ * here, and sends onboarded users to /dashboard.
+ *
+ * This page previously duplicated those redirects off a SECOND source of truth
+ * (the `onboarding/status` query, where the layout reads `company.onboardedAt`
+ * from the session store). The two could disagree for a render — the layout
+ * pushing to /onboarding while this page pushed to /dashboard — which is the
+ * redirect loop the completion hook still carries a workaround comment about.
+ * One guard, one source of truth.
+ */
 export default function OnboardingPage() {
-  const router = useRouter();
-  const accessToken = useSessionStore((s) => s.accessToken);
-  const { data: status } = useOnboardingStatus();
-
-  // Client-side route guard (same pattern as the other app pages).
-  useEffect(() => {
-    if (!accessToken) {
-      router.replace('/login');
-    }
-  }, [accessToken, router]);
-
-  // Already onboarded → skip the wizard.
-  useEffect(() => {
-    if (status?.completed) {
-      router.replace('/dashboard');
-    }
-  }, [status, router]);
-
-  if (!accessToken || status?.completed) {
-    return null;
-  }
-
   return <OnboardingWizard />;
 }

@@ -43,6 +43,56 @@ module.exports = {
         void: { DEFAULT: '#030408', section: '#0C0E14', card: '#0F1017', 'card-hover': '#171923' },
         violet: { DEFAULT: '#5E3CE8', hover: '#7659F0', secondary: '#8B6EF2', accent: '#6D3FE0' },
         gold: { DEFAULT: '#F0B90D' }, // badge rocket + star-rating accent only
+
+        // ── Workflow Builder tokens (doc 29). Dark, violet-accented; built on the
+        // `void`/`violet`/`gold` scales above. Scoped names, no collision with the
+        // light "Workforce Ledger" theme. Node categories: saturation encodes how
+        // much a human should care (employee+approval warmest → machinery = slate).
+        canvas: { DEFAULT: '#02030A', grid: '#0B0E18' },
+        cat: {
+          employee: '#8B6EF2', // AI Employee (the signature "person" node)
+          trigger: '#22D3EE', // entry
+          approval: '#F0B90D', // human gate
+          tool: '#2DD4BF', // skill / action
+          knowledge: '#818CF8', // retrieve
+          memory: '#A78BFA', // remember / recall
+          logic: '#94A3B8', // control flow
+          data: '#64748B', // variables / transform
+          util: '#475569', // timing / no-op
+        },
+        // Run + step statuses (never colour alone — always paired with an icon/shape).
+        status: {
+          pending: '#94A3B8',
+          running: '#8B6EF2',
+          waiting: '#F0B90D',
+          // Author-time problem (a step that cannot run as configured) — distinct
+          // in MEANING from `waiting`, which is a run-time state, even though the
+          // two share a hue. Kept separate so either can be retuned alone.
+          warning: '#F0B90D',
+          succeeded: '#34D399',
+          failed: '#F87171',
+          cancelled: '#64748B',
+          escalated: '#FB923C',
+          expired: '#6B7280',
+        },
+        edge: {
+          idle: 'rgba(255,255,255,0.16)',
+          hover: '#7659F0',
+          live: '#8B6EF2',
+          invalid: '#F87171',
+          pending: 'rgba(139,110,242,0.6)',
+        },
+        // Builder text/border/feedback (dark surfaces).
+        wf: {
+          ink: '#F5F6FA',
+          'ink-2': '#A6ADBB',
+          'ink-3': '#6B7280',
+          hairline: 'rgba(255,255,255,0.07)',
+          'hairline-hover': 'rgba(255,255,255,0.14)',
+          focus: '#8B6EF2',
+          ok: '#34D399',
+          error: '#F87171',
+        },
       },
       fontFamily: {
         sans: [
@@ -55,7 +105,19 @@ module.exports = {
           '-apple-system',
           'sans-serif',
         ],
+        // Workflow Builder display face (doc 29) — Space Grotesk carries the
+        // "software with a personality" tone on node/employee names + panel titles.
+        // Wired via next/font (CSS var); falls back to the system stack.
+        display: [
+          'var(--font-space-grotesk)',
+          'Space Grotesk',
+          'Segoe UI',
+          'system-ui',
+          'sans-serif',
+        ],
         mono: [
+          'var(--font-jetbrains-mono)',
+          'JetBrains Mono',
           'ui-monospace',
           'SF Mono',
           'Cascadia Code',

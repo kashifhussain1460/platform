@@ -22,6 +22,32 @@ export async function onboardingCatalogRequest(): Promise<
   return data;
 }
 
+export async function saveOnboardingCompanyRequest(body: {
+  name: string;
+  industry: string;
+  size: string;
+  website?: string;
+}): Promise<OnboardingStatusDto> {
+  const { data } = await apiClient.patch<OnboardingStatusDto>('/onboarding/company', body);
+  return data;
+}
+
+export async function saveOnboardingAiEmployeesRequest(
+  roles: string[],
+): Promise<OnboardingStatusDto> {
+  const { data } = await apiClient.patch<OnboardingStatusDto>('/onboarding/ai-employees', {
+    roles,
+  });
+  return data;
+}
+
+export async function saveOnboardingGoalsRequest(
+  goals: string[],
+): Promise<OnboardingStatusDto> {
+  const { data } = await apiClient.patch<OnboardingStatusDto>('/onboarding/goals', { goals });
+  return data;
+}
+
 export async function completeOnboardingRequest(
   payload: CompleteOnboardingDto,
 ): Promise<CompleteOnboardingResultDto> {

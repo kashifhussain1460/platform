@@ -19,13 +19,17 @@ import { SkillsModule } from './modules/skills/skills.module';
 import { MarketingModule } from './modules/engines/marketing/marketing.module';
 import { SupportModule } from './modules/engines/support/support.module';
 import { WorkflowsModule } from './modules/workflows/workflows.module';
+import { WorkflowRuntimeModule } from './modules/workflow-runtime/workflow-runtime.module';
 import { EventsModule } from './modules/events/events.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { MarketplaceModule } from './modules/marketplace/marketplace.module';
+import { AssistModule } from './modules/assist/assist.module';
+import { WorkflowTemplatesModule } from './modules/workflow-templates/workflow-templates.module';
 import { OrganizationModule } from './modules/organization/organization.module';
 import { SchedulingModule } from './modules/scheduling/scheduling.module';
+import { HrModule } from './modules/hr/hr.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -53,12 +57,16 @@ import { HealthModule } from './modules/health/health.module';
     MarketingModule,
     SupportModule,
     WorkflowsModule,
+    WorkflowRuntimeModule,
     EventsModule,
     ApprovalsModule,
     AnalyticsModule,
     BillingModule,
     MarketplaceModule,
+    WorkflowTemplatesModule,
+    AssistModule,
     OrganizationModule,
+    HrModule,
     AdminModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: TenantAwareThrottlerGuard }],

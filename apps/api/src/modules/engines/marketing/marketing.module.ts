@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { PostizClientService } from './postiz-client.service';
+import { MarketingSyncService } from './marketing-sync.service';
 import { MarketingSyncProcessor } from './marketing-sync.processor';
 import { MarketingWebhookController } from './marketing-webhook.controller';
 import { MARKETING_SYNC_QUEUE } from './marketing.constants';
@@ -17,8 +18,11 @@ import { queueWorkersEnabled } from '../../../common/resilience/queue-workers';
   controllers: [MarketingWebhookController],
   providers: [
     PostizClientService,
+    // Always provided so the Vercel cron route can drive the sweep on serverless
+    // (the processor that also drives it is worker-gated).
+    MarketingSyncService,
     ...(queueWorkersEnabled() ? [MarketingSyncProcessor] : []),
   ],
-  exports: [PostizClientService],
+  exports: [PostizClientService, MarketingSyncService],
 })
 export class MarketingModule {}

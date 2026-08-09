@@ -7,11 +7,13 @@ import { AUTH_PROVIDER } from './auth.provider';
 import { JwtAuthProvider } from './jwt-auth.provider';
 import { JwtStrategy } from './jwt.strategy';
 import { BillingModule } from '../billing/billing.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   // BillingModule (exports BillingService) lets register create a default
-  // subscription. BillingModule does NOT import AuthModule → no cycle.
-  imports: [PassportModule, JwtModule.register({}), BillingModule],
+  // subscription. MailModule sends verification OTPs. Neither imports AuthModule
+  // → no cycle.
+  imports: [PassportModule, JwtModule.register({}), BillingModule, MailModule],
   controllers: [AuthController],
   providers: [
     AuthService,

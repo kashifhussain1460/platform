@@ -7,6 +7,25 @@
  * The web app uses the zod schemas for react-hook-form validation.
  */
 import { z } from 'zod';
+import {
+  conditionSchema,
+  kpiTargetsSchema,
+  triggerConfigSchema,
+  workflowDefinitionSchema,
+} from './shared-schemas';
+
+// Re-exported so `import { workflowDefinitionSchema } from '@vaep/types'` (the
+// existing public surface) is unchanged — only where they're DEFINED moved.
+// See shared-schemas.ts for why: response-schemas.ts needs these as runtime
+// values and this file re-exports response-schemas.ts wholesale, so defining
+// them here created a circular import (a live TDZ crash, not theoretical —
+// reproduced via browser-testing /onboarding).
+export {
+  conditionSchema,
+  kpiTargetsSchema,
+  triggerConfigSchema,
+  workflowDefinitionSchema,
+};
 
 /** Tenant membership role. */
 export type Role = 'OWNER' | 'ADMIN' | 'MEMBER';
@@ -22,11 +41,27 @@ export const USER_STATUSES: readonly UserStatus[] = ['ACTIVE', 'DISABLED'] as co
 // Zod schemas (shared validation contract) — web uses these directly.
 // ---------------------------------------------------------------------------
 
+/**
+ * Canonical password policy — the SINGLE source for both the frontend (zod) and
+ * the backend (class-validator via these regexes). Secure without friction:
+ * ≥8 chars, at least one letter and one number. Backend validation is
+ * authoritative; the frontend mirrors it for immediate feedback.
+ */
+export const PASSWORD_MIN_LENGTH = 8;
+export const PASSWORD_HAS_LETTER = /[A-Za-z]/;
+export const PASSWORD_HAS_NUMBER = /[0-9]/;
+export const passwordSchema = z
+  .string()
+  .min(PASSWORD_MIN_LENGTH, `Use at least ${PASSWORD_MIN_LENGTH} characters`)
+  .max(200)
+  .regex(PASSWORD_HAS_LETTER, 'Include at least one letter')
+  .regex(PASSWORD_HAS_NUMBER, 'Include at least one number');
+
 export const registerSchema = z.object({
   companyName: z.string().min(2, 'Company name is too short').max(120),
   name: z.string().min(1, 'Your name is required').max(120),
   email: z.string().email('Enter a valid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters').max(200),
+  password: passwordSchema,
   // Optional company profile (Step 2 richer registration) + admin phone.
   industry: z.string().max(120).optional(),
   size: z.string().max(40).optional(),
@@ -51,7 +86,7 @@ export const searchSchema = z.object({
   // this file as a `const` — referencing it here would hit the temporal dead
   // zone at module-eval time. Keep in sync with EMPLOYEE_ROLES below.
   category: z
-    .enum(['SUPPORT', 'SALES', 'RECRUITER', 'HR', 'ACCOUNTANT', 'PROJECT_MANAGER', 'CUSTOM'])
+    .enum(['SUPPORT', 'SALES', 'RECRUITER', 'HR', 'ACCOUNTANT', 'PROJECT_MANAGER', 'CUSTOM', 'MARKETING'])
     .optional(),
 });
 
@@ -81,6 +116,12 @@ export interface UserDto {
   phone: string | null;
   role: Role;
   status: UserStatus;
+  /** True once the user has confirmed their email OTP. Drives post-login routing. */
+  emailVerified: boolean;
+  /** P3-05 org-structure links — used to group/target users in approval routing + workflow permissions. */
+  departmentId: string | null;
+  teamId: string | null;
+  managerUserId: string | null;
   createdAt: string;
 }
 
@@ -215,7 +256,8 @@ export type EmployeeRole =
   | 'HR'
   | 'ACCOUNTANT'
   | 'PROJECT_MANAGER'
-  | 'CUSTOM';
+  | 'CUSTOM'
+  | 'MARKETING';
 
 export const EMPLOYEE_ROLES: readonly EmployeeRole[] = [
   'SUPPORT',
@@ -225,6 +267,7 @@ export const EMPLOYEE_ROLES: readonly EmployeeRole[] = [
   'ACCOUNTANT',
   'PROJECT_MANAGER',
   'CUSTOM',
+  'MARKETING',
 ] as const;
 
 /** Lifecycle status. Only ACTIVE employees accept new messages. */
@@ -244,13 +287,20 @@ export const KNOWLEDGE_ACCESSES: readonly KnowledgeAccess[] = [
   'NONE',
 ] as const;
 
-/** Business departments (used by the onboarding wizard + employee catalog). */
+/**
+ * Business departments (used by the onboarding wizard + employee catalog).
+ * MARKETING added alongside the MARKETING EmployeeRole — without it, a company
+ * could never select "Marketing" during onboarding, so the AI Marketing
+ * Employee (and every Marketing workflow template, all of which require an
+ * employee with this role) was permanently unreachable from onboarding.
+ */
 export type Department =
   | 'SALES'
   | 'HR'
   | 'CUSTOMER_SUPPORT'
   | 'RECRUITMENT'
-  | 'FINANCE';
+  | 'FINANCE'
+  | 'MARKETING';
 
 export const DEPARTMENTS: readonly Department[] = [
   'SALES',
@@ -258,6 +308,7 @@ export const DEPARTMENTS: readonly Department[] = [
   'CUSTOMER_SUPPORT',
   'RECRUITMENT',
   'FINANCE',
+  'MARKETING',
 ] as const;
 
 /** Author of a conversation message. */
@@ -276,6 +327,7 @@ export const createEmployeeSchema = z.object({
     'ACCOUNTANT',
     'PROJECT_MANAGER',
     'CUSTOM',
+    'MARKETING',
   ]),
   persona: z.string().max(2000).optional(),
   model: z.string().max(120).optional(),
@@ -291,13 +343,6 @@ export interface KpiTargets {
   successRatePct?: number;
   approvalsMax?: number;
 }
-
-/** Shared zod contract for KPI targets (web form + PATCH /employees/:id body). */
-export const kpiTargetsSchema = z.object({
-  tasksPerWeek: z.number().int().min(0).max(1000000).optional(),
-  successRatePct: z.number().min(0).max(100).optional(),
-  approvalsMax: z.number().int().min(0).max(1000000).optional(),
-});
 
 /**
  * Rich AI-employee configuration (Step 5). Shared by the employee settings
@@ -527,9 +572,56 @@ export interface EmployeeRoleTemplate {
   departments: Department[];
 }
 
+/**
+ * Business goals per AI-employee role — the canonical source for the onboarding
+ * step-3 options AND the server-side goal reconciliation. Business goals are
+ * preferences, NEVER authorization (do not consult for RBAC).
+ */
+export const EMPLOYEE_GOALS = {
+  HR: [
+    'Recruitment',
+    'Candidate Screening',
+    'Interview Scheduling',
+    'Employee Onboarding',
+    'HR Operations',
+    'Performance Reviews',
+    'Employee Offboarding',
+  ],
+  MARKETING: [
+    'Content Creation',
+    'Social Media',
+    'Campaign Management',
+    'Email Marketing',
+    'SEO',
+    'Lead Generation',
+    'Marketing Analytics',
+  ],
+} as const satisfies Record<string, readonly string[]>;
+
+/** The AI-employee roles selectable in minimal onboarding. */
+export const ONBOARDING_ROLES = ['HR', 'MARKETING'] as const;
+export type OnboardingRole = (typeof ONBOARDING_ROLES)[number];
+
+/** The union of goals allowed for a set of selected roles (order-preserving, deduped). */
+export function allowedGoalsForRoles(roles: readonly string[]): string[] {
+  const goals = EMPLOYEE_GOALS as Record<string, readonly string[]>;
+  const out: string[] = [];
+  for (const role of roles) {
+    for (const goal of goals[role] ?? []) {
+      if (!out.includes(goal)) out.push(goal);
+    }
+  }
+  return out;
+}
+
 /** GET /onboarding/status response. */
 export interface OnboardingStatusDto {
   completed: boolean;
+  /** Resumable step marker: NOT_STARTED | COMPANY_SETUP | AI_EMPLOYEE_SELECTION | BUSINESS_GOALS | COMPLETED. */
+  step: string;
+  company: { name: string; industry: string | null; size: string | null; website: string | null };
+  selectedRoles: string[];
+  goals: string[];
 }
 
 /** POST /onboarding/complete body. */
@@ -552,6 +644,7 @@ export const completeOnboardingSchema = z.object({
         'ACCOUNTANT',
         'PROJECT_MANAGER',
         'CUSTOM',
+        'MARKETING',
       ]),
       name: z.string().max(120).optional(),
     }),
@@ -564,6 +657,13 @@ export type CompleteOnboardingDto = z.infer<typeof completeOnboardingSchema>;
 export interface CompleteOnboardingResultDto {
   company: CompanyDto;
   employees: AiEmployeeDto[];
+  /**
+   * The Department rows the wizard's chosen departments resolved to. Previously
+   * `departments` was collected by the wizard, sent, validated — and then
+   * silently dropped on the floor. They are now persisted, and returned so the
+   * client can prime its org cache without a second round trip.
+   */
+  departments: DepartmentDto[];
 }
 
 // ---------------------------------------------------------------------------
@@ -738,6 +838,163 @@ export interface ConnectorHealthDto {
   disabledReason: string | null;
 }
 
+// --- Skill capabilities & workflow skill-dependencies ----------------------
+// Capability-first resolution for the in-chat "connect a skill" experience
+// (doc 30 §12). A workflow declares WHAT it needs (a capability, e.g. send
+// email) not WHICH provider — so Gmail and (future) Outlook can both satisfy
+// EMAIL_SEND without changing any planning logic. The concrete (skillKey→tool)
+// mapping + provider registry live server-side (apps/api skills/capabilities.ts);
+// only the vocabulary + the machine-readable dependency shape are shared here.
+
+/**
+ * Provider-agnostic capability a workflow step can require. Each maps to one or
+ * more (skillKey, tool) pairs in the server catalog; more than one skill may
+ * satisfy the same capability (multi-provider support).
+ */
+export type SkillCapability =
+  | 'EMAIL_SEND'
+  | 'EMAIL_READ'
+  | 'CALENDAR_EVENT_CREATE'
+  | 'MESSAGING_SEND'
+  | 'CRM_WRITE'
+  | 'ISSUE_TRACKING_WRITE'
+  | 'ISSUE_TRACKING_READ'
+  | 'FILE_STORAGE_WRITE'
+  | 'FILE_STORAGE_READ'
+  | 'PAYMENTS_WRITE'
+  | 'PAYMENTS_READ'
+  | 'SOCIAL_PUBLISH'
+  | 'SUPPORT_REPLY'
+  | 'HTTP_REQUEST';
+
+export const SKILL_CAPABILITIES: readonly SkillCapability[] = [
+  'EMAIL_SEND',
+  'EMAIL_READ',
+  'CALENDAR_EVENT_CREATE',
+  'MESSAGING_SEND',
+  'CRM_WRITE',
+  'ISSUE_TRACKING_WRITE',
+  'ISSUE_TRACKING_READ',
+  'FILE_STORAGE_WRITE',
+  'FILE_STORAGE_READ',
+  'PAYMENTS_WRITE',
+  'PAYMENTS_READ',
+  'SOCIAL_PUBLISH',
+  'SUPPORT_REPLY',
+  'HTTP_REQUEST',
+] as const;
+
+/** Human labels for a capability (used by the in-chat Skill card). */
+export interface SkillCapabilityMeta {
+  id: SkillCapability;
+  label: string;
+  description: string;
+}
+
+export const SKILL_CAPABILITY_META: Record<SkillCapability, SkillCapabilityMeta> = {
+  EMAIL_SEND: { id: 'EMAIL_SEND', label: 'Send email', description: 'Send emails on the employee’s behalf.' },
+  EMAIL_READ: { id: 'EMAIL_READ', label: 'Read email', description: 'Read recent inbox messages.' },
+  CALENDAR_EVENT_CREATE: { id: 'CALENDAR_EVENT_CREATE', label: 'Create calendar events', description: 'Check availability and create meetings.' },
+  MESSAGING_SEND: { id: 'MESSAGING_SEND', label: 'Send chat messages', description: 'Post messages to a team chat channel.' },
+  CRM_WRITE: { id: 'CRM_WRITE', label: 'Update CRM', description: 'Create or update contacts and deals.' },
+  ISSUE_TRACKING_WRITE: { id: 'ISSUE_TRACKING_WRITE', label: 'Manage issues', description: 'Create and update tracked issues.' },
+  ISSUE_TRACKING_READ: { id: 'ISSUE_TRACKING_READ', label: 'Read issues', description: 'Read and list tracked issues.' },
+  FILE_STORAGE_WRITE: { id: 'FILE_STORAGE_WRITE', label: 'Manage files', description: 'Upload and organise files.' },
+  FILE_STORAGE_READ: { id: 'FILE_STORAGE_READ', label: 'Read files', description: 'List and read stored files.' },
+  PAYMENTS_WRITE: { id: 'PAYMENTS_WRITE', label: 'Create payments', description: 'Create payment links.' },
+  PAYMENTS_READ: { id: 'PAYMENTS_READ', label: 'Read payments', description: 'Review charges and balance.' },
+  SOCIAL_PUBLISH: { id: 'SOCIAL_PUBLISH', label: 'Publish social posts', description: 'Schedule or publish social content.' },
+  SUPPORT_REPLY: { id: 'SUPPORT_REPLY', label: 'Reply to support', description: 'Respond to customer conversations.' },
+  HTTP_REQUEST: { id: 'HTTP_REQUEST', label: 'Call an API', description: 'Make an outbound HTTP request.' },
+};
+
+/**
+ * Operational state of a required skill inside AI Assist / the Workflow Builder.
+ * A SUPERSET of {@link SkillConnectionStatus}: a computed projection that never
+ * treats "credentials exist" as "operational".
+ *
+ * Producible by today's resolver (SkillRequirementsService): READY,
+ * NOT_CONNECTED, DEGRADED, DISCONNECTED, ERROR. The remaining values —
+ * AUTHORIZING, CONFIGURATION_REQUIRED, VALIDATING, EXPIRED, REVOKED,
+ * INSUFFICIENT_PERMISSION — are part of the contract but only emitted once the
+ * OAuth-resume + post-connect scope/health-validation slices land (they need a
+ * live provider probe that doesn't exist yet). The UI must handle all of them.
+ */
+export type SkillRequirementStatus =
+  | 'READY'
+  | 'NOT_CONNECTED'
+  | 'AUTHORIZING'
+  | 'CONFIGURATION_REQUIRED'
+  | 'VALIDATING'
+  | 'DEGRADED'
+  | 'DISCONNECTED'
+  | 'EXPIRED'
+  | 'REVOKED'
+  | 'INSUFFICIENT_PERMISSION'
+  | 'ERROR';
+
+export const SKILL_REQUIREMENT_STATUSES: readonly SkillRequirementStatus[] = [
+  'READY',
+  'NOT_CONNECTED',
+  'AUTHORIZING',
+  'CONFIGURATION_REQUIRED',
+  'VALIDATING',
+  'DEGRADED',
+  'DISCONNECTED',
+  'EXPIRED',
+  'REVOKED',
+  'INSUFFICIENT_PERMISSION',
+  'ERROR',
+] as const;
+
+/**
+ * One machine-readable skill dependency of a workflow — derived by scanning the
+ * graph's TOOL_ACTION nodes, never re-inferred from conversational text. Backs
+ * the in-chat Skill card and the publish-time readiness gate.
+ */
+export interface WorkflowSkillRequirementDto {
+  /** The concrete skill the graph references (e.g. `gmail`). */
+  skillKey: string;
+  /** Display name from the catalog (e.g. "Gmail"). */
+  displayName: string;
+  /** OAuth provider group (e.g. `google`, `slack`); null for api-key/none skills. */
+  provider: string | null;
+  /** Capabilities this dependency provides in the workflow. */
+  capabilities: SkillCapability[];
+  /** Other installed-catalog skills that could satisfy the same capabilities. */
+  compatibleSkillKeys: string[];
+  /**
+   * Whether the skill needs an authenticated connection (oauth/api_key). A
+   * `none`-connection skill (http/scheduling/…) is operational once installed
+   * and never blocks publish.
+   */
+  requiresConnection: boolean;
+  /** Every graph-derived dependency is required; the assist layer may mark optional extras. */
+  required: boolean;
+  status: SkillRequirementStatus;
+  /** Raw connector status, or null when the skill isn't installed for the tenant. */
+  connectionStatus: SkillConnectionStatus | null;
+  connectionType: SkillConnectionType | null;
+  installedSkillId: string | null;
+  credentialsSet: boolean;
+  /** Graph node ids that depend on this skill. */
+  nodeIds: string[];
+  /**
+   * Whether the current member may connect it (OWNER/ADMIN). When false the UI
+   * shows "Admin permission needed" instead of a Connect control.
+   */
+  canManageConnection: boolean;
+}
+
+/** All skill dependencies of a workflow + a readiness roll-up. */
+export interface WorkflowSkillRequirementsDto {
+  requirements: WorkflowSkillRequirementDto[];
+  /** Required connectable skills that are not READY. */
+  missingRequiredCount: number;
+  /** True when every required skill is READY — i.e. the workflow may be published. */
+  allRequiredReady: boolean;
+}
+
 /** An assignment of an installed skill to a specific AI employee. */
 export interface EmployeeSkillDto {
   id: string;
@@ -843,10 +1100,102 @@ export interface OAuthAuthorizeDto {
 // WorkflowStepRun per visited node. Nodes reuse the Knowledge (RETRIEVE), LLM
 // (AI_STEP) and Skills (TOOL_ACTION) modules. No vector columns here.
 
-/** Lifecycle of a workflow definition. Only ACTIVE workflows are "live". */
-export type WorkflowStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED';
+/**
+ * Lifecycle of a workflow definition. Only ACTIVE workflows are "live".
+ * ARCHIVED is the soft-deleted terminal state (gap G29) — the workflow and its
+ * entire run history are retained and remain readable, but it can no longer be
+ * run, activated or edited.
+ */
+export type WorkflowStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ARCHIVED';
 
 export const WORKFLOW_STATUSES: readonly WorkflowStatus[] = [
+  'DRAFT',
+  'ACTIVE',
+  'PAUSED',
+  'ARCHIVED',
+] as const;
+
+/**
+ * P1 — lifecycle of one immutable version of a workflow graph (doc 00 §0.7.1,
+ * ADR-002). Only a DRAFT version's graph may be edited; PUBLISHED and beyond
+ * are frozen so an in-flight run can never have its definition changed
+ * underneath it (gap G1).
+ */
+export type WorkflowVersionStatus =
+  | 'DRAFT'
+  | 'PUBLISHED'
+  | 'DEPRECATED'
+  | 'ARCHIVED';
+
+export const WORKFLOW_VERSION_STATUSES: readonly WorkflowVersionStatus[] = [
+  'DRAFT',
+  'PUBLISHED',
+  'DEPRECATED',
+  'ARCHIVED',
+] as const;
+
+/** P1 — coarse grouping for the workflow library/marketplace (doc 00 §0.7.1). */
+export type WorkflowCategory =
+  | 'HR'
+  | 'RECRUITMENT'
+  | 'MARKETING'
+  | 'SALES'
+  | 'SUPPORT'
+  | 'FINANCE'
+  | 'OPERATIONS'
+  | 'IT'
+  | 'COMPLIANCE'
+  | 'CUSTOM';
+
+export const WORKFLOW_CATEGORIES: readonly WorkflowCategory[] = [
+  'HR',
+  'RECRUITMENT',
+  'MARKETING',
+  'SALES',
+  'SUPPORT',
+  'FINANCE',
+  'OPERATIONS',
+  'IT',
+  'COMPLIANCE',
+  'CUSTOM',
+] as const;
+
+/** P1 — one frozen version of a workflow graph. */
+export interface WorkflowVersionDto {
+  id: string;
+  companyId: string;
+  workflowId: string;
+  version: number;
+  status: WorkflowVersionStatus;
+  definition: WorkflowDefinition;
+  publishedAt: string | null;
+  publishedById: string | null;
+  changeNote: string | null;
+  createdAt: string;
+}
+
+/** Result of `POST /workflows/:id/publish`. */
+export interface PublishWorkflowResultDto {
+  version: WorkflowVersionDto;
+  /**
+   * True when the draft was byte-identical to the current PUBLISHED version, so
+   * no new version was created. Publishing is idempotent — clicking twice must
+   * not produce v2 and v3 with the same graph.
+   */
+  unchanged: boolean;
+}
+
+/**
+ * The subset a client may set directly via `PATCH /workflows/:id`.
+ *
+ * ARCHIVED is deliberately EXCLUDED: it is reachable only through
+ * `DELETE /workflows/:id`, which refuses (409) while any run is still
+ * PENDING/RUNNING/WAITING. Allowing PATCH to set it would bypass that guard and
+ * strand in-flight runs against an archived workflow.
+ */
+export type SettableWorkflowStatus = Exclude<WorkflowStatus, 'ARCHIVED'>;
+
+export const SETTABLE_WORKFLOW_STATUSES: readonly SettableWorkflowStatus[] = [
   'DRAFT',
   'ACTIVE',
   'PAUSED',
@@ -943,7 +1292,13 @@ export type WorkflowRunStatus =
   | 'RUNNING'
   | 'WAITING'
   | 'COMPLETED'
-  | 'FAILED';
+  | 'FAILED'
+  // P1 durable state machine (doc 00 §0.7.1). CANCELLED uses the double-L
+  // spelling per doc 00; note the schema already carries both spellings
+  // Decision D4 settled: double-L `CANCELLED` is canonical everywhere.
+  | 'CANCELLED'
+  | 'COMPENSATING'
+  | 'TIMED_OUT';
 
 export const WORKFLOW_RUN_STATUSES: readonly WorkflowRunStatus[] = [
   'PENDING',
@@ -951,6 +1306,9 @@ export const WORKFLOW_RUN_STATUSES: readonly WorkflowRunStatus[] = [
   'WAITING',
   'COMPLETED',
   'FAILED',
+  'CANCELLED',
+  'COMPENSATING',
+  'TIMED_OUT',
 ] as const;
 
 /** Status of a single step (one visited node) within a run. */
@@ -959,10 +1317,27 @@ export type StepRunStatus =
   | 'RUNNING'
   | 'COMPLETED'
   | 'FAILED'
-  | 'SKIPPED';
+  | 'SKIPPED'
+  // P1: failed with attempts remaining; durable wait / awaiting approval;
+  // side effect rolled back by a saga compensation.
+  | 'RETRYING'
+  | 'WAITING'
+  | 'COMPENSATED';
+
+export const STEP_RUN_STATUSES: readonly StepRunStatus[] = [
+  'PENDING',
+  'RUNNING',
+  'COMPLETED',
+  'FAILED',
+  'SKIPPED',
+  'RETRYING',
+  'WAITING',
+  'COMPENSATED',
+] as const;
 
 /** The kind of a workflow node. `config` shape depends on this. */
 export type NodeType =
+  // EXISTING 8 — semantics unchanged (ADR-004).
   | 'TRIGGER'
   | 'RETRIEVE'
   | 'AI_STEP'
@@ -970,7 +1345,19 @@ export type NodeType =
   | 'WAIT'
   | 'CONDITION'
   | 'NOTIFY'
-  | 'APPROVAL';
+  | 'APPROVAL'
+  // P2 — added per doc 00 §0.7.1 and the frozen MVP contract (doc 26 §3).
+  | 'AI_EMPLOYEE_STEP'
+  | 'SWITCH'
+  | 'PARALLEL'
+  | 'JOIN'
+  | 'LOOP'
+  | 'TERMINATE'
+  | 'SET_VARIABLE'
+  | 'TRANSFORM'
+  | 'MEMORY_READ'
+  | 'MEMORY_WRITE'
+  | 'NOOP';
 
 export const NODE_TYPES: readonly NodeType[] = [
   'TRIGGER',
@@ -981,6 +1368,98 @@ export const NODE_TYPES: readonly NodeType[] = [
   'CONDITION',
   'NOTIFY',
   'APPROVAL',
+  'AI_EMPLOYEE_STEP',
+  'SWITCH',
+  'PARALLEL',
+  'JOIN',
+  'LOOP',
+  'TERMINATE',
+  'SET_VARIABLE',
+  'TRANSFORM',
+  'MEMORY_READ',
+  'MEMORY_WRITE',
+  'NOOP',
+] as const;
+
+/**
+ * P2 — variable scope (doc 00 §0.7.1).
+ *
+ * SECRET is never writable from a workflow and ENVIRONMENT is read-only at
+ * runtime: a graph that could write a secret would persist it into the
+ * immutable version JSON, which is surfaced in run history and DLQ dumps.
+ */
+export type VariableScope =
+  | 'INPUT'
+  | 'RUNTIME'
+  | 'WORKFLOW'
+  | 'GLOBAL'
+  | 'ENVIRONMENT'
+  | 'SECRET'
+  | 'OUTPUT';
+
+export const VARIABLE_SCOPES: readonly VariableScope[] = [
+  'INPUT',
+  'RUNTIME',
+  'WORKFLOW',
+  'GLOBAL',
+  'ENVIRONMENT',
+  'SECRET',
+  'OUTPUT',
+] as const;
+
+/** Scopes a workflow graph may WRITE. */
+export const WRITABLE_VARIABLE_SCOPES: readonly VariableScope[] = [
+  'RUNTIME',
+  'WORKFLOW',
+  'OUTPUT',
+] as const;
+
+/** P2 — declared variable value type, for validation + UI form generation. */
+export type VariableType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'json'
+  | 'date'
+  | 'array'
+  | 'secret';
+
+export const VARIABLE_TYPES: readonly VariableType[] = [
+  'string',
+  'number',
+  'boolean',
+  'json',
+  'date',
+  'array',
+  'secret',
+] as const;
+
+/**
+ * P2 — the CLOSED set of TRANSFORM operations.
+ *
+ * Closed on purpose. An arbitrary-expression node would be remote code
+ * execution inside a multi-tenant runtime; if authors need more, extend this
+ * set rather than adding an evaluator.
+ */
+export type TransformOp =
+  | 'jsonPath'
+  | 'map'
+  | 'filter'
+  | 'join'
+  | 'split'
+  | 'toNumber'
+  | 'toString'
+  | 'default';
+
+export const TRANSFORM_OPS: readonly TransformOp[] = [
+  'jsonPath',
+  'map',
+  'filter',
+  'join',
+  'split',
+  'toNumber',
+  'toString',
+  'default',
 ] as const;
 
 /** Comparison operators available to a CONDITION node. */
@@ -1000,13 +1479,62 @@ export interface WorkflowNode {
   type: NodeType;
   name?: string;
   config: Record<string, unknown>;
+  /**
+   * World-space canvas position (Workflow Builder). Optional + additive: nodes
+   * authored before the builder — or by the API/templates — carry none, and the
+   * canvas dagre-lays-out any node without one. Persisted through Save so a
+   * manual arrangement survives a reload.
+   */
+  position?: { x: number; y: number };
+  /**
+   * Author-disabled step (Workflow Builder "Deactivate"). Optional + additive:
+   * absent means enabled, so every existing definition is unaffected. The engine
+   * SKIPS a disabled node — it records a SKIPPED step row and continues down the
+   * node's FIRST outgoing edge — so this is a real execution change, not just a
+   * visual one. A TRIGGER may not be disabled (rejected at validation): the graph
+   * would have no root.
+   */
+  disabled?: boolean;
 }
 
 /** A directed edge. `branch` selects a CONDITION outcome ('true'/'false'). */
+/**
+ * The two branch labels a CONDITION node can emit.
+ *
+ * Exported so code that only ever deals with CONDITION keeps exhaustiveness
+ * checking, which was lost when `WorkflowEdge.branch` widened to `string` for
+ * SWITCH's author-named cases:
+ *
+ *   const label: ConditionBranch = result ? 'true' : 'false';
+ *   switch (label) { case 'true': …; case 'false': … }  // still exhaustive
+ */
+export type ConditionBranch = 'true' | 'false';
+
+export const CONDITION_BRANCHES: readonly ConditionBranch[] = [
+  'true',
+  'false',
+] as const;
+
+/** Narrow an arbitrary edge label to a CONDITION branch, or undefined. */
+export function asConditionBranch(
+  branch: string | undefined,
+): ConditionBranch | undefined {
+  return branch === 'true' || branch === 'false' ? branch : undefined;
+}
+
 export interface WorkflowEdge {
   from: string;
   to: string;
-  branch?: 'true' | 'false';
+  /**
+   * Edge label used for branch routing.
+   *
+   * Widened from `'true' | 'false'` in P2: SWITCH selects an author-named case
+   * (e.g. `'advance'`), so the label has to be a free string. CONDITION still
+   * emits only `'true'`/`'false'`, so every existing graph and every consumer
+   * comparing against those literals keeps working — this is a widening, not a
+   * breaking change.
+   */
+  branch?: string;
 }
 
 /** The full graph persisted on a workflow. */
@@ -1072,74 +1600,90 @@ export interface NotifyNodeConfig {
  * CONDITION ("criteria matched") go straight to the downstream action, while a
  * company that wants a manager in the loop leaves this off (the default).
  */
+// --- P3-05 §8.1 approval routing -------------------------------------------
+
+/** How an approval level resolves WHO must decide (doc 08 §8.1.5). */
+export type ApproverRuleType =
+  | 'USER'
+  | 'ROLE'
+  | 'DEPARTMENT'
+  | 'TEAM'
+  | 'EMPLOYEE_MANAGER'
+  | 'ANY_ADMIN';
+
+export const APPROVER_RULE_TYPES: readonly ApproverRuleType[] = [
+  'USER',
+  'ROLE',
+  'DEPARTMENT',
+  'TEAM',
+  'EMPLOYEE_MANAGER',
+  'ANY_ADMIN',
+] as const;
+
+/** What happens once a level's escalation chain is exhausted with no decision. */
+export type ApprovalOnTimeout = 'ESCALATE' | 'AUTO_APPROVE' | 'AUTO_REJECT' | 'NONE';
+
+/** One fallback hop within a level's escalation chain (doc 08 §8.1.7). */
+export interface ApprovalEscalationStep {
+  rule: ApproverRuleType;
+  /**
+   * userId | Role value | Department.id | Team.id. Omitted for EMPLOYEE_MANAGER/ANY_ADMIN.
+   * For a WORKFLOW-kind APPROVAL node only, may be a `{{a.b.c}}` template resolved against
+   * the run context at pause time.
+   */
+  target?: string;
+  /** Minutes at this step before moving to the next escalation hop (or the level's onTimeout). */
+  slaMinutes?: number;
+}
+
+/** One business-required sequential sign-off step. */
+export interface ApprovalRoutingLevel extends ApprovalEscalationStep {
+  /** Ordered fallback chain if the level's own assignee doesn't decide within slaMinutes. */
+  escalationChain?: ApprovalEscalationStep[];
+  /** What happens once the chain (if any) is exhausted. Default 'NONE'. */
+  onTimeout?: ApprovalOnTimeout;
+}
+
+/** The full routing declaration on an APPROVAL node or an employee's approvalRules. */
+export interface ApprovalRoutingConfig {
+  /** Sequential; empty/absent = legacy unrouted behaviour (today's exact "any admin" rule). */
+  levels: ApprovalRoutingLevel[];
+  /** Caps runaway escalation chains. Default 3. */
+  maxEscalations?: number;
+  /** Chain-wide fallback when a level doesn't specify its own onTimeout. Default 'NONE'. */
+  defaultOnTimeout?: ApprovalOnTimeout;
+}
+
+/** Result of resolving one routing step to a concrete decider (ApprovalRoutingService). */
+export interface ResolvedAssignee {
+  assigneeUserId?: string;
+  approverRuleType: ApproverRuleType;
+  approverRuleValue?: string;
+}
+
+/** Internal shape of `ApprovalRequest.routingSnapshot` (never serialised to a DTO). */
+export interface RoutingSnapshot {
+  levels: ApprovalRoutingLevel[];
+  maxEscalations: number;
+  defaultOnTimeout: ApprovalOnTimeout;
+}
+
 export interface ApprovalNodeConfig {
   message?: string;
   autoApprove?: boolean;
+  /** P3-05 §8.1 — who must decide, multi-level sign-off, SLA/escalation. */
+  routing?: ApprovalRoutingConfig;
 }
 
 // --- Zod schemas (shared with the web forms) -------------------------------
-
-const workflowNodeSchema = z.object({
-  id: z.string().min(1),
-  type: z.enum([
-    'TRIGGER',
-    'RETRIEVE',
-    'AI_STEP',
-    'TOOL_ACTION',
-    'WAIT',
-    'CONDITION',
-    'NOTIFY',
-    'APPROVAL',
-  ]),
-  name: z.string().max(200).optional(),
-  config: z.record(z.unknown()),
-});
-
-const workflowEdgeSchema = z.object({
-  from: z.string().min(1),
-  to: z.string().min(1),
-  branch: z.enum(['true', 'false']).optional(),
-});
-
-/** Shared graph contract for a workflow definition. */
-export const workflowDefinitionSchema = z.object({
-  nodes: z.array(workflowNodeSchema),
-  edges: z.array(workflowEdgeSchema),
-});
+// workflowDefinitionSchema / conditionSchema / triggerConfigSchema are defined
+// in ./shared-schemas (imported + re-exported above) and used below.
 
 /** POST /workflows body. */
 export const createWorkflowSchema = z.object({
   name: z.string().min(1, 'Name is required').max(160),
   description: z.string().max(2000).optional(),
   definition: workflowDefinitionSchema.optional(),
-});
-
-/** One EVENT-DSL predicate (path · op · optional value). Unknown op → invalid. */
-export const conditionSchema = z.object({
-  path: z.string().min(1).max(200),
-  op: z.enum([
-    'eq',
-    'neq',
-    'gt',
-    'gte',
-    'lt',
-    'lte',
-    'contains',
-    'exists',
-    'in',
-  ]),
-  value: z.unknown().optional(),
-});
-
-/**
- * Shared trigger-config contract (SCHEDULE everyMs/cron · EVENT eventType +
- * optional condition DSL). `conditions` is capped so a filter list stays sane.
- */
-export const triggerConfigSchema = z.object({
-  everyMs: z.number().int().min(15000).optional(),
-  cron: z.string().min(1).max(120).optional(),
-  eventType: z.string().min(1).max(120).optional(),
-  conditions: z.array(conditionSchema).max(25).optional(),
 });
 
 /**
@@ -1197,6 +1741,14 @@ export interface WorkflowDto {
   activatedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** The creator (P3-06); may manage the workflow's permissions. Null on legacy rows. */
+  ownerUserId: string | null;
+  /** The currently-published version id (null until first publish). */
+  activeVersionId: string | null;
+  /** The in-progress draft version id (null when no unsaved draft version exists). */
+  draftVersionId: string | null;
+  /** Library/marketplace grouping (HR, MARKETING, …); null if uncategorised. */
+  category: WorkflowCategory | null;
   /**
    * Non-blocking structural warnings computed from `definition` (e.g. a step
    * with no incoming edge — dead code, unreachable from the TRIGGER). Never
@@ -1253,6 +1805,8 @@ export interface WorkflowStepRunDto {
   nodeId: string;
   type: string;
   status: StepRunStatus;
+  /** 1-based attempt number for this step (retries increment it). */
+  attempt: number;
   input: unknown;
   output: unknown;
   error: string | null;
@@ -1284,6 +1838,18 @@ export interface WorkflowRunDto {
    */
   correlationId: string | null;
   error: string | null;
+  /**
+   * Coarse failure category when `status` is FAILED (e.g. NODE_ERROR,
+   * AUTHORIZATION_DENIED, TIMEOUT) — a free string, since the class set is
+   * code-defined. Null unless the run failed.
+   */
+  failureClass: string | null;
+  /** The node the run will resume from when a WAITING approval is decided; else null. */
+  resumeNodeId: string | null;
+  /** The user who started this run (MANUAL runs); null for automated triggers. */
+  startedByUserId: string | null;
+  /** The pinned WorkflowVersion this run executed; null for pre-versioning runs. */
+  workflowVersionId: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
@@ -1311,12 +1877,20 @@ export interface EventLineageDto {
 // still logs a SkillExecution (via the Skills module's runTool).
 
 /** Lifecycle of an approval request. Only PENDING requests can be decided. */
-export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type ApprovalStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  // P3-05 §8.2 — routed level escalated to the next tier / SLA-expired (both terminal for the row).
+  | 'ESCALATED'
+  | 'EXPIRED';
 
 export const APPROVAL_STATUSES: readonly ApprovalStatus[] = [
   'PENDING',
   'APPROVED',
   'REJECTED',
+  'ESCALATED',
+  'EXPIRED',
 ] as const;
 
 /**
@@ -1341,6 +1915,8 @@ export const APPROVAL_KINDS: readonly ApprovalKind[] = [
 export interface ApprovalRules {
   requireApprovalForAllTools?: boolean;
   requireApprovalForTools?: string[];
+  /** P3-05 §8.1 — routing for TOOL-kind approvals this employee raises. */
+  routing?: ApprovalRoutingConfig;
 }
 
 /** Public shape of an approval request. */
@@ -1365,6 +1941,18 @@ export interface ApprovalRequestDto {
   decidedAt: string | null;
   note: string | null;
   createdAt: string;
+  // --- P3-05 §8.1 routing + multi-level chains (routingSnapshot deliberately excluded) ---
+  chainId: string;
+  level: number;
+  escalationTier: number;
+  assigneeUserId: string | null;
+  approverRuleType: ApproverRuleType | null;
+  approverRuleValue: string | null;
+  dueAt: string | null;
+  slaMinutes: number | null;
+  timeoutPolicy: string | null;
+  autoDecided: boolean;
+  escalatedToId: string | null;
 }
 
 // --- Zod schemas (shared with the web forms) -------------------------------
@@ -1497,11 +2085,32 @@ export const PLANS: readonly Plan[] = [
 ] as const;
 
 /** Lifecycle of a subscription. */
-export type SubscriptionStatus = 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
+/**
+ * Decision D4 (settled 2026-08-01): the canonical spelling is the DOUBLE-L
+ * `CANCELLED`, matching `SlotStatus` / `WorkflowRunStatus` and doc 00 §0.7.1.
+ *
+ * `'CANCELED'` remains in the union only because Postgres cannot drop an enum
+ * value, so historical rows could still carry it. Never WRITE it — read-only
+ * legacy. `isCancelledSubscription()` handles both so no caller has to remember.
+ */
+export type SubscriptionStatus =
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'CANCELLED'
+  /** @deprecated legacy single-L spelling. Read-only; never write. */
+  | 'CANCELED';
+
+/** True for either spelling — use this instead of comparing to a literal. */
+export function isCancelledSubscription(status: SubscriptionStatus): boolean {
+  return status === 'CANCELLED' || status === 'CANCELED';
+}
 
 export const SUBSCRIPTION_STATUSES: readonly SubscriptionStatus[] = [
   'ACTIVE',
   'PAST_DUE',
+  'CANCELLED',
+  // Legacy spelling kept last so UIs iterating this list show the canonical
+  // value first.
   'CANCELED',
 ] as const;
 
@@ -1972,3 +2581,703 @@ export interface AuditLogDto {
   metadata: Record<string, unknown> | null;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// HR STAFF RECORDS (Wave P3-01)
+// The customer's human workforce. Status/type fields are strings (documented
+// vocabularies, no DB enums — a new value needs no migration). Special-category
+// and personal PII (LeaveRequest.reason, PerformanceReview.aiDraft/finalReview,
+// StaffMember.personalEmail/phone, StaffDocument.fileName) is encrypted at rest;
+// these DTOs always carry the DECRYPTED plaintext (only OWNER/ADMIN read HR).
+// ---------------------------------------------------------------------------
+
+/** Employment status vocabulary for a StaffMember. */
+export const STAFF_STATUSES = [
+  'CANDIDATE',
+  'ONBOARDING',
+  'ACTIVE',
+  'ON_LEAVE',
+  'EXITING',
+  'EXITED',
+] as const;
+export type StaffStatus = (typeof STAFF_STATUSES)[number];
+
+export const EMPLOYMENT_TYPES = [
+  'FULL_TIME',
+  'PART_TIME',
+  'CONTRACT',
+  'INTERN',
+] as const;
+export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
+
+export interface StaffMemberDto {
+  id: string;
+  companyId: string;
+  userId: string | null;
+  employeeCode: string | null;
+  fullName: string;
+  workEmail: string | null;
+  /** 🔒 decrypted from ciphertext at rest. */
+  personalEmail: string | null;
+  /** 🔒 decrypted from ciphertext at rest. */
+  phone: string | null;
+  departmentId: string | null;
+  managerStaffId: string | null;
+  jobTitle: string | null;
+  employmentType: string | null;
+  status: string;
+  hiredAt: string | null;
+  exitedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateStaffMemberDto {
+  fullName: string;
+  employeeCode?: string | null;
+  userId?: string | null;
+  workEmail?: string | null;
+  personalEmail?: string | null;
+  phone?: string | null;
+  departmentId?: string | null;
+  managerStaffId?: string | null;
+  jobTitle?: string | null;
+  employmentType?: string | null;
+  status?: string;
+  hiredAt?: string | null;
+}
+
+export interface UpdateStaffMemberDto {
+  fullName?: string;
+  employeeCode?: string | null;
+  userId?: string | null;
+  workEmail?: string | null;
+  personalEmail?: string | null;
+  phone?: string | null;
+  departmentId?: string | null;
+  managerStaffId?: string | null;
+  jobTitle?: string | null;
+  employmentType?: string | null;
+  status?: string;
+  hiredAt?: string | null;
+  exitedAt?: string | null;
+}
+
+export const LEAVE_TYPES = [
+  'ANNUAL',
+  'SICK',
+  'UNPAID',
+  'PARENTAL',
+  'OTHER',
+] as const;
+export type LeaveType = (typeof LEAVE_TYPES)[number];
+
+export const LEAVE_STATUSES = [
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
+] as const;
+export type LeaveStatus = (typeof LEAVE_STATUSES)[number];
+
+export interface LeaveRequestDto {
+  id: string;
+  companyId: string;
+  staffId: string;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  /** 🔒🔒 special-category (health) — decrypted from ciphertext at rest. */
+  reason: string | null;
+  status: string;
+  approvalRequestId: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreateLeaveRequestDto {
+  staffId: string;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  reason?: string | null;
+}
+
+export interface DecideLeaveRequestDto {
+  status: string;
+}
+
+export const STAFF_DOCUMENT_TYPES = [
+  'ID',
+  'VISA',
+  'CONTRACT',
+  'CERTIFICATE',
+  'OTHER',
+] as const;
+export type StaffDocumentType = (typeof STAFF_DOCUMENT_TYPES)[number];
+
+export interface StaffDocumentDto {
+  id: string;
+  companyId: string;
+  staffId: string;
+  docType: string;
+  storageKey: string;
+  /** 🔒 decrypted from ciphertext at rest. */
+  fileName: string;
+  mimeType: string;
+  verifiedAt: string | null;
+  verifiedByUserId: string | null;
+  aiConfidence: number | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface CreateStaffDocumentDto {
+  staffId: string;
+  docType: string;
+  storageKey: string;
+  fileName: string;
+  mimeType: string;
+  aiConfidence?: number | null;
+  expiresAt?: string | null;
+}
+
+export const PERFORMANCE_REVIEW_STATUSES = [
+  'DRAFT',
+  'IN_REVIEW',
+  'SHARED',
+  'ACKNOWLEDGED',
+] as const;
+export type PerformanceReviewStatus =
+  (typeof PERFORMANCE_REVIEW_STATUSES)[number];
+
+export interface PerformanceReviewDto {
+  id: string;
+  companyId: string;
+  staffId: string;
+  periodStart: string;
+  periodEnd: string;
+  reviewerUserId: string | null;
+  /** 🔒 decrypted from ciphertext at rest. */
+  aiDraft: string | null;
+  /** 🔒 decrypted from ciphertext at rest. */
+  finalReview: string | null;
+  rating: number | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface CreatePerformanceReviewDto {
+  staffId: string;
+  periodStart: string;
+  periodEnd: string;
+  reviewerUserId?: string | null;
+  aiDraft?: string | null;
+  finalReview?: string | null;
+  rating?: number | null;
+  status?: string;
+}
+
+export interface UpdatePerformanceReviewDto {
+  aiDraft?: string | null;
+  finalReview?: string | null;
+  rating?: number | null;
+  status?: string;
+}
+
+export const ONBOARDING_OWNER_TYPES = ['AI_EMPLOYEE', 'HUMAN'] as const;
+export type OnboardingOwnerType = (typeof ONBOARDING_OWNER_TYPES)[number];
+
+export interface OnboardingTaskDto {
+  id: string;
+  companyId: string;
+  staffId: string;
+  title: string;
+  ownerType: string;
+  ownerId: string | null;
+  dueAt: string | null;
+  completedAt: string | null;
+  runId: string | null;
+  createdAt: string;
+}
+
+export interface CreateOnboardingTaskDto {
+  staffId: string;
+  title: string;
+  ownerType: string;
+  ownerId?: string | null;
+  dueAt?: string | null;
+  runId?: string | null;
+}
+
+export const ATTENDANCE_STATUSES = [
+  'PRESENT',
+  'ABSENT',
+  'LATE',
+  'HALF_DAY',
+  'ON_LEAVE',
+] as const;
+export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
+
+export interface AttendanceRecordDto {
+  id: string;
+  companyId: string;
+  staffId: string;
+  date: string;
+  status: string;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface CreateAttendanceRecordDto {
+  staffId: string;
+  date: string;
+  status: string;
+  note?: string | null;
+}
+
+/** Result of one HR data-retention sweep (honours SecurityPolicy.dataRetentionDays). */
+export interface HrRetentionResultDto {
+  /** ISO cut-off basis the sweep ran against. */
+  ranAt: string;
+  /** Companies with a positive dataRetentionDays that were processed. */
+  companiesProcessed: number;
+  deleted: {
+    leaveRequests: number;
+    attendanceRecords: number;
+    staffDocuments: number;
+    performanceReviews: number;
+    onboardingTasks: number;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// WORKFLOW TEMPLATES (Wave P3-02)
+// Installable, parameterised workflow blueprints. Install performs a deep COPY
+// into the tenant (provenance recorded, no live link) → DRAFT workflow + v1
+// PUBLISHED version. See docs/architecture/workflow-system/19-workflow-templates-spec.md.
+// ---------------------------------------------------------------------------
+
+/** How a template parameter binds to a tenant resource rather than a literal. */
+export const TEMPLATE_PARAMETER_BINDS = [
+  'skill',
+  'employee',
+  'knowledgeCategory',
+  'channel',
+] as const;
+export type TemplateParameterBind = (typeof TEMPLATE_PARAMETER_BINDS)[number];
+
+/** doc 19 §6.3 — one install-time input a template declares. */
+export interface TemplateParameter {
+  key: string;
+  label: string;
+  type: VariableType; // 00 §0.7.1
+  required: boolean;
+  default?: unknown;
+  /** Bind to a tenant resource (a template can't hardcode an employee id). */
+  binds?: TemplateParameterBind;
+  help?: string;
+}
+
+/** Tenant prerequisites an install verifies before creating anything. */
+export interface WorkflowTemplateRequires {
+  /** skillKeys that must be installed for the company. */
+  skills: string[];
+  employeeRoles: EmployeeRole[];
+  minPlan?: Plan;
+}
+
+/** doc 19 §8 — the authoring shape of a template (definition carries {{param.*}}). */
+export interface WorkflowTemplateManifest {
+  key: string;
+  version: number;
+  name: string;
+  description: string;
+  category: WorkflowCategory;
+  parameters: TemplateParameter[];
+  requires: WorkflowTemplateRequires;
+  definition: WorkflowDefinition;
+}
+
+/**
+ * GET /workflow-templates + /workflow-templates/:id/parameters response. The
+ * DB-backed, parameterised template (distinct from the marketplace-lite
+ * `WorkflowTemplateDto`). `definition` is intentionally omitted — it is internal.
+ */
+export interface WorkflowTemplateSummaryDto {
+  id: string;
+  /** null = first-party / trusted; non-null = tenant-authored. */
+  companyId: string | null;
+  key: string;
+  version: number;
+  name: string;
+  description: string | null;
+  category: WorkflowCategory;
+  parameters: TemplateParameter[];
+  requires: WorkflowTemplateRequires;
+  status: string; // WorkflowVersionStatus
+  createdAt: string;
+}
+
+/** POST /workflow-templates/:id/install body. */
+export interface InstallWorkflowTemplateDto {
+  /** Override the installed workflow's name; defaults to the template name. */
+  name?: string;
+  /** Values for the template's declared parameters. */
+  parameters?: Record<string, unknown>;
+}
+
+/** POST /workflow-templates body — author a tenant-owned (third-party) template. */
+export interface CreateWorkflowTemplateDto {
+  key: string;
+  version?: number;
+  name: string;
+  description?: string;
+  category: WorkflowCategory;
+  parameters?: TemplateParameter[];
+  requires?: Partial<WorkflowTemplateRequires>;
+  definition: WorkflowDefinition;
+}
+
+// ---------------------------------------------------------------------------
+// WORKFLOW PERMISSIONS (Wave P3-06) — doc 09 §9.C.5
+// Per-workflow access-control grants. `RUN` is enforced at enqueue (doc 16 §21);
+// a workflow with no grants is open to any member (back-compat).
+// ---------------------------------------------------------------------------
+
+export const WORKFLOW_PERMISSION_SUBJECT_TYPES = [
+  'USER',
+  'ROLE',
+  'DEPARTMENT',
+  'TEAM',
+  'EMPLOYEE',
+] as const;
+export type WorkflowPermissionSubjectType =
+  (typeof WORKFLOW_PERMISSION_SUBJECT_TYPES)[number];
+
+export const WORKFLOW_PERMISSION_ACTIONS = [
+  'VIEW',
+  'EDIT_GRAPH',
+  'UPDATE',
+  'PUBLISH',
+  'RUN',
+  'DELETE',
+  'MANAGE_PERMISSIONS',
+] as const;
+export type WorkflowPermissionAction =
+  (typeof WORKFLOW_PERMISSION_ACTIONS)[number];
+
+export interface WorkflowPermissionDto {
+  id: string;
+  companyId: string;
+  workflowId: string;
+  subjectType: WorkflowPermissionSubjectType;
+  /** User.id | Role value | Department.id | Team.id | AiEmployee.id (by subjectType). */
+  subjectId: string;
+  action: WorkflowPermissionAction;
+  grantedByUserId: string;
+  createdAt: string;
+}
+
+/** POST /workflows/:id/permissions body. */
+export interface CreateWorkflowPermissionDto {
+  subjectType: WorkflowPermissionSubjectType;
+  subjectId: string;
+  action: WorkflowPermissionAction;
+}
+
+// ---------------------------------------------------------------------------
+// Workflow node-metadata catalog (server-authored node registry).
+// ---------------------------------------------------------------------------
+// A STATIC, code-defined description of every workflow NodeType: its category,
+// human label/description, handle topology (inputs/outputs) and the config
+// fields the Inspector renders. Mirrors the proven SkillCatalog pattern — the
+// engine's node HANDLERS expose only `type` + `execute()`, so this metadata is
+// authored server-side rather than derived from them, and served by
+// `GET /workflows/node-definitions` so the Workflow Builder no longer needs a
+// hardcoded client node-registry.
+//
+// Canonical shapes: doc 00 §0.7 (NodeCategory) and doc 02 §7 (NodeConfigField,
+// NodeOutputHandle). NodeDefinitionDto here is the STATIC-metadata projection
+// for that endpoint — retry/timeout/permission/execute (doc 02's full
+// NodeDefinition) are Phase-5 engine concerns and intentionally omitted.
+
+/** Node category — drives the UI node-library grouping (doc 00 §0.7.1). */
+export type NodeCategory =
+  | 'TRIGGER'
+  | 'AI_EMPLOYEE'
+  | 'LOGIC'
+  | 'SKILL'
+  | 'APPROVAL'
+  | 'MEMORY'
+  | 'KNOWLEDGE'
+  | 'VARIABLE'
+  | 'COMMUNICATION'
+  | 'UTILITY'
+  | 'DATABASE'
+  | 'EXTERNAL_API';
+
+export const NODE_CATEGORIES: readonly NodeCategory[] = [
+  'TRIGGER',
+  'AI_EMPLOYEE',
+  'LOGIC',
+  'SKILL',
+  'APPROVAL',
+  'MEMORY',
+  'KNOWLEDGE',
+  'VARIABLE',
+  'COMMUNICATION',
+  'UTILITY',
+  'DATABASE',
+  'EXTERNAL_API',
+] as const;
+
+/**
+ * Input widget / semantic type of one node config field (doc 02 §7). Extends
+ * the primitive ConfigFieldType set with semantic types so the Inspector can
+ * render a real employee/skill/tool picker (instead of a free-text id) and a
+ * validator can check the referenced entity exists.
+ */
+export type NodeConfigFieldType =
+  | 'string'
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'select'
+  | 'employee'
+  | 'skill'
+  | 'tool'
+  | 'channel'
+  | 'knowledgeCategory'
+  | 'expression'
+  | 'duration'
+  | 'variableScope'
+  | 'json';
+
+/**
+ * One configurable field on a node. Modelled on ConfigFieldDto (skills) with the
+ * richer node field-type union (doc 02 §7). Drives the Inspector form and,
+ * later, save-time validation.
+ */
+export interface NodeConfigField {
+  key: string;
+  label: string;
+  type: NodeConfigFieldType;
+  required?: boolean;
+  /** Sensible default for a freshly added node of this type. */
+  default?: unknown;
+  /** For 'select' / 'variableScope' fields. */
+  options?: { value: string; label: string }[];
+  placeholder?: string;
+  help?: string;
+  /** True when the value may contain {{templates}} — Inspector offers autocomplete. */
+  templatable?: boolean;
+}
+
+/** One output handle (edge source) on a node (doc 02 §7). */
+export interface NodeOutputHandle {
+  /** Edge `branch` value this handle produces. Absent = the default output. */
+  branch?: string;
+  label: string;
+}
+
+/**
+ * The static, serialisable description of one NodeType, served by
+ * `GET /workflows/node-definitions`. The node-metadata projection for the
+ * Workflow Builder palette + Inspector — NOT the full execution-time
+ * NodeDefinition (doc 02 §7); the engine (Phase 5) owns retry/timeout/
+ * permission/execute, which are deliberately absent from this metadata contract.
+ */
+export interface NodeDefinitionDto {
+  type: NodeType;
+  category: NodeCategory;
+  label: string;
+  description: string;
+  /** 0 for TRIGGER (graph root); 1 for every other node type. */
+  inputs: number;
+  /**
+   * Static output handles. CONDITION → true/false; TERMINATE → none; nodes whose
+   * real outputs are author-defined carry `dynamicOutputs` and an empty array.
+   */
+  outputs: NodeOutputHandle[];
+  /**
+   * Set when a node's real outputs are derived from its config at author time,
+   * so the canvas renders handles dynamically: SWITCH (one per case), PARALLEL
+   * (one per lane), LOOP (body + done).
+   */
+  dynamicOutputs?: 'switch' | 'parallel' | 'loop';
+  configSchema: NodeConfigField[];
+  /** True when executing the node causes an irreversible external effect. */
+  hasSideEffects: boolean;
+  /** True when a run can PAUSE at this node for a human approval. */
+  canPauseForApproval: boolean;
+}
+
+// ── Orlixa AI Assist (doc 30) ────────────────────────────────────────────────
+// The conversational workflow builder. NEW — promote into `00 §0.7` per the
+// canonical-contracts rule once implemented.
+
+export type AssistSessionStatus = 'ACTIVE' | 'COMPLETED' | 'EXHAUSTED' | 'ARCHIVED';
+
+export const ASSIST_SESSION_STATUSES: readonly AssistSessionStatus[] = [
+  'ACTIVE',
+  'COMPLETED',
+  'EXHAUSTED',
+  'ARCHIVED',
+] as const;
+
+export type AssistMessageRole =
+  | 'USER'
+  | 'ASSISTANT'
+  | 'QUESTION'
+  | 'ANSWER'
+  | 'CONNECTION'
+  | 'TEST'
+  | 'SYSTEM';
+
+export const ASSIST_MESSAGE_ROLES: readonly AssistMessageRole[] = [
+  'USER',
+  'ASSISTANT',
+  'QUESTION',
+  'ANSWER',
+  'CONNECTION',
+  'TEST',
+  'SYSTEM',
+] as const;
+
+/** One field of a structured clarifying question (doc 30 §11). */
+export interface AssistQuestionField {
+  id: string;
+  label: string;
+  type: 'single-select' | 'multi-select' | 'text' | 'employee' | 'skill';
+  options?: { value: string; label: string; hint?: string }[];
+  /** Adds the free-text escape hatch to a select ("Something else"). */
+  allowOther?: boolean;
+  required?: boolean;
+  placeholder?: string;
+}
+
+/** A paged clarifying form. Max 4 fields; the UI shows "1 of N" + Skip. */
+export interface AssistQuestionForm {
+  fields: AssistQuestionField[];
+  skippable: boolean;
+}
+
+/** Per-step outcome of an assist dry-run self-test (doc 30 §13.2). */
+export interface AssistTestStep {
+  nodeId: string;
+  name: string;
+  status: 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'RUNNING';
+  ms: number;
+  /**
+   * True when the engine short-circuited a real side effect because the run was
+   * a dry run. Surfaced in the UI as an explicit "Simulated" chip — never hidden.
+   */
+  simulated: boolean;
+  outputPreview?: string;
+  error?: string;
+}
+
+export interface AssistTestResult {
+  runId: string;
+  status: 'COMPLETED' | 'WAITING' | 'FAILED' | 'TIMED_OUT';
+  steps: AssistTestStep[];
+  /** Plain-language summary, written by the server (not the model). */
+  headline: string;
+}
+
+/** A node the agent could not resolve against real tenant resources. */
+export interface AssistUnresolvedNodeDto {
+  nodeId: string;
+  reason: string;
+}
+
+export interface AssistMessageDto {
+  id: string;
+  sessionId: string;
+  role: AssistMessageRole;
+  content: string;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+/** List projection — no messages, no draft (both can be large). */
+export interface AssistSessionSummaryDto {
+  id: string;
+  title: string;
+  status: AssistSessionStatus;
+  targetWorkflowId: string | null;
+  createdWorkflowId: string | null;
+  /** How many steps the in-progress draft currently has; 0 when there is none. */
+  draftNodeCount: number;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface AssistSessionDto extends AssistSessionSummaryDto {
+  draftDefinition: WorkflowDefinition | null;
+  draftVersion: number;
+  originRunId: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  messages: AssistMessageDto[];
+}
+
+/** An entry-screen chip, grounded in what this tenant actually owns. */
+export interface AssistSuggestionDto {
+  id: string;
+  label: string;
+  prompt: string;
+}
+
+/** One entry in the collapsible "thinking" trace shown under a reply. */
+export interface AssistToolTraceDto {
+  name: string;
+  /** Human copy written by the SERVER, never raw tool args. */
+  summary: string;
+  ok: boolean;
+}
+
+/**
+ * A frame on the assist turn stream (doc 30 §10).
+ *
+ * Ordering invariants the client relies on:
+ *  - `graph` is emitted at most once per turn, AFTER the last mutation and
+ *    BEFORE `done`, so the canvas is never behind the text describing it.
+ *  - `connection` (when present) follows `graph` and precedes `done`, so the
+ *    in-chat Skill card renders against the just-emitted draft.
+ *  - exactly one `done` per turn, and it is always last — including after an
+ *    `error`, so a client can always close on it rather than guessing.
+ */
+export type AssistStreamEvent =
+  /** A step of work starting; drives the "thinking" row. */
+  | { type: 'thinking'; label: string }
+  /** A piece of the assistant's reply text. */
+  | { type: 'token'; text: string }
+  /** A tool finished. */
+  | { type: 'tool'; tool: AssistToolTraceDto }
+  /** The draft graph changed. */
+  | {
+      type: 'graph';
+      definition: WorkflowDefinition;
+      version: number;
+      unresolved: AssistUnresolvedNodeDto[];
+    }
+  /** The agent test-ran the draft; every simulated step is flagged as such. */
+  | { type: 'test'; result: AssistTestResult }
+  /**
+   * The draft needs one or more skills connected before it can run (doc 30 §12).
+   * `requirements` lists every connection-requiring skill the draft references
+   * (connected ✓ and not-connected alike) so the in-chat card shows the whole
+   * picture; the client refreshes live status from `GET /skills/requirements`.
+   */
+  | { type: 'connection'; requirements: WorkflowSkillRequirementDto[]; reason: string }
+  | { type: 'error'; code: string; message: string; retryable: boolean }
+  | { type: 'done'; finished: boolean };
+
+// Runtime schemas for API RESPONSES (contract tests). Exported last: this
+// module imports request schemas from here, so the re-export must come after
+// their definitions to keep the CommonJS cycle safe.
+export * from './response-schemas';

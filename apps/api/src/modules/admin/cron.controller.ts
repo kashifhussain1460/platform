@@ -1,0 +1,168 @@
+import {
+  BadRequestException,
+  Controller,
+  All,
+  Logger,
+  ForbiddenException,
+  Headers,
+  Param,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { isInlineExecution } from '../../common/resilience/workflow-execution-mode';
+import { ApprovalSlaService } from '../approvals/sla/approval-sla.service';
+import { GmailInboundService } from '../events/inbound/gmail-inbound.service';
+import { ConnectorReconcileService } from '../events/reconciliation/connector-reconcile.service';
+import { MarketingSyncService } from '../engines/marketing/marketing-sync.service';
+import { HrRetentionService } from '../hr/hr-retention.service';
+import { WorkflowsService } from '../workflows/workflows.service';
+
+/**
+ * Time-based sweeps, callable over HTTP.
+ *
+ * Everything in here normally runs as a BullMQ **repeatable** job. Repeatables
+ * need a persistent worker to fire them, so on a serverless-only deployment they
+ * never run at all — scheduled workflows never trigger, stuck runs are never
+ * reaped, approval SLAs never escalate, retention never prunes.
+ *
+ * These routes let a platform scheduler (Vercel Cron, cloud scheduler, or plain
+ * `curl` from anywhere) drive the same work. One-minute granularity is plenty:
+ * the sweeps below run on 5-minute or daily cadences.
+ *
+ * ── Auth ────────────────────────────────────────────────────────────────────
+ * A shared secret in `X-Cron-Secret`, NOT a user JWT — a scheduler has no user
+ * and no tenant, and these sweeps are deliberately cross-tenant. With
+ * `CRON_SECRET` unset the routes are DISABLED rather than open: an unauthenticated
+ * endpoint that can trigger every tenant's workflows is not something to leave
+ * ajar by default.
+ */
+@Controller('admin/cron')
+export class CronController {
+  private readonly logger = new Logger(CronController.name);
+
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+    private readonly workflows: WorkflowsService,
+    private readonly sla: ApprovalSlaService,
+    private readonly retention: HrRetentionService,
+    private readonly gmailInbound: GmailInboundService,
+    private readonly reconcile: ConnectorReconcileService,
+    private readonly marketingSync: MarketingSyncService,
+  ) {}
+
+  /**
+   * `@All` deliberately: Vercel Cron issues a GET, while a human or another
+   * scheduler reaches for POST since these are actions. Stacking `@Get` and
+   * `@Post` on one handler does NOT work in Nest — only one route gets
+   * registered and the other 404s on a schedule, silently. `@All` is the
+   * supported way to accept both.
+   */
+  @All(':job')
+  async run(
+    @Param('job') job: string,
+    @Headers('x-cron-secret') headerSecret: string | undefined,
+    @Headers('authorization') authorization: string | undefined,
+  ): Promise<Record<string, unknown>> {
+    // Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`; `x-cron-secret` is
+    // the explicit form for anything else calling this.
+    const bearer = authorization?.startsWith('Bearer ')
+      ? authorization.slice('Bearer '.length).trim()
+      : undefined;
+    this.assertAuthorized(headerSecret ?? bearer);
+
+    switch (job) {
+      case 'workflow-schedules':
+        return this.fireDueSchedules();
+      case 'workflow-watchdog':
+        return { ...(await this.workflows.sweepStuckRuns()) };
+      case 'approval-sla':
+        return { ...(await this.sla.sweep()) };
+      case 'hr-retention':
+        return { ...(await this.retention.runRetention(new Date())) };
+      case 'gmail-poll':
+        // P1-4: inbound Gmail polling is otherwise a worker-only repeatable, so
+        // on a serverless deploy (QUEUE_WORKERS_ENABLED=false) no email ever
+        // arrives. Driving it here makes EVENT-triggered email workflows work.
+        return { ...(await this.gmailInbound.sweep()) };
+      case 'connector-reconcile':
+        // P1-4: the dropped-webhook catch-up sweep, same worker-only problem.
+        return { ...(await this.reconcile.sweep()) };
+      case 'marketing-sync':
+        // Postiz reconciliation is the source of truth (its webhook is a no-op);
+        // worker-only otherwise, so it must be cron-driven on serverless.
+        return { ...(await this.marketingSync.sweep()) };
+      default:
+        throw new BadRequestException(
+          `Unknown cron job "${job}". Known: workflow-schedules, workflow-watchdog, approval-sla, hr-retention, gmail-poll, connector-reconcile, marketing-sync.`,
+        );
+    }
+  }
+
+  private assertAuthorized(secret: string | undefined): void {
+    const expected = this.config.get<string>('CRON_SECRET');
+    if (!expected) {
+      throw new ForbiddenException(
+        'Cron endpoints are disabled because CRON_SECRET is not set.',
+      );
+    }
+    if (secret !== expected) {
+      throw new ForbiddenException('Bad cron secret');
+    }
+  }
+
+  /**
+   * Fire every ACTIVE SCHEDULE workflow whose interval has elapsed.
+   *
+   * "Elapsed" is measured against the workflow's own last run rather than a
+   * BullMQ repeatable clock, because there is no repeatable clock in this mode.
+   * The consequence is honest: precision is bounded by how often the scheduler
+   * calls us, and a missed window is skipped rather than backfilled — which is
+   * the right choice for side-effecting automations.
+   */
+  private async fireDueSchedules(): Promise<Record<string, unknown>> {
+    const workflows = await this.prisma.workflow.findMany({
+      where: { status: 'ACTIVE', triggerType: 'SCHEDULE', archivedAt: null },
+      select: { id: true, companyId: true, triggerConfig: true },
+    });
+
+    const now = Date.now();
+    let fired = 0;
+    let skipped = 0;
+
+    for (const wf of workflows) {
+      const everyMs = Number(
+        (wf.triggerConfig as { everyMs?: unknown } | null)?.everyMs,
+      );
+      if (!Number.isFinite(everyMs) || everyMs <= 0) {
+        skipped += 1;
+        continue;
+      }
+
+      const last = await this.prisma.workflowRun.findFirst({
+        where: { workflowId: wf.id, source: 'SCHEDULE' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      if (last && now - last.createdAt.getTime() < everyMs) {
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        await this.workflows.fireScheduled(wf.id);
+        fired += 1;
+      } catch (err) {
+        // One tenant's broken workflow must not stop the sweep for everyone else.
+        this.logger.warn(
+          `scheduled trigger failed for workflow ${wf.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        skipped += 1;
+      }
+    }
+
+    return { candidates: workflows.length, fired, skipped, inline: isInlineExecution() };
+  }
+}

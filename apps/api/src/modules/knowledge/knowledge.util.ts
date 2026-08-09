@@ -48,7 +48,7 @@ export async function extractText(
   const name = filename.toLowerCase();
   const isPdf = mimeType === 'application/pdf' || name.endsWith('.pdf');
   if (isPdf) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+     
     // @ts-expect-error pdf-parse has no types for its internal lib entrypoint
     const mod = await import('pdf-parse/lib/pdf-parse.js');
     const pdfParse = (mod.default ?? mod) as (

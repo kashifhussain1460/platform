@@ -15,13 +15,13 @@ import {
 import {
   EVENT_CONDITION_OPS,
   TRIGGER_TYPES,
-  WORKFLOW_STATUSES,
+  SETTABLE_WORKFLOW_STATUSES,
   type Condition,
   type EventConditionOp,
   type TriggerConfig,
   type TriggerType,
   type UpdateWorkflowDto as IUpdateWorkflowDto,
-  type WorkflowStatus,
+  type SettableWorkflowStatus,
 } from '@vaep/types';
 import { WorkflowDefinitionDto } from './workflow-definition.dto';
 
@@ -97,8 +97,10 @@ export class UpdateWorkflowDto implements IUpdateWorkflowDto {
   definition?: WorkflowDefinitionDto;
 
   @IsOptional()
-  @IsIn(WORKFLOW_STATUSES)
-  status?: WorkflowStatus;
+  // ARCHIVED is intentionally not settable here — it is reachable only via
+  // DELETE /workflows/:id, which enforces the 409-while-runs-active guard.
+  @IsIn(SETTABLE_WORKFLOW_STATUSES)
+  status?: SettableWorkflowStatus;
 
   @IsOptional()
   @IsIn(TRIGGER_TYPES)

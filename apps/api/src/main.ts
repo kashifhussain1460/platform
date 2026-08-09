@@ -13,9 +13,17 @@ async function bootstrap(): Promise<void> {
 
   configureApp(app);
 
+  // Without this, Nest never calls onModuleDestroy — so PrismaService's
+  // $disconnect, DlqService's queue teardown and ResilienceModule's Redis quit
+  // were all dead code, and a rolling deploy abandoned in-flight BullMQ jobs
+  // instead of draining them (relying only on stalled-job detection, which the
+  // workflow-run watchdog's own comment says isn't fully reliable).
+  // Long-running process only — the Vercel serverless entry has no lifecycle to
+  // hook, which is why this lives here and not in the shared configureApp().
+  app.enableShutdownHooks();
+
   const port = Number(config.get<string>('PORT') ?? '4000');
   await app.listen(port);
-  // eslint-disable-next-line no-console
   console.log(`[v-aep/api] listening on http://localhost:${port}`);
 }
 

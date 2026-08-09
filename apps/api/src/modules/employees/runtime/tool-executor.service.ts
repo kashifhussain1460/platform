@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import type { ToolCallDto, ToolDefinitionDto } from '@vaep/types';
 import type { ExecutorContext } from '../../skills/executors/skill-executor';
 import { SkillsService } from '../../skills/skills.service';
+import { isExternalActionTool } from '../../skills/tool-approval-policy';
 import { ApprovalService } from '../../approvals/approval.service';
 
 /** Minimal shape the executor needs to resolve tools + evaluate approval policy. */
@@ -46,8 +47,27 @@ export class ToolExecutorService {
     skillKey: string,
     tool: string,
     args: Record<string, unknown>,
+    forceApproval = false,
+    forceApprovalForExternalActions = false,
   ): Promise<ToolCallDto> {
-    if (this.approvals.requiresApproval(employee, skillKey, tool)) {
+    // `forceApproval` makes EVERY tool call route to a human, regardless of the
+    // catalog `highRisk` flag or the employee's approvalRules. Used by the
+    // workflow AI_EMPLOYEE_STEP (doc 27 §0.3): the reasoning step "recommends
+    // only", so any autonomous action it proposes is a structural approval
+    // boundary — not a config flag a tenant can forget to set. This also
+    // contains prompt-injected instructions: they can propose an action, never
+    // execute one.
+    //
+    // `forceApprovalForExternalActions` (set by the CHAT path) gates only tools
+    // that send to a person / mutate an external system / egress data, so an
+    // agent driven by untrusted pasted content can't autonomously email or
+    // exfiltrate — while still reading context autonomously. Read-only tools are
+    // unaffected.
+    const gated =
+      forceApproval ||
+      (forceApprovalForExternalActions && isExternalActionTool(skillKey, tool)) ||
+      this.approvals.requiresApproval(employee, skillKey, tool);
+    if (gated) {
       const request = await this.approvals.createRequest({
         companyId: ctx.companyId,
         employeeId: ctx.employeeId,

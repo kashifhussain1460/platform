@@ -5,6 +5,7 @@ import type {
   CompanyDto,
   CompleteOnboardingDto,
   CompleteOnboardingResultDto,
+  DepartmentDto,
   EmployeeRoleTemplate,
   MeDto,
   OnboardingStatusDto,
@@ -12,12 +13,16 @@ import type {
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { authKeys } from '@/features/auth/hooks';
 import { employeeKeys } from '@/features/employees/hooks';
+import { orgKeys } from '@/features/organization/hooks';
 import { tenantKeys } from '@/features/tenant/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import {
   completeOnboardingRequest,
   onboardingCatalogRequest,
   onboardingStatusRequest,
+  saveOnboardingAiEmployeesRequest,
+  saveOnboardingCompanyRequest,
+  saveOnboardingGoalsRequest,
 } from './api';
 
 export const onboardingKeys = {
@@ -32,6 +37,35 @@ export function useOnboardingStatus() {
     queryKey: onboardingKeys.status,
     queryFn: onboardingStatusRequest,
     enabled: Boolean(accessToken),
+  });
+}
+
+/** Per-step savers — each returns the fresh server status (which we cache). */
+export function useSaveOnboardingCompany() {
+  const qc = useQueryClient();
+  return useMutation<
+    OnboardingStatusDto,
+    NormalizedApiError,
+    { name: string; industry: string; size: string; website?: string }
+  >({
+    mutationFn: saveOnboardingCompanyRequest,
+    onSuccess: (s) => qc.setQueryData(onboardingKeys.status, s),
+  });
+}
+
+export function useSaveOnboardingAiEmployees() {
+  const qc = useQueryClient();
+  return useMutation<OnboardingStatusDto, NormalizedApiError, string[]>({
+    mutationFn: saveOnboardingAiEmployeesRequest,
+    onSuccess: (s) => qc.setQueryData(onboardingKeys.status, s),
+  });
+}
+
+export function useSaveOnboardingGoals() {
+  const qc = useQueryClient();
+  return useMutation<OnboardingStatusDto, NormalizedApiError, string[]>({
+    mutationFn: saveOnboardingGoalsRequest,
+    onSuccess: (s) => qc.setQueryData(onboardingKeys.status, s),
   });
 }
 
@@ -56,6 +90,7 @@ interface CompleteContext {
  */
 export function useCompleteOnboarding() {
   const qc = useQueryClient();
+  const setCompany = useSessionStore((s) => s.setCompany);
   return useMutation<
     CompleteOnboardingResultDto,
     NormalizedApiError,
@@ -68,9 +103,17 @@ export function useCompleteOnboarding() {
       const previousStatus = qc.getQueryData<OnboardingStatusDto>(
         onboardingKeys.status,
       );
-      qc.setQueryData<OnboardingStatusDto>(onboardingKeys.status, {
-        completed: true,
-      });
+      qc.setQueryData<OnboardingStatusDto>(onboardingKeys.status, (old) =>
+        old
+          ? { ...old, completed: true, step: 'COMPLETED' }
+          : {
+              completed: true,
+              step: 'COMPLETED',
+              company: { name: '', industry: null, size: null, website: null },
+              selectedRoles: [],
+              goals: [],
+            },
+      );
       return { previousStatus };
     },
     onSuccess: (result) => {
@@ -78,6 +121,14 @@ export function useCompleteOnboarding() {
       qc.setQueryData<MeDto>(authKeys.me, (old) =>
         old ? { ...old, company: result.company } : old,
       );
+      // The departments the wizard just created are returned by the API, so the
+      // org screen is correct on first paint instead of showing "no departments"
+      // until something happens to refetch.
+      qc.setQueryData<DepartmentDto[]>(orgKeys.departments, result.departments);
+      // AppLayout's redirect guard reads `company` from the Zustand session
+      // store, not React Query — without this, onboardedAt stays stale there
+      // and the guard fights OnboardingPage's own redirect, looping forever.
+      setCompany(result.company);
     },
     onError: (_err, _vars, context) => {
       if (context?.previousStatus) {
@@ -89,6 +140,7 @@ export function useCompleteOnboarding() {
       void qc.invalidateQueries({ queryKey: tenantKeys.current });
       void qc.invalidateQueries({ queryKey: authKeys.me });
       void qc.invalidateQueries({ queryKey: employeeKeys.list });
+      void qc.invalidateQueries({ queryKey: orgKeys.departments });
     },
   });
 }

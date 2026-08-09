@@ -83,7 +83,7 @@ export class ChatwootClientService {
     // shape doesn't match what's documented here once tested against a live
     // instance, that's new information -- update this comment, don't silently
     // patch around a mismatch.
-    throw new Error('NOT YET IMPLEMENTED — sequence documented above from source, but requires a live Chatwoot instance to verify before implementing for real; do not fabricate a "working" implementation that has never been run');
+    throw new Error(`NOT YET IMPLEMENTED (provisionAccount for "${companyName}") — sequence documented above from source, but requires a live Chatwoot instance to verify before implementing for real; do not fabricate a "working" implementation that has never been run`);
   }
 
   async sendReply(

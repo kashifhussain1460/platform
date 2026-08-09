@@ -1,10 +1,12 @@
 import type { EmployeeStatus, EmployeeRole } from '@vaep/types';
 
-/** SUPPORT → "Support", PROJECT_MANAGER → "Project manager". */
+const ACRONYMS = new Set(['HR']);
+
+/** SUPPORT → "Support", PROJECT_MANAGER → "Project Manager", HR → "HR". */
 export function formatRole(role: EmployeeRole): string {
   return role
     .split('_')
-    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+    .map((w) => (ACRONYMS.has(w) ? w : w.charAt(0) + w.slice(1).toLowerCase()))
     .join(' ');
 }
 

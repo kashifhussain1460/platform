@@ -140,7 +140,7 @@ describeIfDb('Skills e2e (catalog -> install -> assign -> tool-calling run)', ()
     expect(list.body.length).toBe(1);
   });
 
-  it('runs the agent loop with a tool call and a final answer', async () => {
+  it('routes an external-action tool call from chat to approval, not autonomous execution', async () => {
     const conv = await request(app.getHttpServer())
       .post(`/employees/${employeeId}/conversations`)
       .set(auth())
@@ -158,7 +158,10 @@ describeIfDb('Skills e2e (catalog -> install -> assign -> tool-calling run)', ()
 
     const result = res.body;
 
-    // At least one tool call: slack / send_message, succeeded.
+    // At least one tool call: slack / send_message — a person-facing external
+    // action, so in chat it is PROPOSED and routed to a human approval, NOT
+    // executed autonomously (guards against prompt-injected pasted content
+    // driving an unapproved send). It appears in toolCalls with pendingApproval.
     expect(Array.isArray(result.toolCalls)).toBe(true);
     expect(result.toolCalls.length).toBeGreaterThanOrEqual(1);
     const call = result.toolCalls.find(
@@ -166,7 +169,9 @@ describeIfDb('Skills e2e (catalog -> install -> assign -> tool-calling run)', ()
         c.skillKey === 'slack' && c.tool === 'send_message',
     );
     expect(call).toBeTruthy();
-    expect(call.ok).toBe(true);
+    expect(call.ok).toBe(false);
+    expect(call.pendingApproval).toBe(true);
+    expect(typeof call.approvalId).toBe('string');
 
     // A non-empty final assistant answer.
     expect(result.message.role).toBe('ASSISTANT');
@@ -176,11 +181,16 @@ describeIfDb('Skills e2e (catalog -> install -> assign -> tool-calling run)', ()
     // Metadata mirrors the tool calls.
     expect(result.message.metadata.toolCalls.length).toBeGreaterThanOrEqual(1);
 
-    // A SkillExecution audit row was written for the slack run.
-    const rows = await prisma.skillExecution.findMany({
+    // Because the send was routed to approval (not executed), there is NO
+    // successful SkillExecution row — instead a PENDING approval awaits a human.
+    const executed = await prisma.skillExecution.findMany({
       where: { companyId, employeeId, skillKey: 'slack', status: 'SUCCESS' },
     });
-    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(executed.length).toBe(0);
+    const pending = await prisma.approvalRequest.findMany({
+      where: { companyId, employeeId, skillKey: 'slack', status: 'PENDING' },
+    });
+    expect(pending.length).toBeGreaterThanOrEqual(1);
   });
 
   describe('per-employee skill connection priority (real chat path)', () => {

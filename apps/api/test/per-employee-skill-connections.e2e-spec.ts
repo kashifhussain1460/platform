@@ -15,7 +15,6 @@ describeIfDb('Per-employee skill connections e2e (two mailboxes, correct routing
   const email = `per_employee_skill_e2e_${Date.now()}@example.com`;
   const password = 'password123';
   const auth: Record<string, string> = {};
-  let companyId = '';
   let hrEmployeeId = '';
   let hrConnectorId = '';
   let hrWorkflowId = '';
@@ -38,7 +37,6 @@ describeIfDb('Per-employee skill connections e2e (two mailboxes, correct routing
       .send({ companyName: 'Per-Employee Skill E2E Co', name: 'Owner', email, password })
       .expect(201);
     auth.Authorization = `Bearer ${res.body.tokens.accessToken}`;
-    companyId = res.body.company.id;
   });
 
   afterAll(async () => {

@@ -40,7 +40,7 @@ describeIfDb('Audit log e2e (who-did-what trail)', () => {
     await app?.close();
   });
 
-  it('records workflow.create, workflow.update, workflow.delete, and skill.install', async () => {
+  it('records workflow.create, workflow.update, workflow.archive, and skill.install', async () => {
     const created = await request(app.getHttpServer())
       .post('/workflows')
       .set(ownerAuth)
@@ -76,7 +76,10 @@ describeIfDb('Audit log e2e (who-did-what trail)', () => {
         'workflow.create',
         'workflow.update',
         'skill.install',
-        'workflow.delete',
+        // DELETE is now a SOFT delete (gap G29): it archives the workflow and
+        // keeps every run, so the audited action is `workflow.archive`.
+        // `workflow.hard_delete` is a separate, OWNER-only escape hatch.
+        'workflow.archive',
       ]),
     );
 

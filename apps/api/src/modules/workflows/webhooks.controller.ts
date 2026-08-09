@@ -1,4 +1,11 @@
-import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  Param,
+  Post,
+} from '@nestjs/common';
 import type { WorkflowRunDto } from '@vaep/types';
 import { WorkflowsService } from './workflows.service';
 
@@ -18,7 +25,15 @@ export class WorkflowWebhooksController {
   fire(
     @Param('token') token: string,
     @Body() payload: Record<string, unknown>,
+    @Headers('idempotency-key') idempotencyKey?: string,
+    @Headers('x-github-delivery') githubDelivery?: string,
   ): Promise<WorkflowRunDto> {
-    return this.workflows.fireWebhook(token, payload);
+    // Prefer an explicit Idempotency-Key; fall back to a common provider
+    // delivery id (GitHub) so ordinary redeliveries dedupe out of the box.
+    return this.workflows.fireWebhook(
+      token,
+      payload,
+      idempotencyKey ?? githubDelivery ?? null,
+    );
   }
 }

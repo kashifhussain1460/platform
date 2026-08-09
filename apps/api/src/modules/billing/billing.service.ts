@@ -9,6 +9,7 @@ import type {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { UsageService } from '../usage/usage.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   BILLING_PROVIDER_TOKEN,
   type BillingProvider,
@@ -33,6 +34,7 @@ export class BillingService {
     private readonly provider: BillingProvider,
     private readonly usageService: UsageService,
     private readonly auditLog: AuditLogService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** The code-defined plan catalog. */
@@ -212,11 +214,8 @@ export class BillingService {
     });
 
     // A genuine transition INTO past-due (not an already-past-due company
-    // re-notifying) is durably recorded here since there's no email/
-    // notification system in this codebase yet (founder-market-readiness-
-    // audit.md §8) -- this is what "payment failed" actually produces today;
-    // real email delivery needs an email-provider decision this repo can't
-    // make on its own.
+    // re-notifying) is recorded to the audit log AND emails the company owners
+    // (best-effort; no-op when mail is disabled).
     if (event.status === 'PAST_DUE' && subscription.status !== 'PAST_DUE') {
       await this.auditLog.record({
         companyId: subscription.companyId,
@@ -225,6 +224,7 @@ export class BillingService {
         entityId: subscription.id,
         metadata: { plan: subscription.plan, eventType: event.type },
       });
+      await this.notifications.paymentFailed(subscription.companyId);
     }
   }
 

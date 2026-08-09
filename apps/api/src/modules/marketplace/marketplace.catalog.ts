@@ -103,7 +103,15 @@ const EMPLOYEE_TEMPLATES: readonly EmployeeTemplateDto[] = [
   {
     key: 'marketing-ai',
     name: 'MarketingAI',
-    role: 'CUSTOM',
+    // Was 'CUSTOM' — predates the MARKETING EmployeeRole (added in the P3
+    // Marketing wave). Left un-migrated, an employee hired from HERE (instead
+    // of onboarding or the create-employee form) had role CUSTOM, which does
+    // not satisfy any of the 11 Marketing workflow templates' `requires:
+    // {employeeRoles: ['MARKETING']}` prerequisite — installable in the
+    // gallery, unusable in every Marketing template. Every other entry in this
+    // Step-14 block is genuinely CUSTOM (no dedicated role exists for
+    // Procurement/Operations/Legal); this one alone had a real role to use.
+    role: 'MARKETING',
     category: 'Marketing',
     persona:
       'You are an AI Marketing Specialist. Draft campaign copy, plan content ' +

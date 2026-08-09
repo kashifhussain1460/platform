@@ -3,8 +3,11 @@ import { WORKFLOW_RUN_QUEUE } from '../../modules/workflows/workflows.constants'
 import {
   CONNECTOR_RECONCILE_QUEUE,
   EVENT_NORMALIZE_QUEUE,
+  GMAIL_INBOUND_QUEUE,
 } from '../../modules/events/events.constants';
 import { CONNECTOR_HEALTH_QUEUE } from '../../modules/skills/connectors/connector.constants';
+import { MARKETING_SYNC_QUEUE } from '../../modules/engines/marketing/marketing.constants';
+import { WORKFLOW_RUNTIME_QUEUES } from '../../modules/workflow-runtime/workflow-runtime.constants';
 
 /**
  * The known BullMQ queues the DLQ surface covers, by name (docs §4.4). These are
@@ -17,6 +20,14 @@ export const DLQ_KNOWN_QUEUES = [
   EVENT_NORMALIZE_QUEUE,
   CONNECTOR_HEALTH_QUEUE,
   CONNECTOR_RECONCILE_QUEUE,
+  // These two have live @Processor workers but were missing here, so their
+  // poison jobs were invisible to /admin/dlq — dead-lettered work nobody could
+  // see or replay. Every queue with a processor belongs in this list.
+  GMAIL_INBOUND_QUEUE,
+  MARKETING_SYNC_QUEUE,
+  // P1 durable runtime (ledger R7): reuse this ONE generic admin DLQ surface
+  // rather than adding /admin/workflow-dlq*. Filter with ?queue=wf-node-attempt.
+  ...WORKFLOW_RUNTIME_QUEUES,
 ] as const;
 
 /**

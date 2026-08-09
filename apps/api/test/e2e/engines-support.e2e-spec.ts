@@ -46,12 +46,23 @@
 //   DATABASE_URL=postgresql://vaep:vaep@localhost:5433/vaep?schema=public \
 //   REDIS_URL=redis://127.0.0.1:6380 JWT_ACCESS_SECRET=... JWT_REFRESH_SECRET=...
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { SkillCatalog } from '../../src/modules/skills/catalog';
+import { SKILL_EXECUTOR_TOKEN } from '../../src/modules/skills/executors/skill-executor';
+import { AutoSkillExecutor } from '../../src/modules/skills/executors/auto-skill-executor';
+import { MockSkillExecutor } from '../../src/modules/skills/executors/mock-skill-executor';
+import { RealSkillExecutor } from '../../src/modules/skills/executors/real-skill-executor';
+import { SchedulingService } from '../../src/modules/scheduling/scheduling.service';
+import { PostizClientService } from '../../src/modules/engines/marketing/postiz-client.service';
+import { ChatwootClientService } from '../../src/modules/engines/support/chatwoot-client.service';
+import { PlaneClientService } from '../../src/modules/engines/pm/plane-client.service';
+import { PrismaService } from '../../src/common/prisma/prisma.service';
+import { CryptoService } from '../../src/common/crypto/crypto.service';
 
 describe('Support engine — schema', () => {
   const prisma = new PrismaClient();
@@ -100,9 +111,42 @@ describeIfDb('Support engine — full tool-calling loop', () => {
   jest.setTimeout(60_000);
 
   beforeAll(async () => {
+    // This suite asserts the REAL executor's "SupportConversation not found"
+    // short-circuit, so it must not run against the mock executor. It used to
+    // rely on the ambient SKILL_EXECUTOR value from apps/api/.env (`auto`),
+    // which meant it silently passed locally and would have failed in CI (which
+    // pins SKILL_EXECUTOR=mock). Force AUTO here so the suite is hermetic.
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(SKILL_EXECUTOR_TOKEN)
+      .useFactory({
+        factory: (
+          config: ConfigService,
+          scheduling: SchedulingService,
+          postizClient: PostizClientService,
+          prisma: PrismaService,
+          chatwootClient: ChatwootClientService,
+          crypto: CryptoService,
+          planeClient: PlaneClientService,
+        ) => {
+          const mock = new MockSkillExecutor();
+          return new AutoSkillExecutor(
+            new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient),
+            mock,
+          );
+        },
+        inject: [
+          ConfigService,
+          SchedulingService,
+          PostizClientService,
+          PrismaService,
+          ChatwootClientService,
+          CryptoService,
+          PlaneClientService,
+        ],
+      })
+      .compile();
 
     app = moduleRef.createNestApplication();
     app.use(cookieParser());

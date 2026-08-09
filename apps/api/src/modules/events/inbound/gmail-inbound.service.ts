@@ -3,6 +3,7 @@ import { Prisma, type CanonicalEvent, type InstalledSkill } from '@prisma/client
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { asFetchResponse } from '../../../common/http/fetch-response';
 import { ConnectorTokenService } from '../../skills/connectors/connector-token.service';
+import { ConnectorHealthService } from '../../skills/connectors/connector-health.service';
 import { WorkflowsService } from '../../workflows/workflows.service';
 import { extractText } from '../../knowledge/knowledge.util';
 import {
@@ -124,6 +125,21 @@ interface GmailPart {
 
 const GMAIL_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
+/** Gmail inbound event types — a connector is only polled if a workflow wants one. */
+const GMAIL_EVENT_TYPES = ['NEW_EMAIL', 'NEW_EMAIL_REPLY'] as const;
+
+/**
+ * True when a poll error means the connector can NEVER succeed as-is: credentials
+ * that won't decrypt (AES-GCM "unable to authenticate data" / bad key), a rejected
+ * token (401), or a failed refresh (revoked grant). Such a connector is taken out
+ * of the sweep so it doesn't retry — and hammer Gmail — every cycle.
+ */
+function isUnrecoverableAuthError(message: string): boolean {
+  return /unable to authenticate data|unsupported state|bad decrypt|gmail_unauthorized|token refresh failed|invalid_grant/i.test(
+    message,
+  );
+}
+
 /** Decode a Gmail base64url payload chunk to a Buffer (empty on bad input). */
 function decodeB64Url(data: string | undefined): Buffer {
   if (!data) {
@@ -184,6 +200,7 @@ export class GmailInboundService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokens: ConnectorTokenService,
+    private readonly health: ConnectorHealthService,
     private readonly workflows: WorkflowsService,
   ) {}
 
@@ -213,25 +230,80 @@ export class GmailInboundService {
       }
       return this.delta(connector, token, connector.inboundCursor);
     } catch (err) {
-      this.logger.error(
-        `Gmail poll failed for connector ${connector.id}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      // A connector whose credentials can't be decrypted (rotated/mismatched
+      // ENCRYPTION_KEY, or a row marked CONNECTED without real creds) or whose
+      // token is rejected (401) will fail EVERY sweep forever — and each attempt
+      // hits Gmail with an unusable token. Take it out of the CONNECTED pool so
+      // it stops the ~60s error storm and prompts a reconnect, instead of jamming
+      // the scheduler with doomed retries.
+      if (isUnrecoverableAuthError(message)) {
+        this.logger.warn(
+          `Gmail connector ${connector.id} can't authenticate (${message}) — marking DISCONNECTED; reconnect required.`,
+        );
+        await this.health
+          .markDisconnected(connector.id, 'Gmail credentials unreadable or revoked — reconnect required')
+          .catch(() => undefined);
+      } else {
+        this.logger.error(`Gmail poll failed for connector ${connector.id}: ${message}`);
+      }
       return { baseline: false, newMessages: 0, firedRuns: 0, noop: true };
     }
   }
 
   /**
-   * Scheduled sweep: poll every CONNECTED, enabled gmail connector across tenants.
-   * Per-connector failures are isolated (poll never throws). Safe when there are
-   * no connected gmail connectors (offline tests) — it simply finds none.
+   * Scheduled sweep. Polls a gmail connector ONLY when it is CONNECTED + enabled
+   * AND some ACTIVE workflow actually consumes its inbound email — otherwise a
+   * connected inbox would be polled (and the Gmail API hit) every ~60s for
+   * nothing, wasting quota and scheduler time. Two scoping rules mirror the
+   * trigger model:
+   *   - a company with an ACTIVE gmail EVENT workflow that pins no mailbox
+   *     (`triggerConfig.connectorId` unset) polls ALL its gmail connectors;
+   *   - a workflow that pins one mailbox polls only that connector.
+   * Per-connector failures are isolated (poll never throws). Safe offline: no
+   * matching workflows → polls nothing.
    */
   async sweep(): Promise<{ polled: number; newMessages: number; firedRuns: number }> {
-    const connectors = await this.prisma.installedSkill.findMany({
-      where: { skillKey: 'gmail', connectionStatus: 'CONNECTED', enabled: true },
+    const consumers = await this.prisma.workflow.findMany({
+      where: {
+        status: 'ACTIVE',
+        triggerType: 'EVENT',
+        OR: GMAIL_EVENT_TYPES.map((eventType) => ({
+          triggerConfig: { path: ['eventType'], equals: eventType },
+        })),
+      },
+      select: { companyId: true, triggerConfig: true },
+    });
+    if (consumers.length === 0) {
+      // Nothing is listening for inbound email — do not touch Gmail at all.
+      return { polled: 0, newMessages: 0, firedRuns: 0 };
+    }
+
+    const companiesWithUnscoped = new Set<string>();
+    const pinnedConnectorIds = new Set<string>();
+    for (const wf of consumers) {
+      const cfg = (wf.triggerConfig ?? {}) as { connectorId?: unknown };
+      const connectorId = typeof cfg.connectorId === 'string' ? cfg.connectorId : '';
+      if (connectorId) pinnedConnectorIds.add(connectorId);
+      else companiesWithUnscoped.add(wf.companyId);
+    }
+    const companyIds = [...new Set(consumers.map((w) => w.companyId))];
+
+    const candidates = await this.prisma.installedSkill.findMany({
+      where: {
+        skillKey: 'gmail',
+        connectionStatus: 'CONNECTED',
+        enabled: true,
+        companyId: { in: companyIds },
+      },
       take: GMAIL_INBOUND_BATCH,
     });
+    // Keep a connector only if its company has an unscoped consumer, or the
+    // connector itself is pinned by a workflow.
+    const connectors = candidates.filter(
+      (c) => companiesWithUnscoped.has(c.companyId) || pinnedConnectorIds.has(c.id),
+    );
+
     let newMessages = 0;
     let firedRuns = 0;
     for (const connector of connectors) {
@@ -568,6 +640,10 @@ export class GmailInboundService {
       if (res.status === 404) {
         return { messageIds: [], newestHistoryId: null, stale: true };
       }
+      if (res.status === 401) {
+        // Revoked/invalid grant mid-delta — surface for poll() to disconnect.
+        throw new Error('gmail_unauthorized');
+      }
       const body = res.body as {
         history?: Array<{
           messagesAdded?: Array<{
@@ -813,6 +889,12 @@ export class GmailInboundService {
   /** GET a Gmail API path with the bearer token; parsed JSON or null on error. */
   private async gapi<T>(token: string, path: string): Promise<T | null> {
     const res = await this.gapiRaw(token, path);
+    // A 401 with a freshly-resolved token means the grant is bad/revoked — raise
+    // it so poll() can disconnect the connector rather than silently no-op and
+    // re-poll (and re-401) forever.
+    if (res.status === 401) {
+      throw new Error('gmail_unauthorized');
+    }
     if (res.status < 200 || res.status >= 300) {
       this.logger.warn(`Gmail API ${path} → HTTP ${res.status}`);
       return null;

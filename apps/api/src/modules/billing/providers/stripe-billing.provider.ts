@@ -137,7 +137,8 @@ export class StripeBillingProvider implements BillingProvider {
           companyId: object.metadata?.companyId ?? null,
           externalCustomerId: this.idOf(object.customer),
           externalSubscriptionId: this.idOf(object.id),
-          status: 'CANCELED',
+          // D4: canonical double-L spelling.
+          status: 'CANCELLED',
         };
       // Explicit alongside customer.subscription.updated (which Stripe also
       // sends on a failed payment) so a failure is never missed if Stripe's
@@ -215,7 +216,7 @@ export class StripeBillingProvider implements BillingProvider {
         return 'PAST_DUE';
       case 'canceled':
       case 'incomplete_expired':
-        return 'CANCELED';
+        return 'CANCELLED';
       default:
         return null; // leave the local status unchanged
     }

@@ -5,49 +5,62 @@ import { SkillCatalog } from '../../skills/catalog';
 import type {
   LlmCompletionInput,
   LlmCompletionResult,
+  LlmMessage,
   LlmProvider,
+  LlmStreamChunk,
 } from './llm.provider';
 
 /**
- * Opt-in Anthropic provider (`LLM_PROVIDER=anthropic`). `@anthropic-ai/sdk` is
- * imported lazily (NOT a package.json dependency) and the client is created
- * once. Default model `claude-sonnet-5`, overridable via `LLM_MODEL`. Requires
- * ANTHROPIC_API_KEY.
+ * Anthropic provider (`LLM_PROVIDER=anthropic`). Requires `ANTHROPIC_API_KEY`;
+ * model from `LLM_MODEL`, defaulting to the current balanced model.
  *
- * Tool calling maps our ToolDefinition[] to Anthropic `tools` and reads back a
- * `tool_use` content block (best-effort; not covered by the offline e2e).
- * TODO: the runtime currently feeds a tool RESULT back as a plain assistant text
- * message (TOOL_RESULT_MARKER), not as Anthropic's structured `tool_result`
- * block keyed by `tool_use_id`. Multi-step native tool use would need that
- * threading; single tool calls work as-is.
+ * Kept deliberately at feature parity with the OpenAI provider — same streaming
+ * contract, same native tool-result threading, same configurable output cap — so
+ * switching between them really is only `LLM_PROVIDER=`. If one provider grows a
+ * capability the other lacks, the gap belongs in `LlmProvider` as an optional
+ * method (like `completeStream`), never as a caller-visible special case.
+ *
+ * Verified against platform docs 2026-08-02: Messages API, `tool_use` /
+ * `tool_result` content blocks keyed by `tool_use.id`, `messages.stream()`.
  */
-@Injectable()
-export class AnthropicLlmProvider implements LlmProvider {
-  readonly name = 'anthropic';
-  private client: {
-    messages: {
-      create(args: {
-        model: string;
-        max_tokens: number;
-        temperature?: number;
-        system?: string;
-        tools?: Array<{
-          name: string;
-          description: string;
-          input_schema: unknown;
-        }>;
-        messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-      }): Promise<{
-        content: Array<{
-          type: string;
-          text?: string;
-          name?: string;
-          input?: Record<string, unknown>;
-        }>;
+
+/** Best speed/intelligence balance in the current family; override with `LLM_MODEL`. */
+const DEFAULT_MODEL = 'claude-sonnet-5';
+/** Was hardcoded at 1024 — too small for a structured answer like a graph. */
+const DEFAULT_MAX_TOKENS = 4096;
+
+type ContentBlock = {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+};
+
+interface AnthropicClient {
+  messages: {
+    create(args: Record<string, unknown>): Promise<{
+      content: ContentBlock[];
+      usage?: { input_tokens: number; output_tokens: number };
+    }>;
+    stream(args: Record<string, unknown>): AsyncIterable<AnthropicStreamEvent> & {
+      finalMessage(): Promise<{
+        content: ContentBlock[];
         usage?: { input_tokens: number; output_tokens: number };
       }>;
     };
-  } | null = null;
+  };
+}
+
+type AnthropicStreamEvent = {
+  type: string;
+  delta?: { type?: string; text?: string };
+};
+
+@Injectable()
+export class AnthropicLlmProvider implements LlmProvider {
+  readonly name = 'anthropic';
+  private client: AnthropicClient | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -56,26 +69,7 @@ export class AnthropicLlmProvider implements LlmProvider {
     tools?: ToolDefinitionDto[],
   ): Promise<LlmCompletionResult> {
     const client = await this.getClient();
-    const model = this.config.get<string>('LLM_MODEL') ?? 'claude-sonnet-5';
-    const res = await client.messages.create({
-      model,
-      max_tokens: 1024,
-      temperature: input.temperature ?? 0.2,
-      system: input.system,
-      ...(tools && tools.length > 0
-        ? {
-            tools: tools.map((t) => ({
-              name: t.name,
-              description: t.description,
-              input_schema: t.parameters,
-            })),
-          }
-        : {}),
-      messages: input.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-    });
+    const res = await client.messages.create(this.buildRequest(input, tools));
 
     const usage = res.usage
       ? {
@@ -92,26 +86,151 @@ export class AnthropicLlmProvider implements LlmProvider {
           skillKey: SkillCatalog.resolveSkillKey(toolUse.name, tools) ?? '',
           tool: toolUse.name,
           args: toolUse.input ?? {},
+          ...(toolUse.id ? { callId: toolUse.id } : {}),
         },
         usage,
       };
     }
 
-    const content = res.content
-      .map((b) => (b.type === 'text' ? (b.text ?? '') : ''))
-      .join('');
-    return { content, usage };
+    return { content: textOf(res.content), usage };
   }
 
-  private async getClient() {
+  async *completeStream(
+    input: LlmCompletionInput,
+    tools?: ToolDefinitionDto[],
+  ): AsyncIterable<LlmStreamChunk> {
+    const client = await this.getClient();
+    const stream = client.messages.stream(this.buildRequest(input, tools));
+
+    for await (const event of stream) {
+      if (
+        event.type === 'content_block_delta' &&
+        event.delta?.type === 'text_delta' &&
+        event.delta.text
+      ) {
+        yield { kind: 'text', text: event.delta.text };
+      }
+    }
+
+    // Tool-call arguments stream as partial JSON; rather than reassemble them by
+    // hand, take the SDK's assembled final message — it is the same data,
+    // already validated, and avoids a second fragile accumulator.
+    const final = await stream.finalMessage();
+    const toolUse = final.content.find((b) => b.type === 'tool_use');
+    if (toolUse?.name) {
+      yield {
+        kind: 'toolCall',
+        call: {
+          skillKey: SkillCatalog.resolveSkillKey(toolUse.name, tools) ?? '',
+          tool: toolUse.name,
+          args: toolUse.input ?? {},
+          ...(toolUse.id ? { callId: toolUse.id } : {}),
+        },
+      };
+    }
+    if (final.usage) {
+      yield {
+        kind: 'usage',
+        usage: {
+          promptTokens: final.usage.input_tokens,
+          completionTokens: final.usage.output_tokens,
+        },
+      };
+    }
+    yield { kind: 'done' };
+  }
+
+  /** One request builder for both paths, so they can never drift apart. */
+  private buildRequest(
+    input: LlmCompletionInput,
+    tools: ToolDefinitionDto[] | undefined,
+  ): Record<string, unknown> {
+    return {
+      model: this.config.get<string>('LLM_MODEL')?.trim() || DEFAULT_MODEL,
+      max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS,
+      temperature: input.temperature ?? 0.2,
+      system: input.system,
+      ...(tools && tools.length > 0
+        ? {
+            tools: tools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              input_schema: t.parameters,
+            })),
+          }
+        : {}),
+      messages: toAnthropicMessages(input.messages),
+      ...(input.signal ? { signal: input.signal } : {}),
+    };
+  }
+
+  /** Per-request LLM timeout in ms (default 60s), config `LLM_REQUEST_TIMEOUT_MS`. */
+  private llmTimeoutMs(): number {
+    const raw = Number(this.config.get<string>('LLM_REQUEST_TIMEOUT_MS'));
+    return Number.isFinite(raw) && raw > 0 ? raw : 60_000;
+  }
+
+  private async getClient(): Promise<AnthropicClient> {
     if (!this.client) {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-expect-error optional dep — installed only when LLM_PROVIDER=anthropic
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
       this.client = new Anthropic({
         apiKey: this.config.getOrThrow<string>('ANTHROPIC_API_KEY'),
-      }) as unknown as NonNullable<typeof this.client>;
+        // App-level bound so a hung completion cannot stall a run/queue for the
+        // SDK's long default. Configurable via LLM_REQUEST_TIMEOUT_MS (default 60s).
+        timeout: this.llmTimeoutMs(),
+        maxRetries: 2,
+      }) as unknown as AnthropicClient;
     }
     return this.client;
   }
+}
+
+function textOf(blocks: ContentBlock[]): string {
+  return blocks.map((b) => (b.type === 'text' ? (b.text ?? '') : '')).join('');
+}
+
+/**
+ * Our neutral messages → Anthropic's shape. Anthropic has no `tool` role: a tool
+ * RESULT is a `tool_result` content block inside a USER message, keyed by the
+ * originating `tool_use.id`. Consecutive tool results merge into one user
+ * message, which is what the API expects for parallel calls.
+ */
+function toAnthropicMessages(
+  messages: LlmMessage[],
+): Array<{ role: 'user' | 'assistant'; content: unknown }> {
+  const out: Array<{ role: 'user' | 'assistant'; content: unknown }> = [];
+
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      const block = {
+        type: 'tool_result',
+        tool_use_id: m.toolCallId ?? '',
+        content: m.content,
+      };
+      const prev = out[out.length - 1];
+      if (prev && prev.role === 'user' && Array.isArray(prev.content)) {
+        (prev.content as unknown[]).push(block);
+      } else {
+        out.push({ role: 'user', content: [block] });
+      }
+      continue;
+    }
+
+    if (m.role === 'assistant' && m.toolCall) {
+      const blocks: unknown[] = [];
+      if (m.content) blocks.push({ type: 'text', text: m.content });
+      blocks.push({
+        type: 'tool_use',
+        id: m.toolCall.callId ?? '',
+        name: m.toolCall.tool,
+        input: m.toolCall.args ?? {},
+      });
+      out.push({ role: 'assistant', content: blocks });
+      continue;
+    }
+
+    out.push({ role: m.role, content: m.content });
+  }
+
+  return out;
 }

@@ -53,6 +53,6 @@ import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
       ? [EventNormalizeProcessor, ConnectorReconcileProcessor, GmailInboundProcessor]
       : []),
   ],
-  exports: [EventsService],
+  exports: [EventsService, ConnectorReconcileService, GmailInboundService],
 })
 export class EventsModule {}

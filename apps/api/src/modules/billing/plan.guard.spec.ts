@@ -2,7 +2,6 @@ import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { SubscriptionDto } from '@vaep/types';
 import { PlanGuard } from './plan.guard';
-import { PLAN_KEY } from './decorators/plan.decorator';
 import type { BillingService } from './billing.service';
 
 function makeContext(companyId: string): ExecutionContext {

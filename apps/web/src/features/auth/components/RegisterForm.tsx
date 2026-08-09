@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
+import { passwordSchema } from '@vaep/types';
 import { Mail, User } from 'lucide-react';
 import { AuthButton, IconInput, PasswordInput } from '@/components/auth/fields';
 import { useRegister } from '../hooks';
@@ -21,7 +22,7 @@ const signupSchema = z
   .object({
     name: z.string().min(1, 'Please enter your name'),
     email: z.string().min(1, 'Email is required').email('Enter a valid email'),
-    password: z.string().min(8, 'Use at least 8 characters'),
+    password: passwordSchema,
     confirmPassword: z.string().min(1, 'Please confirm your password'),
     agree: z.literal(true, { errorMap: () => ({ message: 'Please accept the terms to continue' }) }),
   })
@@ -53,7 +54,8 @@ export function RegisterForm() {
     };
     try {
       await registerMutation.mutateAsync(payload);
-      router.push('/onboarding');
+      // New accounts are unverified — confirm the emailed OTP before onboarding.
+      router.push('/verify-email');
     } catch {
       // surfaced below via registerMutation.error
     }

@@ -19,6 +19,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/pagination';
 import { AuditLogService } from '../audit/audit-log.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { redactSecrets } from '../../common/crypto/redact-secrets';
 import { CircuitBreakerRegistry } from '../../common/resilience/circuit-breaker.registry';
 import { CircuitOpenError } from '../../common/resilience/circuit-breaker';
 import { RateLimiter } from '../../common/resilience/rate-limiter';
@@ -154,6 +155,28 @@ export class SkillsService {
       take: clampLimit(limitRaw),
     });
     return rows.map(toInstalledSkillDto);
+  }
+
+  /**
+   * Resolve the InstalledSkill that a workflow step for `skillKey` would run
+   * against — the acting employee's OWN connection if one exists, else the
+   * company-wide one — as a masked DTO (never raw credentials). Returns null
+   * when the tenant has no such connection. Used by the workflow skill-
+   * dependency resolver to report per-skill connection readiness; it reuses the
+   * same lookup as execution so "what the card shows" can never drift from
+   * "what actually runs".
+   */
+  async findInstalledConnection(
+    companyId: string,
+    skillKey: string,
+    employeeId?: string | null,
+  ): Promise<InstalledSkillDto | null> {
+    const row = await this.resolveInstalledForExecution(
+      companyId,
+      employeeId ?? null,
+      skillKey,
+    );
+    return row ? toInstalledSkillDto(row) : null;
   }
 
   async updateInstalled(
@@ -364,6 +387,29 @@ export class SkillsService {
   }
 
   /**
+   * Least-privilege gate (doc 09 §9.D). A call attributed to a specific AI
+   * employee may only run tools from a skill that employee was actually granted
+   * (an ENABLED EmployeeSkill row). A call with NO employeeId (company-wide
+   * manual `POST /skills/:id/run`, or a workflow TOOL_ACTION that names no
+   * employee) is out of employee scope and is allowed as before — back-compat.
+   */
+  private async employeeMayUseSkill(
+    ctx: ExecutorContext,
+    skillKey: string,
+  ): Promise<boolean> {
+    if (!ctx.employeeId) return true;
+    const grant = await this.prisma.employeeSkill.findFirst({
+      where: {
+        companyId: ctx.companyId,
+        employeeId: ctx.employeeId,
+        installedSkill: { skillKey, enabled: true },
+      },
+      select: { id: true },
+    });
+    return grant !== null;
+  }
+
+  /**
    * Execute a tool via the SkillExecutor and WRITE a SkillExecution audit row.
    * Never throws for tool-level failures — returns a ToolCallDto with ok:false
    * so the caller (runtime or manual endpoint) can surface it.
@@ -376,9 +422,22 @@ export class SkillsService {
   ): Promise<ToolCallDto> {
     const safeArgs = (args ?? {}) as Record<string, unknown>;
 
+    // Taint set for redaction (P1-8): {{secret.X}} values a node resolved, plus
+    // the connector's own decrypted credential values (appended once resolved).
+    const secretMaskValues: string[] = [...(ctx.secretValues ?? [])];
+
     let outcome: SkillExecutionResult;
     if (!SkillCatalog.getTool(skillKey, tool)) {
       outcome = { ok: false, error: `Unknown skill/tool: ${skillKey}/${tool}` };
+    } else if (!(await this.employeeMayUseSkill(ctx, skillKey))) {
+      // Doc 09 §9.D — least privilege enforced at EXECUTION, not just when
+      // listing tools. Without this an LLM hallucinating a skillKey, or a
+      // TOOL_ACTION node naming any installed skill, would run with the
+      // tenant's real credentials regardless of what the employee was granted.
+      outcome = {
+        ok: false,
+        error: `Skill "${skillKey}" is not assigned to this AI employee`,
+      };
     } else {
       // Real/auto executors need the tenant's decrypted credentials + config +
       // connection status. The default mock leaves usesInstalledCredentials
@@ -386,6 +445,11 @@ export class SkillsService {
       const execCtx = this.executor.usesInstalledCredentials
         ? await this.resolveExecutorContext(ctx, skillKey)
         : ctx;
+      // A provider error can echo the very credential it rejected — add the
+      // resolved credential values to the redaction set.
+      for (const v of Object.values(execCtx.credentials ?? {})) {
+        if (typeof v === 'string') secretMaskValues.push(v);
+      }
       // Resilience (Unit C, docs §9): wrap ONLY real/auto provider calls against a
       // resolved connector with the per-connector circuit breaker + rate limiter.
       // The mock path (usesInstalledCredentials falsy) and connector-less calls run
@@ -422,6 +486,18 @@ export class SkillsService {
       await this.recordEgressHealth(ctx.companyId, skillKey, outcome);
     }
 
+    // Redact any leaked secret/credential value from the persisted audit row AND
+    // the returned call — the single taint boundary for tool egress. `safeArgs`
+    // was handed to the executor with REAL values (a `{{secret.X}}` resolves
+    // INTO an arg value); the persisted/returned copy must mask them, or the
+    // secret lands verbatim in SkillExecution.args / step output / run context.
+    const safeError = redactSecrets(outcome.error ?? null, secretMaskValues);
+    const safeResult = redactSecrets(outcome.result ?? null, secretMaskValues);
+    const maskedArgs = redactSecrets(safeArgs, secretMaskValues) as Record<
+      string,
+      unknown
+    >;
+
     await this.prisma.skillExecution.create({
       data: {
         companyId: ctx.companyId,
@@ -429,21 +505,21 @@ export class SkillsService {
         conversationId: ctx.conversationId ?? null,
         skillKey,
         tool,
-        args: safeArgs as Prisma.InputJsonObject,
+        args: maskedArgs as Prisma.InputJsonObject,
         result:
-          outcome.result == null
+          safeResult == null
             ? Prisma.JsonNull
-            : (outcome.result as Prisma.InputJsonValue),
+            : (safeResult as Prisma.InputJsonValue),
         status: outcome.ok ? 'SUCCESS' : 'ERROR',
-        error: outcome.error ?? null,
+        error: typeof safeError === 'string' ? safeError : null,
       },
     });
 
     return {
       skillKey,
       tool,
-      args: safeArgs,
-      result: outcome.result ?? null,
+      args: maskedArgs,
+      result: safeResult ?? null,
       ok: outcome.ok,
     };
   }

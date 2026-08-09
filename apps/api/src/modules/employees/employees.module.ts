@@ -10,6 +10,8 @@ import { LearningController } from './learning.controller';
 import { LearningService } from './learning.service';
 import { LlmModule } from './llm/llm.module';
 import { AgentRuntimeService } from './runtime/agent-runtime.service';
+import { AiEmployeeStepNodeHandler } from './runtime/ai-employee-step.handler';
+import { WorkflowsModule } from '../workflows/workflows.module';
 import { LlmRouterService } from './runtime/llm-router.service';
 import { MemoryService } from './runtime/memory.service';
 import { PlannerService } from './runtime/planner.service';
@@ -29,12 +31,23 @@ import { ValidationService } from './runtime/validation.service';
  * of its own, so this is a safe one-directional edge (no cycle).
  */
 @Module({
-  imports: [KnowledgeModule, SkillsModule, ApprovalsModule, LlmModule, BillingModule],
+  // WorkflowsModule is imported for the exported NodeRegistry only, so
+  // AiEmployeeStepNodeHandler can register itself. Employees→Workflows closes
+  // no cycle: WorkflowsModule imports neither Employees nor Approvals.
+  imports: [
+    KnowledgeModule,
+    SkillsModule,
+    ApprovalsModule,
+    LlmModule,
+    BillingModule,
+    WorkflowsModule,
+  ],
   controllers: [EmployeesController, ConversationsController, LearningController],
   providers: [
     EmployeesService,
     LearningService,
     AgentRuntimeService,
+    AiEmployeeStepNodeHandler,
     LlmRouterService,
     PlannerService,
     RetrievalService,

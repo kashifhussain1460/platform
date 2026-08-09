@@ -22,13 +22,20 @@ export const ROLE_STYLES: Record<EmployeeRole, string> = {
   HR: 'bg-rose-400/15 text-rose-400',
   ACCOUNTANT: 'bg-indigo-400/15 text-indigo-400',
   PROJECT_MANAGER: 'bg-amber-400/15 text-amber-400',
+  MARKETING: 'bg-fuchsia-400/15 text-fuchsia-400',
   CUSTOM: 'bg-white/[0.06] text-zinc-300',
 };
 
-/** "PROJECT_MANAGER" → "Project manager". */
+const ACRONYMS = new Set(['HR']);
+
+/** "PROJECT_MANAGER" → "Project manager", "HR" → "HR". */
 export function formatRole(role: EmployeeRole): string {
-  const lower = role.replace(/_/g, ' ').toLowerCase();
-  return lower.charAt(0).toUpperCase() + lower.slice(1);
+  return role
+    .split('_')
+    .map((w, i) =>
+      ACRONYMS.has(w) ? w : i === 0 ? w.charAt(0) + w.slice(1).toLowerCase() : w.toLowerCase(),
+    )
+    .join(' ');
 }
 
 /**

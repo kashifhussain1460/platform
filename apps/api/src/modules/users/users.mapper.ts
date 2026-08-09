@@ -11,6 +11,10 @@ export function toUserDto(user: User): UserDto {
     phone: user.phone,
     role: user.role,
     status: user.status,
+    emailVerified: user.emailVerifiedAt !== null,
+    departmentId: user.departmentId ?? null,
+    teamId: user.teamId ?? null,
+    managerUserId: user.managerUserId ?? null,
     createdAt: user.createdAt.toISOString(),
   };
 }

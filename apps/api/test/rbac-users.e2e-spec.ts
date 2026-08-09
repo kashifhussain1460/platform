@@ -134,6 +134,19 @@ describeIfDb('RBAC + User Management e2e', () => {
       .post('/auth/login')
       .send({ email: memberEmail, password: memberPassword })
       .expect(401);
+
+    // P1-5: a status-only disable (the kill-switch) is audited.
+    const audit = await request(app.getHttpServer())
+      .get('/audit-log')
+      .set(bearer(ownerToken))
+      .expect(200);
+    const rows = Array.isArray(audit.body) ? audit.body : audit.body.items;
+    expect(
+      rows.some(
+        (r: { action: string; entityId: string }) =>
+          r.action === 'user.disabled' && r.entityId === memberId,
+      ),
+    ).toBe(true);
   });
 
   it('cannot delete the last OWNER', async () => {

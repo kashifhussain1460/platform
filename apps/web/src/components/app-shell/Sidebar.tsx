@@ -13,6 +13,7 @@ import {
   ShoppingBag,
   Sparkles,
   UsersRound,
+  WandSparkles,
   Workflow,
   Users,
 } from 'lucide-react';
@@ -24,12 +25,17 @@ interface NavItem {
   icon: ElementType<{ className?: string }>;
   /** Only OWNER/ADMIN can manage the organization + see system health. */
   gated?: boolean;
+  /** Renders a small "Beta" chip — set an expectation before the click. */
+  beta?: boolean;
 }
 
 const NAV_PRIMARY: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/employees', label: 'AI Employees', icon: Users },
   { href: '/skills', label: 'Skills', icon: Sparkles },
+  // Sits directly ABOVE Workflows: this is where people look for "make me a new
+  // one". It does not replace the manual builder — both stay (doc 30 AD-30-09).
+  { href: '/assist', label: 'AI Assist', icon: WandSparkles, beta: true },
   { href: '/workflows', label: 'Workflows', icon: Workflow },
   { href: '/scheduling', label: 'Scheduling', icon: CalendarClock },
   { href: '/marketplace', label: 'Marketplace', icon: ShoppingBag },
@@ -55,6 +61,11 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
     >
       <Icon className="h-[18px] w-[18px] shrink-0" />
       {item.label}
+      {item.beta ? (
+        <span className="ml-auto rounded-full bg-violet/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-secondary">
+          Beta
+        </span>
+      ) : null}
     </Link>
   );
 }

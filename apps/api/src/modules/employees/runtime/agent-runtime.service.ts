@@ -65,6 +65,11 @@ export class AgentRuntimeService {
     employee: AiEmployee,
     conversation: Conversation,
     userText: string,
+    options?: {
+      forceApprovalForTools?: boolean;
+      disableTools?: boolean;
+      forceApprovalForExternalActions?: boolean;
+    },
   ): Promise<RunResultDto> {
     // Guard: only ACTIVE employees accept new work.
     if (employee.status !== 'ACTIVE') {
@@ -122,7 +127,14 @@ export class AgentRuntimeService {
     // it via the Skills module, append the result to the working messages, and
     // loop; when it returns text we finalize. With no tools available this is a
     // single grounded completion (unchanged from before skills existed).
-    const tools = await this.toolExecutor.listTools(employee);
+    // `disableTools` (set by the workflow AI_EMPLOYEE_STEP, doc 27 §0.3 / doc 28)
+    // makes the reasoning step "recommends only": it is offered NO tools, so it
+    // cannot take a person-facing/irreversible action AND cannot pause the run on
+    // a tool-approval it has no way to resume. Side effects belong in explicit,
+    // author-gated TOOL_ACTION nodes.
+    const tools = options?.disableTools
+      ? []
+      : await this.toolExecutor.listTools(employee);
     this.logger.debug(
       `run: employee=${employee.id} tools=${tools.length} sources=${sources.length}`,
     );
@@ -163,6 +175,8 @@ export class AgentRuntimeService {
           draft.toolCall.skillKey,
           draft.toolCall.tool,
           draft.toolCall.args,
+          options?.forceApprovalForTools ?? false,
+          options?.forceApprovalForExternalActions ?? false,
         );
         toolCalls.push(call);
         if (call.pendingApproval) {

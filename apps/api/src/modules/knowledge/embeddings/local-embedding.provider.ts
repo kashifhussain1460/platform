@@ -27,7 +27,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     (text: string, opts: unknown) => Promise<{ data: Float32Array }>
   > {
     if (!this.pipe) {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+       
       // @ts-expect-error optional dep — installed only when EMBEDDINGS_PROVIDER=local
       const { pipeline } = await import('@xenova/transformers');
       this.pipe = (await pipeline(

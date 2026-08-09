@@ -15,6 +15,7 @@ import {
   type AuthenticatedUser,
   type AuthProvider,
 } from '../auth/auth.provider';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { toUserDto } from './users.mapper';
@@ -33,6 +34,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     @Inject(AUTH_PROVIDER) private readonly auth: AuthProvider,
     private readonly auditLog: AuditLogService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** All users in the caller's company (oldest first, so the owner leads). */
@@ -67,6 +69,12 @@ export class UsersService {
           role: dto.role,
           passwordHash,
         },
+      });
+      // Tell the new member they've been added (never emails the password —
+      // they set/reset their own). Best-effort inside NotificationsService.
+      await this.notifications.teamInvite(companyId, {
+        email: user.email,
+        name: user.name,
       });
       return toUserDto(user);
     } catch (err) {
@@ -133,6 +141,29 @@ export class UsersService {
         entityId: user.id,
         metadata: { from: target.role, to: dto.role },
       });
+      await this.notifications.accountStatusChanged(
+        companyId,
+        { email: user.email, name: user.name },
+        { role: dto.role },
+      );
+    }
+    // A status-only change (the security kill-switch) must be audited too — it
+    // was previously silent unless bundled with a role change.
+    if (dto.status !== undefined && dto.status !== target.status) {
+      await this.auditLog.record({
+        companyId,
+        actorUserId: caller.userId,
+        action:
+          dto.status === 'DISABLED' ? 'user.disabled' : 'user.reactivated',
+        entityType: 'User',
+        entityId: user.id,
+        metadata: { from: target.status, to: dto.status },
+      });
+      await this.notifications.accountStatusChanged(
+        companyId,
+        { email: user.email, name: user.name },
+        dto.status === 'DISABLED' ? { disabled: true } : { reactivated: true },
+      );
     }
     return toUserDto(user);
   }

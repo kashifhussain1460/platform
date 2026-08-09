@@ -5,11 +5,15 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
+import { BuilderLifecycleBar } from '@/features/workflows/components/builder/BuilderLifecycleBar';
+import { RunBar } from '@/features/workflows/components/builder/RunBar';
+import { RunControls } from '@/features/workflows/components/builder/RunControls';
+import { WorkflowCanvas } from '@/features/workflows/components/builder/canvas/WorkflowCanvas';
 import { NodeList } from '@/features/workflows/components/NodeList';
 import { PastRunsPanel } from '@/features/workflows/components/PastRunsPanel';
 import { RunPanel } from '@/features/workflows/components/RunPanel';
 import { TriggerPanel } from '@/features/workflows/components/TriggerPanel';
-import { useWorkflow } from '@/features/workflows/hooks';
+import { useWorkflow, useWorkflowRun } from '@/features/workflows/hooks';
 import { useSessionStore } from '@/stores/session.store';
 
 export default function WorkflowEditorPage({
@@ -19,12 +23,19 @@ export default function WorkflowEditorPage({
 }) {
   const router = useRouter();
   const accessToken = useSessionStore((s) => s.accessToken);
+  const role = useSessionStore((s) => s.user?.role);
   const shellProps = useAppShellProps();
   const workflowId = params.id;
   const { data: workflow, isLoading } = useWorkflow(workflowId);
   const searchParams = useSearchParams();
   const unresolvedIds = (searchParams.get('unresolved') ?? '').split(',').filter(Boolean);
   const [dismissed, setDismissed] = useState(false);
+  const [view, setView] = useState<'canvas' | 'steps'>('canvas');
+
+  // Watch mode: `?run=<id>` overlays that run's live status on the canvas.
+  const runId = searchParams.get('run');
+  const watching = Boolean(runId);
+  const runQuery = useWorkflowRun(runId);
 
   // Client-side route guard.
   useEffect(() => {
@@ -61,7 +72,7 @@ export default function WorkflowEditorPage({
             {unresolvedIds
               .map((id) => workflow.definition.nodes.find((n) => n.id === id)?.name ?? id)
               .join(', ')}
-            . Open that step below and choose a tool before activating.
+            . Open that step in the Steps view and choose a tool before activating.
           </p>
           <button
             type="button"
@@ -76,22 +87,87 @@ export default function WorkflowEditorPage({
       {isLoading || !workflow ? (
         <p className="text-sm text-zinc-500">Loading workflow…</p>
       ) : (
-        <div className="space-y-6">
-          <NodeList workflow={workflow} />
-          <TriggerPanel
-            workflow={workflow}
-            canActivate={(workflow.definition?.nodes ?? []).some(
-              (n) => n.type !== 'TRIGGER',
+        <>
+          <div className="mb-4">
+            <BuilderLifecycleBar
+              workflow={workflow}
+              canManage={role === 'OWNER' || role === 'ADMIN'}
+            />
+          </div>
+
+          <div className="mb-4">
+            {watching ? (
+              <RunBar
+                run={runQuery.data}
+                isLoading={runQuery.isLoading}
+                nodeCount={(workflow.definition?.nodes ?? []).length}
+                onClose={() => router.push(`/workflows/${workflowId}`)}
+                onWatchRun={(rid) => router.push(`/workflows/${workflowId}?run=${rid}`)}
+              />
+            ) : (
+              <RunControls
+                workflowId={workflowId}
+                canRun={(workflow.definition?.nodes ?? []).some((n) => n.type !== 'TRIGGER')}
+                onWatchRun={(rid) => router.push(`/workflows/${workflowId}?run=${rid}`)}
+              />
             )}
-          />
-          <RunPanel
-            workflowId={workflow.id}
-            canRun={(workflow.definition?.nodes ?? []).some(
-              (n) => n.type !== 'TRIGGER',
-            )}
-          />
-          <PastRunsPanel workflowId={workflow.id} />
-        </div>
+          </div>
+
+          {!watching && (
+            <div
+              className="mb-5 inline-flex rounded-lg border border-wf-hairline p-0.5"
+              role="tablist"
+              aria-label="Workflow view"
+            >
+            {(['canvas', 'steps'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                  view === v ? 'bg-violet text-white' : 'text-wf-ink-2 hover:text-wf-ink'
+                }`}
+              >
+                {v === 'canvas' ? 'Canvas' : 'Steps'}
+              </button>
+            ))}
+          </div>
+
+          )}
+
+          {watching || view === 'canvas' ? (
+            <WorkflowCanvas
+              workflow={workflow}
+              mode={
+                watching
+                  ? 'watch'
+                  : (role === 'OWNER' || role === 'ADMIN') && workflow.status !== 'ARCHIVED'
+                    ? 'edit'
+                    : 'preview'
+              }
+              run={runQuery.data}
+            />
+          ) : (
+            <div className="space-y-6">
+              <NodeList workflow={workflow} />
+              <TriggerPanel
+                workflow={workflow}
+                canActivate={(workflow.definition?.nodes ?? []).some(
+                  (n) => n.type !== 'TRIGGER',
+                )}
+              />
+              <RunPanel
+                workflowId={workflow.id}
+                canRun={(workflow.definition?.nodes ?? []).some(
+                  (n) => n.type !== 'TRIGGER',
+                )}
+              />
+              <PastRunsPanel workflowId={workflow.id} />
+            </div>
+          )}
+        </>
       )}
     </AppShell>
   );

@@ -14,10 +14,15 @@ import type {
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { useSessionStore } from '@/stores/session.store';
 import {
+  forgotPasswordRequest,
+  verifyResetOtpRequest,
   loginRequest,
   logoutRequest,
   meRequest,
   registerRequest,
+  resendVerificationRequest,
+  resetPasswordRequest,
+  verifyEmailRequest,
 } from './api';
 
 export const authKeys = {
@@ -61,6 +66,55 @@ function useAuthSuccess() {
  * onMutate snapshots the me-cache, onError rolls back + clears session,
  * onSettled invalidates so the server value re-syncs.
  */
+/** Confirm the emailed OTP, then refresh identity so guards see emailVerified. */
+export function useVerifyEmail() {
+  const qc = useQueryClient();
+  const setSession = useSessionStore((s) => s.setSession);
+  const accessToken = useSessionStore((s) => s.accessToken);
+  return useMutation<{ verified: boolean }, NormalizedApiError, string>({
+    mutationFn: (code) => verifyEmailRequest(code),
+    onSuccess: async () => {
+      const me = await meRequest();
+      if (accessToken) {
+        setSession({ user: me.user, company: me.company, accessToken });
+      }
+      void qc.invalidateQueries({ queryKey: authKeys.me });
+    },
+  });
+}
+
+/** Re-send the verification OTP (server enforces a cooldown). */
+export function useResendVerification() {
+  return useMutation<{ sent: boolean }, NormalizedApiError, void>({
+    mutationFn: () => resendVerificationRequest(),
+  });
+}
+
+/** Request a reset link. Server responds generically (never reveals existence). */
+export function useForgotPassword() {
+  return useMutation<{ ok: true }, NormalizedApiError, string>({
+    mutationFn: (email) => forgotPasswordRequest(email),
+  });
+}
+
+/** Verify the reset OTP → single-use token for the reset-password step. */
+export function useVerifyResetOtp() {
+  return useMutation<
+    { token: string },
+    NormalizedApiError,
+    { email: string; code: string }
+  >({
+    mutationFn: ({ email, code }) => verifyResetOtpRequest(email, code),
+  });
+}
+
+/** Set a new password from the single-use reset token. */
+export function useResetPassword() {
+  return useMutation<{ ok: true }, NormalizedApiError, { token: string; password: string }>({
+    mutationFn: ({ token, password }) => resetPasswordRequest(token, password),
+  });
+}
+
 export function useLogin() {
   const qc = useQueryClient();
   const clear = useSessionStore((s) => s.clear);

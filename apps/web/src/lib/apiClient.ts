@@ -68,6 +68,15 @@ async function refreshAccessToken(): Promise<string | null> {
   }
 }
 
+/**
+ * Endpoints that answer "is this session still good?". A 401 from one of these
+ * means the session is genuinely over (expired, revoked, or the account was
+ * disabled mid-session) and the client must drop it. Credential-submitting
+ * endpoints (/auth/login, /auth/register) are excluded on purpose: a 401 there
+ * just means "wrong password" and is handled by the form.
+ */
+const SESSION_VALIDATION_PATHS = ['/auth/me', '/auth/refresh'];
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
@@ -75,7 +84,19 @@ apiClient.interceptors.response.use(
       | (InternalAxiosRequestConfig & { _retry?: boolean })
       | undefined;
 
-    const isAuthCall = original?.url?.includes('/auth/') ?? false;
+    const url = original?.url ?? '';
+    const isAuthCall = url.includes('/auth/');
+
+    // Without this, a disabled account holding a not-yet-expired access token
+    // stayed "authenticated" client-side while every request 401'd — a broken
+    // half-logged-in app instead of a clean bounce to /login.
+    if (
+      error.response?.status === 401 &&
+      SESSION_VALIDATION_PATHS.some((path) => url.includes(path))
+    ) {
+      useSessionStore.getState().clear();
+      return Promise.reject(normalizeError(error));
+    }
 
     if (
       error.response?.status === 401 &&

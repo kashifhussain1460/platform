@@ -155,6 +155,61 @@ describeIfDb('Workflow triggers + activation e2e', () => {
     expect(run.trigger).toEqual({ hello: 'world' });
   }, 30_000);
 
+  it('WEBHOOK: redelivery with same Idempotency-Key returns the same run (P0-2)', async () => {
+    const id = await createTriggered('WEBHOOK');
+    await request(server())
+      .post(`/workflows/${id}/activate`)
+      .set(auth())
+      .expect(200);
+    const got = await request(server())
+      .get(`/workflows/${id}`)
+      .set(auth())
+      .expect(200);
+    const token = got.body.webhookToken;
+
+    const first = await request(server())
+      .post(`/workflows/webhooks/${token}`)
+      .set('Idempotency-Key', 'delivery-abc')
+      .send({ hello: 'world' })
+      .expect(201);
+
+    const second = await request(server())
+      .post(`/workflows/webhooks/${token}`)
+      .set('Idempotency-Key', 'delivery-abc')
+      .send({ hello: 'world' })
+      .expect(201);
+
+    // Same run id returned; no duplicate run created for this workflow.
+    expect(second.body.id).toBe(first.body.id);
+    const runs = await request(server())
+      .get(`/workflows/${id}/runs`)
+      .set(auth())
+      .expect(200);
+    expect(runs.body.length).toBe(1);
+  }, 30_000);
+
+  it('RUN: same Idempotency-Key returns the same run, no duplicate (P1-2)', async () => {
+    const id = await createTriggered('MANUAL');
+    const first = await request(server())
+      .post(`/workflows/${id}/run`)
+      .set(auth())
+      .set('Idempotency-Key', 'run-key-1')
+      .send({})
+      .expect(201);
+    const second = await request(server())
+      .post(`/workflows/${id}/run`)
+      .set(auth())
+      .set('Idempotency-Key', 'run-key-1')
+      .send({})
+      .expect(201);
+    expect(second.body.id).toBe(first.body.id);
+    const runs = await request(server())
+      .get(`/workflows/${id}/runs`)
+      .set(auth())
+      .expect(200);
+    expect(runs.body.length).toBe(1);
+  }, 30_000);
+
   it('SCHEDULE: activate registers a repeatable job; deactivate removes it', async () => {
     const id = await createTriggered('SCHEDULE', { everyMs: 60_000 });
 

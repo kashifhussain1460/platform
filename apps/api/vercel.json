@@ -2,5 +2,19 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "cd ../.. && pnpm --filter @vaep/api exec prisma generate && pnpm --filter @vaep/api exec prisma migrate deploy && npx turbo run build --filter=@vaep/api...",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile --prod=false",
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    { "path": "/admin/cron/workflow-schedules", "schedule": "* * * * *" },
+    { "path": "/admin/cron/workflow-watchdog", "schedule": "*/5 * * * *" },
+    { "path": "/admin/cron/approval-sla", "schedule": "*/5 * * * *" },
+    { "path": "/admin/cron/hr-retention", "schedule": "0 3 * * *" },
+    { "path": "/admin/cron/gmail-poll", "schedule": "* * * * *" },
+    { "path": "/admin/cron/connector-reconcile", "schedule": "*/5 * * * *" },
+    { "path": "/admin/cron/marketing-sync", "schedule": "*/10 * * * *" }
+  ]
 }

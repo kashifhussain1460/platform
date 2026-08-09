@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { ChatwootClientService } from './chatwoot-client.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
@@ -28,8 +29,7 @@ describe('ChatwootClientService', () => {
     const secret = 'shared-secret';
     const body = '{"event":"message_created"}';
     const ts = String(Math.floor(Date.now() / 1000));
-    const validSig = `sha256=${require('crypto')
-      .createHmac('sha256', secret)
+    const validSig = `sha256=${createHmac('sha256', secret)
       .update(`${ts}.${body}`)
       .digest('hex')}`;
     expect(service.verifyWebhookSignature(body, validSig, ts, secret)).toBe(true);
@@ -40,8 +40,7 @@ describe('ChatwootClientService', () => {
     // A stale timestamp (outside the replay window) must be rejected even
     // with an otherwise-correct signature.
     const staleTs = String(Math.floor(Date.now() / 1000) - 10 * 60);
-    const staleSig = `sha256=${require('crypto')
-      .createHmac('sha256', secret)
+    const staleSig = `sha256=${createHmac('sha256', secret)
       .update(`${staleTs}.${body}`)
       .digest('hex')}`;
     expect(service.verifyWebhookSignature(body, staleSig, staleTs, secret)).toBe(false);

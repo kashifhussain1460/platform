@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { EmployeesModule } from '../employees/employees.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { OnboardingController } from './onboarding.controller';
 import { OnboardingService } from './onboarding.service';
 
@@ -9,7 +10,7 @@ import { OnboardingService } from './onboarding.service';
  * employee creation). PrismaService is global.
  */
 @Module({
-  imports: [EmployeesModule],
+  imports: [EmployeesModule, NotificationsModule],
   controllers: [OnboardingController],
   providers: [OnboardingService],
 })

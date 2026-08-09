@@ -15,6 +15,16 @@ export const CHATWOOT_TIMESTAMP_HEADER = 'x-chatwoot-timestamp';
 // trivial replay hole for a captured request at negligible cost.
 export const SIGNATURE_MAX_AGE_MS = 5 * 60_000;
 
+/**
+ * RESERVED, NOT WIRED. There is deliberately no `BullModule.registerQueue` and
+ * no `@Processor` for this queue — support stays webhook-driven, so no polling
+ * sweep was built. Nothing enqueues to it and nothing consumes it.
+ *
+ * Kept only to reserve the name. If you wire a processor, you must ALSO add
+ * this to `DLQ_KNOWN_QUEUES` (`common/resilience/dlq.constants.ts`) or its
+ * poison jobs will be invisible to `/admin/dlq` — exactly the bug that left
+ * `gmail-inbound` and `marketing-sync` unmonitored.
+ */
 export const SUPPORT_SYNC_QUEUE = 'support-sync';
 export const SUPPORT_SYNC_JOB = 'support-sync-sweep';
 export const SUPPORT_SYNC_SCHEDULER = 'support-sync';

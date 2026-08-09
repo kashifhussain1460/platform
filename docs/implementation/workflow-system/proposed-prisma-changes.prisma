@@ -1,0 +1,614 @@
+// =============================================================================
+//  PROPOSED PRISMA CHANGES — Orlixa Workflow System
+//  Date: 2026-08-01 · Companion to: database-migration-plan.md
+//
+//  ⚠️  NOT APPLIED. This is a proposal, not the live schema.
+//      Live schema: apps/api/prisma/schema.prisma (38 models, 29 migrations).
+//
+//  HOW TO READ THIS FILE
+//    • Models marked [EXTEND] show ONLY the added lines plus enough context to
+//      place them. Every existing field is unchanged and omitted for clarity.
+//    • Models marked [NEW] are complete.
+//    • Nothing here removes a column, narrows a type, or drops a table.
+//
+//  🔴 BEFORE APPLYING ANY MIGRATION GENERATED FROM THIS FILE:
+//      Delete any `DROP INDEX "KnowledgeChunk_embedding_idx"` line from the
+//      generated SQL. Prisma cannot model the HNSW index on the
+//      Unsupported("vector") column and will try to drop it. This has happened
+//      on three consecutive migrations.
+// =============================================================================
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ENUMS — all additive. `ALTER TYPE ... ADD VALUE` is non-destructive.
+//  🔴 Enum values CANNOT be dropped in Postgres. These are one-way.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED          // NEW — closes G29 (soft delete). Migration 03.
+}
+
+enum WorkflowRunStatus {
+  PENDING
+  RUNNING
+  WAITING
+  COMPLETED
+  FAILED
+  CANCELLED         // NEW — operator/API cancellation
+  COMPENSATING      // NEW — saga rollback in progress
+  TIMED_OUT         // NEW — exceeded deadlineAt
+  // 🔴 D4 UNRESOLVED: the schema ALREADY contains both spellings —
+  //    SlotStatus.CANCELLED (double L) and SubscriptionStatus.CANCELED (single L).
+  //    Adding CANCELLED here locks both in permanently. Settle before Migration 05.
+}
+
+enum StepRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+  RETRYING          // NEW — failed, attempt < maxAttempts, retry scheduled
+  WAITING           // NEW — durable wait / awaiting approval
+  COMPENSATED       // NEW — side effect rolled back
+}
+
+enum EmployeeRole {
+  SUPPORT
+  SALES
+  RECRUITER
+  HR
+  ACCOUNTANT
+  PROJECT_MANAGER
+  CUSTOM
+  MARKETING         // NEW — closes G10. Migration 02.
+                    // Unblocks all 11 Marketing workflows (doc 28).
+}
+
+enum WorkflowVersionStatus {   // NEW
+  DRAFT             // mutable — the ONLY status whose graph may be edited
+  PUBLISHED         // immutable; eligible to be active
+  DEPRECATED        // immutable; superseded, in-flight runs still reference it
+  ARCHIVED          // immutable; retained for audit only
+}
+
+enum WorkflowCategory {        // NEW
+  HR
+  RECRUITMENT
+  MARKETING
+  SALES
+  SUPPORT
+  FINANCE
+  OPERATIONS
+  IT
+  COMPLIANCE
+  CUSTOM
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Workflow  [EXTEND]  — Migration 04
+// ─────────────────────────────────────────────────────────────────────────────
+model Workflow {
+  // … all EXISTING fields unchanged (id, companyId, company, name, description,
+  //   status, triggerType, triggerConfig, webhookToken, activatedAt,
+  //   createdAt, updatedAt, runs) …
+
+  /// DEPRECATED (Migration 05) — NOT dropped, NOT nullable, still written by the
+  /// legacy engine. Source of truth moves to WorkflowVersion.definition.
+  /// Kept indefinitely for rollback and for the legacy_walk engine mode.
+  definition Json
+
+  // ── NEW ────────────────────────────────────────────────────────────────────
+  activeVersionId String?
+  activeVersion   WorkflowVersion? @relation("ActiveVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+  draftVersionId  String?
+  draftVersion    WorkflowVersion? @relation("DraftVersion",  fields: [draftVersionId],  references: [id], onDelete: SetNull)
+  versions        WorkflowVersion[] @relation("WorkflowVersions")
+
+  category    WorkflowCategory?
+  archivedAt  DateTime?
+
+  /// Provenance for template installs (doc 19 §6.1). A COPY, never a live link —
+  /// a template author must not be able to mutate a customer's running automation.
+  sourceTemplateId      String?
+  sourceTemplateVersion Int?
+
+  permissions WorkflowPermission[]
+  variables   WorkflowVariable[]
+  secretRefs  WorkflowSecretRef[]
+
+  @@index([companyId])                  // EXISTING
+  @@index([companyId, status])          // NEW — list by status
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WorkflowVersion  [NEW]  — Migration 04
+//  Immutable once PUBLISHED (ADR-002). Enforced in the SERVICE layer, not by a
+//  DB trigger: a trigger would block legitimate admin repair and is invisible to
+//  anyone reading this schema.
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowVersion {
+  id         String   @id @default(cuid())
+  /// Denormalised from Workflow — never join just to filter by tenant.
+  companyId  String
+  workflowId String
+  workflow   Workflow @relation("WorkflowVersions", fields: [workflowId], references: [id], onDelete: Cascade)
+
+  version    Int
+  status     WorkflowVersionStatus @default(DRAFT)
+
+  /// The frozen graph. Conforms to the doc 14 JSON contract.
+  /// Declared VARIABLES live in here (versioned). Stored VALUES live in
+  /// WorkflowVariable rows (mutable). Do NOT add a variables relation here —
+  /// that was a real review defect; it fails `prisma validate`.
+  definition Json
+
+  publishedAt   DateTime?
+  publishedById String?
+  changeNote    String?
+  createdAt     DateTime @default(now())
+
+  runs      WorkflowRun[]
+  activeFor Workflow?    @relation("ActiveVersion")
+  draftFor  Workflow?    @relation("DraftVersion")
+
+  @@unique([workflowId, version])
+  @@index([companyId, workflowId])
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WorkflowRun  [EXTEND]  — Migration 06
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowRun {
+  // … all EXISTING fields unchanged (id, companyId, workflowId, workflow, status,
+  //   source, dryRun, trigger, context, triggerEventId, correlationId,
+  //   resumeNodeId, error, startedAt, finishedAt, createdAt, steps) …
+
+  // ── NEW ────────────────────────────────────────────────────────────────────
+  /// 🔴 NULLABLE ON PURPOSE. Runs created before Migration 05 have no version.
+  /// Never backfilled to a guess — null means "pre-versioning", and the code
+  /// must handle that explicitly rather than pretend.
+  workflowVersionId String?
+  workflowVersion   WorkflowVersion? @relation(fields: [workflowVersionId], references: [id], onDelete: SetNull)
+
+  idempotencyKey String?
+  deadlineAt     DateTime?
+
+  /// RunFailureClass (doc 00 §0.7.1) as a STRING, not a DB enum — adding a
+  /// failure class must not require a migration. Validated in the application.
+  failureClass String?
+
+  actingEmployeeId String?
+  startedByUserId  String?
+
+  attempts WorkflowStepAttempt[]
+  timers   WorkflowRunTimer[]
+  joins    WorkflowJoinState[]
+  outbox   RunEventOutbox[]
+  approvals ApprovalRequest[]
+
+  /// Partial by nature: rows with a NULL idempotencyKey do not collide in Postgres.
+  @@unique([companyId, idempotencyKey])
+
+  @@index([companyId])                              // EXISTING
+  @@index([companyId, triggerEventId])              // EXISTING
+  @@index([companyId, status])                      // NEW 🔴 active-runs + reaper
+  @@index([status, deadlineAt])                     // NEW — reaper; intentionally NOT tenant-prefixed
+  @@index([companyId, workflowId, createdAt])       // NEW — "recent runs of workflow X"
+  @@index([companyId, workflowVersionId])           // NEW
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WorkflowStepRun  [EXTEND]  — Migration 01 (indexes) + 06 (column)
+//  🔴 THE runId INDEX IS THE LIVE DEFECT. getRun() polls this table ~1/s per open
+//     run via `include: { steps }`, which emits WHERE runId = $1 — and today the
+//     ONLY index is on companyId. Ship Migration 01 first, on its own.
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowStepRun {
+  // … all EXISTING fields unchanged (id, companyId, runId, run, nodeId, type,
+  //   status, input, output, error, startedAt, finishedAt, createdAt) …
+
+  /// 🔴 STAYS `String`, deliberately NOT the NodeType enum. Adding a node type
+  /// must never require a database migration. Validated against the registry.
+  type String
+
+  // ── NEW ────────────────────────────────────────────────────────────────────
+  attempt  Int @default(1)
+  attempts WorkflowStepAttempt[]
+
+  @@index([companyId])              // EXISTING
+  @@index([runId])                  // NEW 🔴🔴 MIGRATION 01 — fixes a live seq scan
+  @@index([runId, status])          // NEW — timeline + completePausedApproval
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WorkflowStepAttempt  [NEW]  — Migration 07
+//  🔴 HIGHEST-VOLUME TABLE IN THE SYSTEM. Target 10M rows/day.
+//     Indexes are minimal ON PURPOSE — every index is a write cost paid 10M
+//     times a day. Only two queries are served: attempt history for a run, and
+//     the reaper's expired-lease sweep.
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowStepAttempt {
+  id        String @id @default(cuid())
+  companyId String
+  runId     String
+  run       WorkflowRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stepId    String
+  step      WorkflowStepRun @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  attempt Int
+  status  StepRunStatus @default(PENDING)
+
+  /// Lease (doc 16 §6.3). Claimed by a guarded single-statement UPDATE, renewed
+  /// by a 20s heartbeat, expiring after 60s so a dead worker is reaped < 60s.
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+
+  /// 🔴 Set when a worker died between the side effect and its bookkeeping
+  /// commit (doc 16 §6.5). Such an attempt is NEVER auto-retried — retrying a
+  /// possibly-completed payment is worse than surfacing it to a human.
+  outcomeUnknown Boolean @default(false)
+
+  /// sha256(runId:nodeId:attempt) — per ATTEMPT, not per node, so a retry is
+  /// allowed to re-issue the call (doc 16 §6.4).
+  idempotencyKey String?
+
+  error        String?
+  failureClass String?
+  output       Json?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@unique([stepId, attempt])
+  @@index([runId, attempt])
+  // Reaper. Add as a PARTIAL index in raw SQL — Prisma cannot express it:
+  //   CREATE INDEX "WorkflowStepAttempt_lease_idx" ON "WorkflowStepAttempt"("leaseExpiresAt")
+  //     WHERE "status" = 'RUNNING';
+  @@index([leaseExpiresAt])
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WorkflowRunTimer  [NEW]  — Migration 07
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowRunTimer {
+  id        String @id @default(cuid())
+  companyId String
+  runId     String
+  run       WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  nodeId String
+  kind   String    // 'WAIT' | 'DEADLINE' | 'APPROVAL_SLA'
+  /// 🔴 Always computed from the DATABASE clock (now() + interval), never
+  /// Date.now() — workers disagree about the time (doc 16 E6).
+  fireAt  DateTime
+  firedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  // Due-timer sweep. Add as PARTIAL in raw SQL:
+  //   CREATE INDEX "WorkflowRunTimer_due_idx" ON "WorkflowRunTimer"("fireAt")
+  //     WHERE "firedAt" IS NULL;
+  @@index([fireAt])
+  @@index([runId])
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WorkflowJoinState  [NEW]  — Migration 07
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowJoinState {
+  id        String @id @default(cuid())
+  companyId String
+  runId     String
+  run       WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  joinNodeId String
+  expected   Int
+  /// 🔴 Incremented with an atomic `UPDATE ... SET arrived = arrived + 1 ... RETURNING`.
+  /// NEVER read-then-write — that loses a lane under contention.
+  arrived    Int  @default(0)
+  laneOutputs Json?
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@unique([runId, joinNodeId])
+  @@index([runId])
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  RunEventOutbox  [NEW]  — Migration 08
+//  Transactional outbox: written in the SAME transaction as the state change.
+//  🔴 THIS IS A QUEUE, NOT A LOG. Published rows are deleted after 24h. At ~5M
+//     rows/day an unpruned outbox becomes the largest table in the database
+//     within a month and its relay query degrades with it.
+// ─────────────────────────────────────────────────────────────────────────────
+model RunEventOutbox {
+  /// BigInt autoincrement: `seq` ordering comes from the DATABASE, not from
+  /// workers racing each other. Field is `seq`, NOT `sequence` (doc 14 §14.B.7).
+  id        BigInt @id @default(autoincrement())
+  companyId String
+  runId     String
+  run       WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  eventType String
+  /// 🔴 NEVER contains a secret or a resolved credential — surfaced in DLQ dumps.
+  payload   Json
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([publishedAt, id])   // the relay's only query: unpublished, in order
+  @@index([runId])
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ApprovalRequest  [EXTEND]  — Migration 09
+//  🔴 There is currently NO foreign key on workflowRunId. Orphaned approvals
+//     pointing at deleted runs are possible today (and likely, given G29).
+//     Add with NOT VALID → VALIDATE to stay online. Check for orphans first.
+// ─────────────────────────────────────────────────────────────────────────────
+model ApprovalRequest {
+  // … all EXISTING fields unchanged (id, companyId, company, kind, employeeId,
+  //   conversationId, workflowRunId, skillKey, tool, args, result, description,
+  //   status, decidedById, decidedAt, note, createdAt) …
+
+  // ── NEW ────────────────────────────────────────────────────────────────────
+  /// Replaces the `[node:x]`-embedded-in-description hack shipped with the G25
+  /// fix. Migration keeps parsing `description` as a fallback until backfilled,
+  /// so no in-flight approval breaks.
+  nodeId String?
+
+  slaDueAt    DateTime?
+  escalatedAt DateTime?
+
+  /// NEW relation — see the NOT VALID / VALIDATE procedure in the plan §2.3.
+  workflowRun WorkflowRun? @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])                      // EXISTING
+  @@index([companyId, status])              // EXISTING
+  @@index([companyId, workflowRunId])       // NEW 🔴 G25 gate lookup
+  @@index([companyId, slaDueAt])            // NEW — SLA sweep
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Variables & secrets  [NEW]  — Migration 10
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowVariable {
+  id         String @id @default(cuid())
+  companyId  String
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  /// Keyed to the WORKFLOW, not the VERSION: declared variables are versioned
+  /// (in definition JSON); stored VALUES are mutable and outlive a version.
+  key   String
+  scope String     // VariableScope (doc 00 §0.7.1)
+  type  String     // VariableType
+  value Json?
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([workflowId, scope, key])
+  @@index([companyId, workflowId])
+}
+
+model WorkflowSecretRef {
+  id         String @id @default(cuid())
+  companyId  String
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  key              String
+  installedSkillId String
+  installedSkill   InstalledSkill @relation(fields: [installedSkillId], references: [id], onDelete: Cascade)
+  /// 🔴 A REFERENCE ONLY. The value is NEVER stored here and never enters
+  /// WorkflowVersion.definition — that JSON is immutable and appears in run
+  /// history and DLQ dumps. Resolved at execution via the connector layer.
+  fieldName String
+
+  createdAt DateTime @default(now())
+
+  @@unique([workflowId, key])
+  @@index([companyId, workflowId])
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WorkflowTemplate / WorkflowPermission  [NEW]  — Migration 10
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowTemplate {
+  id        String  @id @default(cuid())
+  /// NULL = first-party, code-defined and trusted. Non-null = tenant-authored;
+  /// must pass the same publish validation as a user graph, and may not contain
+  /// DB_QUERY or inline credentials.
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  key         String
+  version     Int
+  name        String
+  description String?
+  category    WorkflowCategory
+  /// Placeholders use the EXISTING {{param.x}} resolver — not a second templating system.
+  definition  Json
+  parameters  Json
+  requires    Json     // { skills[], employeeRoles[], minPlan? }
+  status      WorkflowVersionStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+
+  @@unique([key, version])
+  @@index([category, status])
+}
+
+model WorkflowPermission {
+  id         String @id @default(cuid())
+  companyId  String
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  principalType String   // 'USER' | 'ROLE' | 'DEPARTMENT' | 'TEAM'
+  principalId   String
+  capability    String   // 'VIEW' | 'EDIT' | 'RUN' | 'PUBLISH' | 'APPROVE'
+
+  createdAt DateTime @default(now())
+
+  @@unique([workflowId, principalType, principalId, capability])
+  @@index([companyId, workflowId])
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  AuditEvent  [NEW]  — Migration 11
+//  🔴 ADDED ALONGSIDE the existing AuditLog. AuditLog is DEPRECATE, NOT dropped —
+//     it holds real history that must stay queryable. Dual-write, prove parity,
+//     then cut reads over. The old table stays indefinitely.
+// ─────────────────────────────────────────────────────────────────────────────
+model AuditEvent {
+  id        BigInt @id @default(autoincrement())
+  companyId String
+
+  actorType String   // 'USER' | 'AI_EMPLOYEE' | 'SYSTEM'
+  actorId   String?
+  action    String
+  entityType String
+  entityId   String?
+
+  runId         String?
+  correlationId String?
+  metadata      Json?
+
+  /// Tamper-evidence: sha256(prevHash + canonical(row)). Append-only.
+  prevHash String?
+  hash     String
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([companyId, entityType, entityId])
+  @@index([companyId, runId])
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Analytics rollups  [NEW]  — Migration 11
+//  Unique keys make the rollup job IDEMPOTENT and safely re-runnable.
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkflowMetricDaily {
+  id         String   @id @default(cuid())
+  companyId  String
+  workflowId String
+  day        DateTime @db.Date
+
+  runsTotal     Int @default(0)
+  runsCompleted Int @default(0)
+  runsFailed    Int @default(0)
+  p50DurationMs Int?
+  p95DurationMs Int?
+  costCents     Int @default(0)
+
+  @@unique([companyId, workflowId, day])
+  @@index([companyId, day])
+}
+
+model NodeMetricDaily {
+  id        String   @id @default(cuid())
+  companyId String
+  nodeType  String
+  day       DateTime @db.Date
+
+  attempts  Int @default(0)
+  failures  Int @default(0)
+  p95Ms     Int?
+
+  @@unique([companyId, nodeType, day])
+  @@index([companyId, day])
+}
+
+model EmployeeMetricDaily {
+  id         String   @id @default(cuid())
+  companyId  String
+  employeeId String
+  day        DateTime @db.Date
+
+  runsParticipated Int @default(0)
+  toolCalls        Int @default(0)
+  approvalsRaised  Int @default(0)
+  tokensIn         Int @default(0)
+  tokensOut        Int @default(0)
+  costCents        Int @default(0)
+
+  @@unique([companyId, employeeId, day])
+  @@index([companyId, day])
+}
+
+
+// =============================================================================
+//  HR DOMAIN  [NEW] — Migration 12. Independent of the runtime work.
+//  🔴 SPECIAL-CATEGORY PII (passport numbers, sick-leave reasons).
+//     Encrypt at rest via the existing CryptoService (AES-256-GCM).
+//     Never log. Never place in an LLM prompt without a DPA.
+//     Full definitions in the complete database design; summarised here so the
+//     migration sequence is complete.
+// =============================================================================
+//   StaffMember       — the employment record (companyId, userId?, employmentStatus…)
+//   LeaveRequest      — staffId FK, type, dates, status, approverId
+//   StaffDocument     — staffId FK, docType, storageKey, expiresAt, verifiedBy
+//   PerformanceReview — staffId FK, cycleId, draft (AI) + final (human), ratings
+//   OnboardingTask    — staffId FK, title, owner, dueAt, completedAt
+//   AttendanceRecord  — staffId FK, day, source  @@unique([staffId, day])
+//
+//   Every one carries companyId and @@index([companyId, staffId]).
+// =============================================================================
+
+
+// =============================================================================
+//  RAW SQL REQUIRED — Prisma cannot express these. Add by hand inside the
+//  generated migration, and RE-ADD them if a table is ever recreated.
+// =============================================================================
+//
+//  -- Migration 01 (apply out-of-band via psql; CONCURRENTLY cannot run in a
+//  --               transaction, and Prisma wraps each migration in one)
+//  CREATE INDEX CONCURRENTLY "WorkflowStepRun_runId_idx"
+//    ON "WorkflowStepRun"("runId");
+//  CREATE INDEX CONCURRENTLY "WorkflowStepRun_runId_status_idx"
+//    ON "WorkflowStepRun"("runId","status");
+//  CREATE INDEX CONCURRENTLY "WorkflowRun_companyId_status_idx"
+//    ON "WorkflowRun"("companyId","status");
+//  CREATE INDEX CONCURRENTLY "ApprovalRequest_companyId_workflowRunId_idx"
+//    ON "ApprovalRequest"("companyId","workflowRunId");
+//
+//  -- Migration 07: partial indexes (tiny hot subset of a huge table)
+//  CREATE INDEX "WorkflowStepAttempt_lease_idx"
+//    ON "WorkflowStepAttempt"("leaseExpiresAt") WHERE "status" = 'RUNNING';
+//  CREATE INDEX "WorkflowRunTimer_due_idx"
+//    ON "WorkflowRunTimer"("fireAt") WHERE "firedAt" IS NULL;
+//
+//  -- Migration 09: online FK. Check orphans FIRST — a non-zero count is
+//  -- evidence of runs already destroyed by G29's hard delete.
+//  SELECT count(*) FROM "ApprovalRequest" a
+//    WHERE a."workflowRunId" IS NOT NULL
+//      AND NOT EXISTS (SELECT 1 FROM "WorkflowRun" r WHERE r.id = a."workflowRunId");
+//
+//  ALTER TABLE "ApprovalRequest"
+//    ADD CONSTRAINT "ApprovalRequest_workflowRunId_fkey"
+//    FOREIGN KEY ("workflowRunId") REFERENCES "WorkflowRun"("id")
+//    ON DELETE CASCADE NOT VALID;
+//  ALTER TABLE "ApprovalRequest"
+//    VALIDATE CONSTRAINT "ApprovalRequest_workflowRunId_fkey";
+//
+// =============================================================================

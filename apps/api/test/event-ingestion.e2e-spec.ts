@@ -193,7 +193,8 @@ describeIfDb('Connector event ingestion e2e (webhook → canonical → EVENT wor
     expect(raw).toBeTruthy();
     expect(raw?.signatureVerified).toBe(true);
     expect(raw?.provider).toBe('github');
-    expect(raw?.externalId).toBe(delivery);
+    // Dedupe identity is now a hash of the signed body, not the unsigned header.
+    expect(raw?.externalId?.startsWith('sha256:')).toBe(true);
 
     // The raw observability endpoint surfaces it too.
     const rawFeed = await request(server())
@@ -209,7 +210,8 @@ describeIfDb('Connector event ingestion e2e (webhook → canonical → EVENT wor
     const pr = events.find((e) => e.type === 'NEW_GITHUB_PR');
     expect(pr).toBeTruthy();
     expect(pr.provider).toBe('github');
-    expect(pr.dedupeKey).toBe(`github:${delivery}`);
+    // dedupeKey is derived from the body-hash externalId now.
+    expect(pr.dedupeKey.startsWith('github:sha256:')).toBe(true);
   });
 
   it('fires the ACTIVE EVENT workflow → a WorkflowRun(source EVENT) was created', async () => {
@@ -238,14 +240,27 @@ describeIfDb('Connector event ingestion e2e (webhook → canonical → EVENT wor
     }).expect(200);
     expect(res.body.deduped).toBe(true);
 
-    const rawCount = await prisma.rawEvent.count({
-      where: { connectorId, externalId: delivery },
-    });
+    // Dedupe now keys on a hash of the signed body (externalId = `sha256:…`),
+    // so this connector holds exactly one RawEvent for the one body posted.
+    const rawCount = await prisma.rawEvent.count({ where: { connectorId } });
     expect(rawCount).toBe(1);
-    const canonCount = await prisma.canonicalEvent.count({
-      where: { connectorId, dedupeKey: `github:${delivery}` },
-    });
+    const canonCount = await prisma.canonicalEvent.count({ where: { connectorId } });
     expect(canonCount).toBe(1);
+  });
+
+  it('SECURITY: a replay of the signed body with a MUTATED delivery header is still deduped', async () => {
+    // The HMAC covers the body but not the delivery header. An attacker replays
+    // the identical signed body while changing X-GitHub-Delivery to try to mint a
+    // fresh RawEvent → new run. Body-hash dedupe must defeat this.
+    const before = await prisma.rawEvent.count({ where: { connectorId } });
+    const res = await postWebhook(body, {
+      'X-GitHub-Event': 'pull_request',
+      'X-GitHub-Delivery': randomUUID(), // mutated — different from the original
+      'X-Hub-Signature-256': githubSig(body), // same signed body
+    }).expect(200);
+    expect(res.body.deduped).toBe(true);
+    const after = await prisma.rawEvent.count({ where: { connectorId } });
+    expect(after).toBe(before); // no new RawEvent → no amplified run
   });
 
   it('an unknown connector id → 404 (no auth)', async () => {

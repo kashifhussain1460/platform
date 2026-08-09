@@ -34,10 +34,31 @@ export class EnvVars {
   WEB_ORIGIN?: string;
 
   // --- Knowledge / RAG module -------------------------------------------
-  /** Redis connection for the BullMQ ingestion queue. Required. */
+  /**
+   * Redis connection for the BullMQ ingestion queue. Required.
+   *
+   * NOTE: this is a HARD boot dependency for the WHOLE app, not just queues —
+   * the BullMQ root factory calls `config.getOrThrow('REDIS_URL')` while
+   * AppModule is still being constructed, so an unset/unreachable value fails
+   * startup everywhere, including the HTTP-only serverless entry.
+   */
   @IsString()
   @IsNotEmpty()
   REDIS_URL!: string;
+
+  /**
+   * `'false'` disables every `@Processor` (queue consumer) in this process —
+   * set it on the HTTP-only serverless deployment, which cannot host
+   * persistent workers. Producers are unaffected. Any other value (including
+   * unset) leaves workers ON.
+   *
+   * Declared here so a typo is caught at boot: `queueWorkersEnabled()` reads
+   * `process.env` directly, so without this entry a misspelled variable name
+   * would be silently ignored and workers would run where they must not.
+   */
+  @IsString()
+  @IsOptional()
+  QUEUE_WORKERS_ENABLED?: string;
 
   /** 'hash' (default, zero-dep) | 'local' (@xenova) | 'openai'. */
   @IsString()

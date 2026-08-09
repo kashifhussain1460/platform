@@ -2,7 +2,7 @@
   "name": "@vaep/types",
   "version": "0.0.0",
   "private": true,
-  "description": "Shared DTOs and types for V-AEP — single source of truth for web + api.",
+  "description": "Shared DTOs and types for V-AEP \u2014 single source of truth for web + api.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -11,10 +11,12 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint \"src/**/*.ts\"",
+    "lint": "eslint src",
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {

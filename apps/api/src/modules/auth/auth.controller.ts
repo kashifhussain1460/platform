@@ -16,6 +16,10 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyResetOtpDto } from './dto/verify-reset-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 const REFRESH_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 // Tighter than the app-wide default (docs status audit §3): brute-force /
@@ -72,7 +76,14 @@ export class AuthController {
    * harmless and idempotent whether or not the caller is authenticated.
    */
   @Post('logout')
-  logout(@Res({ passthrough: true }) res: Response): { ok: true } {
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ ok: true }> {
+    // Revoke the refresh session server-side (not just clear the cookie) so a
+    // captured refresh token can't be replayed after logout.
+    const token = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE];
+    await this.auth.revokeRefreshToken(token);
     res.clearCookie(REFRESH_COOKIE, this.refreshCookieOptions());
     return { ok: true };
   }
@@ -81,6 +92,53 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser): Promise<MeDto> {
     return this.auth.me(user.userId);
+  }
+
+  /** Confirm the emailed OTP for the signed-in (still-unverified) user. */
+  @UseGuards(JwtAuthGuard)
+  @Throttle(AUTH_THROTTLE)
+  @Post('verify-email')
+  verifyEmail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: VerifyEmailDto,
+  ): Promise<{ verified: boolean }> {
+    return this.auth.verifyEmail(user.userId, dto.code);
+  }
+
+  /** Re-send the verification OTP (cooldown-guarded). */
+  @UseGuards(JwtAuthGuard)
+  @Throttle(AUTH_THROTTLE)
+  @Post('resend-verification')
+  resendVerification(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ sent: boolean }> {
+    return this.auth.resendVerification(user.userId);
+  }
+
+  /** Request a reset OTP. Always 200 with a generic result (anti-enumeration). */
+  @Throttle(AUTH_THROTTLE)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<{ ok: true }> {
+    return this.auth.forgotPassword(dto.email);
+  }
+
+  /**
+   * Verify the reset OTP and receive a single-use token for the reset page.
+   * Generic 400 on any failure (no oracle about email existence / expiry).
+   */
+  @Throttle(AUTH_THROTTLE)
+  @Post('verify-reset-otp')
+  async verifyResetOtp(
+    @Body() dto: VerifyResetOtpDto,
+  ): Promise<{ token: string }> {
+    return this.auth.verifyPasswordResetOtp(dto.email, dto.code);
+  }
+
+  /** Set a new password using the single-use token from verify-reset-otp. */
+  @Throttle(AUTH_THROTTLE)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<{ ok: true }> {
+    return this.auth.resetPassword(dto.token, dto.password);
   }
 
   private setRefreshCookie(res: Response, token: string): void {

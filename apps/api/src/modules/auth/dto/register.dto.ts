@@ -2,10 +2,16 @@ import {
   IsEmail,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
-import type { RegisterDto as IRegisterDto } from '@vaep/types';
+import {
+  PASSWORD_HAS_LETTER,
+  PASSWORD_HAS_NUMBER,
+  PASSWORD_MIN_LENGTH,
+  type RegisterDto as IRegisterDto,
+} from '@vaep/types';
 
 /** POST /auth/register body. Mirrors the shared @vaep/types contract. */
 export class RegisterDto implements IRegisterDto {
@@ -22,11 +28,13 @@ export class RegisterDto implements IRegisterDto {
   @IsEmail()
   email!: string;
 
-  // Security policy (P1 #7): registration has no company/policy yet, so the
-  // default passwordMinLength of 8 is enforced here as a hard minimum.
+  // Canonical password policy (shared @vaep/types): ≥8 chars + a letter + a
+  // number. Backend is authoritative.
   @IsString()
-  @MinLength(8)
+  @MinLength(PASSWORD_MIN_LENGTH)
   @MaxLength(200)
+  @Matches(PASSWORD_HAS_LETTER, { message: 'Password must include a letter.' })
+  @Matches(PASSWORD_HAS_NUMBER, { message: 'Password must include a number.' })
   password!: string;
 
   // Optional company profile (Step 2 richer registration) + admin phone.

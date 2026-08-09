@@ -21,6 +21,23 @@ env:
   PNPM_VERSION: '8.15.0'
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # typescript-eslint's type-aware rules need @vaep/types built (it is a
+      # CommonJS package resolved from dist, not source).
+      - run: pnpm --filter @vaep/types build
+      - run: pnpm --filter @vaep/api run lint
+
   typecheck:
     runs-on: ubuntu-latest
     steps:
@@ -66,7 +83,16 @@ jobs:
       LLM_PROVIDER: mock
       EMBEDDINGS_PROVIDER: hash
       STORAGE_PROVIDER: local
+      # mock, NOT auto: AutoSkillExecutor routes tools whose connection.type is
+      # 'none' to the REAL executor, which would make CI perform live egress.
       SKILL_EXECUTOR: mock
+      BILLING_PROVIDER: mock
+      ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      # Must stay EMPTY. integrations.e2e-spec.ts asserts the OAuth-UNCONFIGURED
+      # path; a developer's real credentials leaking in via .env is what made
+      # that suite "flaky" locally. CI pins it explicitly.
+      OAUTH_GOOGLE_CLIENT_ID: ''
+      OAUTH_GOOGLE_CLIENT_SECRET: ''
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

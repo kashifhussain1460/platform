@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { requireRealProviderInProduction } from '../../common/config/require-real-provider';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { BillingController } from './billing.controller';
 import { BillingWebhookController } from './billing-webhook.controller';
 import { BillingService } from './billing.service';
@@ -37,6 +38,7 @@ function billingProviderFactory(config: ConfigService): BillingProvider {
  * JWT passport strategy is registered globally by AuthModule.
  */
 @Module({
+  imports: [NotificationsModule],
   controllers: [BillingController, BillingWebhookController],
   providers: [
     BillingService,

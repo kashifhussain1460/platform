@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { OrlixaLockup } from '@/components/marketing-dark/OrlixaMark';
 
 /** Faint scattered violet star-dots (deterministic, decorative). */
-function Starfield() {
+export function Starfield() {
   const dots = [
     [6, 18], [14, 62], [9, 88], [22, 8], [31, 44], [4, 40],
     [88, 12], [94, 40], [82, 70], [96, 84], [70, 6], [90, 60],

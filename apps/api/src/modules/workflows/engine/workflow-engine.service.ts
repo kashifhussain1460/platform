@@ -1,30 +1,24 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type Workflow, type WorkflowRun } from '@prisma/client';
 import type {
-  ConditionOp,
+  ApprovalNodeConfig,
   WorkflowDefinition,
   WorkflowEdge,
   WorkflowNode,
 } from '@vaep/types';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { BillingService } from '../../billing/billing.service';
-import { UsageService, startOfCurrentMonthUtc } from '../../usage/usage.service';
-import { KnowledgeService } from '../../knowledge/knowledge.service';
-import { SkillsService } from '../../skills/skills.service';
-import { SkillCatalog } from '../../skills/catalog';
+import { ApprovalRoutingService } from '../../approval-routing/approval-routing.service';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { toolRequiresApproval } from '../../skills/tool-approval-policy';
 import {
-  LLM_PROVIDER_TOKEN,
-  type LlmProvider,
-} from '../../employees/llm/llm.provider';
-import {
-  MAX_WAIT_MS,
   MAX_WORKFLOW_NODES,
   WORKFLOW_RUN_STUCK_TIMEOUT_MS,
 } from '../workflows.constants';
 import { resolveArgs, resolveTemplate } from './template';
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+import { NodeRegistry } from './node-registry.service';
+import type { NodeResult } from './nodes/node-handler';
 
 /** Prisma Json helper: map JS null → the DB JSON null sentinel. */
 function toJson(
@@ -33,57 +27,31 @@ function toJson(
   return value == null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
 }
 
-/**
- * Strict numeric parse for a CONDITION's gt/lt operands. Unlike the EVENT
- * trigger DSL (conditions.ts), where a non-numeric operand safely means
- * "don't fire" (fail-closed, no side effect yet), an in-graph CONDITION node
- * sits mid-run: silently treating a bad operand as `NaN`/`0` would silently
- * route an ALREADY-STARTED run down the wrong branch (e.g. an LLM reply like
- * "around 85" instead of "85" would previously read as `NaN > 79 === false`
- * and silently auto-reject a strong candidate). Throwing here fails the step
- * (and the run) with a clear message instead.
- */
-function toNumber(value: string): number {
-  const trimmed = value.trim();
-  const n = Number(trimmed);
-  if (trimmed === '' || Number.isNaN(n)) {
-    throw new Error(
-      `CONDITION expected a number but got ${JSON.stringify(value)}`,
-    );
-  }
-  return n;
-}
-
-/** Manual (no-eval) comparison used by CONDITION nodes. */
-function compare(left: string, op: ConditionOp, right: string): boolean {
-  switch (op) {
-    case 'eq':
-      return left === right;
-    case 'neq':
-      return left !== right;
-    case 'contains':
-      return left.includes(right);
-    case 'gt':
-      return toNumber(left) > toNumber(right);
-    case 'lt':
-      return toNumber(left) < toNumber(right);
-    default:
-      return false;
-  }
-}
-
-/** Outcome of a single node executor. */
-interface NodeResult {
-  /** Persisted verbatim to WorkflowStepRun.output. */
-  output: unknown;
-  /** Stored at context[node.config.outputKey] when both are present. */
-  contextValue?: unknown;
-  /** CONDITION branch selector (true/false). */
-  conditionResult?: boolean;
-}
-
 /** A WorkflowRun loaded with its parent Workflow (for the definition graph). */
-type RunWithWorkflow = WorkflowRun & { workflow: Workflow };
+type RunWithWorkflow = WorkflowRun & {
+  workflow: Workflow;
+  workflowVersion?: { definition: Prisma.JsonValue } | null;
+};
+
+/**
+ * How a walk (or sub-walk) ended.
+ *
+ * A discriminated union rather than a boolean so a PAUSED lane and a TERMINATED
+ * lane can propagate out of a nested sub-walk without the caller having to
+ * re-read the run row to work out what happened.
+ */
+type WalkOutcome =
+  | { kind: 'DONE' }
+  /** Hit the caller's `stopAtNodeId` — a lane reaching its JOIN, or a loop body
+   *  arriving back at its LOOP node. */
+  | { kind: 'REACHED_STOP' }
+  | { kind: 'PAUSED' }
+  | {
+      kind: 'TERMINATED';
+      status: 'COMPLETED' | 'FAILED';
+      reason?: string;
+      nodeId: string;
+    };
 
 /** Where a walk starts and what context it seeds — used to resume a WAITING run. */
 interface RunOptions {
@@ -122,12 +90,15 @@ export class WorkflowEngine {
   private readonly logger = new Logger(WorkflowEngine.name);
 
   constructor(
+    // Knowledge / Skills / Llm / Usage moved out with P1-03: those are node
+    // concerns and now live in their handlers. The engine's job is the walk.
     private readonly prisma: PrismaService,
-    private readonly knowledge: KnowledgeService,
-    private readonly skills: SkillsService,
     private readonly billing: BillingService,
-    @Inject(LLM_PROVIDER_TOKEN) private readonly llm: LlmProvider,
-    private readonly usage: UsageService,
+    private readonly registry: NodeRegistry,
+    // P3-05 §8.1.3 — resolves APPROVAL-node routing at pause time (acyclic module).
+    private readonly approvalRouting: ApprovalRoutingService,
+    // System email when a run pauses for approval (leaf module, no cycle).
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -188,7 +159,7 @@ export class WorkflowEngine {
   async execute(runId: string): Promise<void> {
     const run = await this.prisma.workflowRun.findUnique({
       where: { id: runId },
-      include: { workflow: true },
+      include: { workflow: true, workflowVersion: { select: { definition: true } } },
     });
     if (!run) {
       this.logger.warn(`Workflow run ${runId} not found`);
@@ -249,7 +220,7 @@ export class WorkflowEngine {
   async resume(runId: string): Promise<void> {
     const run = await this.prisma.workflowRun.findUnique({
       where: { id: runId },
-      include: { workflow: true },
+      include: { workflow: true, workflowVersion: { select: { definition: true } } },
     });
     if (!run) {
       this.logger.warn(`Workflow run ${runId} not found (resume)`);
@@ -322,6 +293,27 @@ export class WorkflowEngine {
       opts.context ?? {
         trigger: (run.trigger as Record<string, unknown> | null) ?? {},
       };
+
+    // P2-01: seed persisted WORKFLOW/OUTPUT-scope variables so a value written
+    // by a previous run is readable as `{{name}}` in this one. Without this,
+    // SET_VARIABLE at WORKFLOW scope would be write-only — persisted, then never
+    // seen again. RUNTIME scope is deliberately absent: it belongs to one run.
+    //
+    // Seeded UNDER the trigger/resume context so a fresh value set during this
+    // run always wins over the stored one.
+    const stored = await this.prisma.workflowVariable.findMany({
+      where: {
+        companyId: run.companyId,
+        workflowId: run.workflowId,
+        scope: { in: ['WORKFLOW', 'OUTPUT'] },
+      },
+      select: { key: true, value: true },
+    });
+    for (const variable of stored) {
+      if (!(variable.key in context)) {
+        context[variable.key] = variable.value;
+      }
+    }
     // Correlation id (docs §9): ties event→run→steps in the logs below. Falls back
     // to the run id for any legacy run created before the column existed.
     const correlationId = run.correlationId ?? run.id;
@@ -330,7 +322,15 @@ export class WorkflowEngine {
       this.logger.log(
         `workflow.run ${isResume ? 'resume' : 'start'} run=${run.id} corr=${correlationId} wf=${run.workflowId} company=${companyId} source=${run.source}`,
       );
-      const definition = this.parseDefinition(run.workflow.definition);
+      // Execute the PINNED version's immutable definition, never the live
+      // (mutable) Workflow.definition. A run pins workflowVersionId at enqueue;
+      // editing/publishing the workflow afterwards rewrites Workflow.definition
+      // but must NOT change the graph an in-flight or WAITING→resumed run walks
+      // (workflow-version.service.ts §immutability; doc 16 §25 E5). A null
+      // version = a pre-versioning run; those fall back to the live column.
+      const definition = this.parseDefinition(
+        run.workflowVersion?.definition ?? run.workflow.definition,
+      );
       const nodesById = new Map<string, WorkflowNode>(
         definition.nodes.map((n) => [n.id, n]),
       );
@@ -356,39 +356,40 @@ export class WorkflowEngine {
         }
       }
 
-      let visited = 0;
-      while (current) {
-        if (visited >= MAX_WORKFLOW_NODES) {
-          throw new Error(
-            `Exceeded max node count (${MAX_WORKFLOW_NODES}); aborting to avoid a loop`,
-          );
-        }
-        visited += 1;
+      const budget = { visited: 0 };
+      const outcome = await this.walkFrom({
+        run,
+        companyId,
+        definition,
+        nodesById,
+        context,
+        correlationId,
+        start: current,
+        budget,
+      });
 
-        // APPROVAL pauses the run: persist state, open an approval, and STOP —
-        // UNLESS this node is configured autoApprove:true, in which case it
-        // falls through to runNode() below like any other step (resolves
-        // immediately, no PENDING ApprovalRequest, no pause).
-        if (current.type === 'APPROVAL' && !this.isAutoApprove(current)) {
-          await this.pauseForApproval(
-            run,
-            companyId,
-            current,
-            definition,
-            context,
-          );
-          return;
-        }
-
-        const result = await this.runNode(
-          run.id,
-          companyId,
-          current,
-          context,
-          correlationId,
-          run.dryRun,
+      if (outcome.kind === 'PAUSED') {
+        // The pausing step already persisted context + WAITING state.
+        return;
+      }
+      if (outcome.kind === 'TERMINATED') {
+        const { status, reason, nodeId } = outcome;
+        await this.prisma.workflowRun.update({
+          where: { id: run.id },
+          data: {
+            status,
+            finishedAt: new Date(),
+            context: context as Prisma.InputJsonObject,
+            resumeNodeId: null,
+            ...(status === 'FAILED'
+              ? { error: reason ?? `Terminated at node "${nodeId}"` }
+              : {}),
+          },
+        });
+        this.logger.log(
+          `workflow.run terminated run=${run.id} corr=${correlationId} node=${nodeId} status=${status}${reason ? ` reason="${reason}"` : ''}`,
         );
-        current = this.nextNode(current, definition.edges, nodesById, result);
+        return;
       }
 
       await this.prisma.workflowRun.update({
@@ -468,8 +469,21 @@ export class WorkflowEngine {
     });
 
     const rawMessage = resolveTemplate(node.config?.message, context).trim();
+    // P3-05 §8.1: resolve the APPROVAL node's routing (if any) against the run
+    // context. No routing → unrouted row: canDecide falls back to OWNER/ADMIN.
+    const routing = (node.config as ApprovalNodeConfig | undefined)?.routing;
+    const initial = await this.approvalRouting.resolveInitial(
+      companyId,
+      routing,
+      { runContext: context },
+      new Date(),
+    );
+    // §8.1.10: a fresh chain's first row must have chainId === its own id.
+    const approvalId = randomUUID();
     await this.prisma.approvalRequest.create({
       data: {
+        id: approvalId,
+        chainId: approvalId,
         companyId,
         kind: 'WORKFLOW',
         workflowRunId: run.id,
@@ -478,12 +492,133 @@ export class WorkflowEngine {
         // Non-null Json column; a workflow approval gates no tool args.
         args: {} as Prisma.InputJsonObject,
         // skillKey / tool are null for WORKFLOW-kind requests.
+        level: 1,
+        escalationTier: 0,
+        ...(initial
+          ? {
+              approverRuleType: initial.approverRuleType,
+              approverRuleValue: initial.approverRuleValue,
+              assigneeUserId: initial.assigneeUserId,
+              slaMinutes: initial.slaMinutes,
+              dueAt: initial.dueAt,
+              timeoutPolicy: initial.timeoutPolicy,
+              routingSnapshot: initial.snapshot as unknown as Prisma.InputJsonValue,
+            }
+          : {}),
       },
     });
 
+    await this.notifications.approvalRequested(companyId, {
+      assigneeUserId: initial?.assigneeUserId ?? null,
+      summary: rawMessage || 'A workflow is waiting for your approval.',
+    });
     this.logger.log(
       `workflow.run paused run=${run.id} corr=${run.correlationId ?? run.id} node=${node.id} (WAITING at APPROVAL)`,
     );
+  }
+
+  /**
+   * G25 gate. Returns true when the run was PAUSED (caller must stop), false
+   * when the step may execute.
+   *
+   * Uses the SHARED `toolRequiresApproval` policy (`modules/skills/
+   * tool-approval-policy.ts`) — the identical rule the chat path applies — so
+   * the two execution paths can never diverge again. The policy is a pure
+   * function, so this does NOT import the Approvals module and the
+   * Approvals→Workflows dependency stays one-directional.
+   *
+   * On approval the run resumes at THIS SAME node (`resumeNodeId = node.id`),
+   * not the next one — the tool has not run yet. Re-entry finds the APPROVED
+   * request below and falls through to execute exactly once.
+   */
+  private async pauseIfToolNeedsApproval(
+    run: RunWithWorkflow,
+    companyId: string,
+    node: WorkflowNode,
+    context: Record<string, unknown>,
+  ): Promise<boolean> {
+    const cfg = node.config ?? {};
+    const skillKey = typeof cfg.skillKey === 'string' ? cfg.skillKey : '';
+    const tool = typeof cfg.tool === 'string' ? cfg.tool : '';
+    // Malformed step: let execToolAction raise its own "Unknown skill/tool".
+    if (!skillKey || !tool) {
+      return false;
+    }
+
+    const employeeId =
+      typeof cfg.employeeId === 'string' && cfg.employeeId.trim()
+        ? cfg.employeeId.trim()
+        : undefined;
+    // Only a step scoped to a specific AI Employee carries per-employee rules;
+    // an unscoped step is judged by the catalog's `highRisk` flag alone.
+    const employee = employeeId
+      ? await this.prisma.aiEmployee.findFirst({
+          where: { id: employeeId, companyId },
+          select: { approvalRules: true },
+        })
+      : null;
+
+    if (!toolRequiresApproval(employee, skillKey, tool)) {
+      return false;
+    }
+
+    // Already approved for this run + node? Then this is the post-approval
+    // re-entry — execute. Scoped by nodeId so two gated steps in one workflow
+    // cannot unlock each other.
+    const decided = await this.prisma.approvalRequest.findFirst({
+      where: {
+        companyId,
+        workflowRunId: run.id,
+        skillKey,
+        tool,
+        status: 'APPROVED',
+        description: { contains: `[node:${node.id}]` },
+      },
+    });
+    if (decided) {
+      return false;
+    }
+
+    const argsRaw =
+      cfg.args && typeof cfg.args === 'object' && !Array.isArray(cfg.args)
+        ? (cfg.args as Record<string, unknown>)
+        : undefined;
+    const args = resolveArgs(argsRaw, context);
+
+    await this.prisma.workflowRun.update({
+      where: { id: run.id },
+      data: {
+        status: 'WAITING',
+        context: context as Prisma.InputJsonObject,
+        resumeNodeId: node.id,
+      },
+    });
+
+    // kind WORKFLOW (not TOOL): approving must RESUME the run and let the
+    // engine execute the tool with its own context, not execute it standalone
+    // inside ApprovalService — which would run it outside the run's context
+    // and leave the run stuck WAITING forever.
+    await this.prisma.approvalRequest.create({
+      data: {
+        companyId,
+        kind: 'WORKFLOW',
+        workflowRunId: run.id,
+        skillKey,
+        tool,
+        args: args as Prisma.InputJsonObject,
+        status: 'PENDING',
+        description: `Workflow step "${node.id}" wants to run ${skillKey}.${tool} [node:${node.id}]`,
+      },
+    });
+
+    // Unrouted → NotificationsService falls back to the company's owners/admins.
+    await this.notifications.approvalRequested(companyId, {
+      summary: `A workflow step wants to run ${skillKey}.${tool} and needs your approval.`,
+    });
+    this.logger.log(
+      `workflow.run paused run=${run.id} corr=${run.correlationId ?? run.id} node=${node.id} (WAITING — TOOL_ACTION ${skillKey}.${tool} needs approval)`,
+    );
+    return true;
   }
 
   /**
@@ -518,6 +653,7 @@ export class WorkflowEngine {
   private async runNode(
     runId: string,
     companyId: string,
+    workflowId: string,
     node: WorkflowNode,
     context: Record<string, unknown>,
     correlationId: string,
@@ -540,7 +676,14 @@ export class WorkflowEngine {
     );
 
     try {
-      const result = await this.executeNode(companyId, node, context, dryRun);
+      const result = await this.executeNode(
+        companyId,
+        workflowId,
+        runId,
+        node,
+        context,
+        dryRun,
+      );
 
       const outputKey =
         typeof node.config?.outputKey === 'string'
@@ -591,9 +734,24 @@ export class WorkflowEngine {
       return undefined;
     }
     let edge: WorkflowEdge;
-    if (node.type === 'CONDITION' && result.conditionResult !== undefined) {
-      const branch = result.conditionResult ? 'true' : 'false';
-      const matched = outgoing.find((e) => e.branch === branch);
+    // Keyed on the RESULT, not the node type: any handler that returns a
+    // branch selector gets branch routing for free. The old
+    // `node.type === 'CONDITION'` check was redundant (only CONDITION sets
+    // conditionResult) and would have needed editing for every future
+    // branching node — exactly what the registry exists to avoid.
+    // A named branch (SWITCH, P2-02) or a boolean one (CONDITION). Both resolve
+    // to an edge label; `branch` is simply the general form.
+    const selector =
+      result.branch !== undefined
+        ? result.branch
+        : result.conditionResult !== undefined
+          ? result.conditionResult
+            ? 'true'
+            : 'false'
+          : undefined;
+
+    if (selector !== undefined) {
+      const matched = outgoing.find((e) => e.branch === selector);
       const anyBranchTagged = outgoing.some((e) => e.branch);
       if (matched) {
         edge = matched;
@@ -601,285 +759,313 @@ export class WorkflowEngine {
         edge = outgoing[0];
       } else {
         throw new Error(
-          `CONDITION node "${node.id}" evaluated to ${branch}, but no outgoing edge has branch="${branch}" (misconfigured workflow)`,
+          `Node "${node.id}" selected branch "${selector}", but no outgoing edge has branch="${selector}" (misconfigured workflow)`,
         );
       }
     } else {
       edge = outgoing[0];
     }
-    return nodesById.get(edge.to);
+    const target = nodesById.get(edge.to);
+    if (!target) {
+      // A dangling edge target must FAIL the run, not silently end it. Returning
+      // undefined here would exit the walk and mark the run COMPLETED, skipping
+      // every intended downstream step (contradicts the UNKNOWN_EDGE_TARGET
+      // publish rule at runtime; matches how PARALLEL/LOOP directive targets
+      // already throw on a missing node).
+      throw new Error(
+        `Edge from node "${node.id}" points to unknown node "${edge.to}" (invalid workflow graph)`,
+      );
+    }
+    return target;
   }
 
   // --- Node executors (one single-purpose method each) ---------------------
 
+  /**
+   * Walk the graph from `start`, following edges, until it runs out of nodes or
+   * hits `stopAtNodeId`.
+   *
+   * Re-entrant: a PARALLEL lane and a LOOP body are walked by recursive calls
+   * with a *shared* budget, so the run-wide `MAX_WORKFLOW_NODES` cap bounds the
+   * total work regardless of nesting. Without a shared budget a loop containing
+   * a loop could multiply past the cap.
+   */
+  private async walkFrom(args: {
+    run: RunWithWorkflow;
+    companyId: string;
+    definition: WorkflowDefinition;
+    nodesById: Map<string, WorkflowNode>;
+    context: Record<string, unknown>;
+    correlationId: string;
+    start: WorkflowNode | undefined;
+    budget: { visited: number };
+    stopAtNodeId?: string;
+  }): Promise<WalkOutcome> {
+    const {
+      run,
+      companyId,
+      definition,
+      nodesById,
+      context,
+      correlationId,
+      budget,
+      stopAtNodeId,
+    } = args;
+    let current = args.start;
+
+    while (current) {
+      if (stopAtNodeId && current.id === stopAtNodeId) {
+        return { kind: 'REACHED_STOP' };
+      }
+      if (budget.visited >= MAX_WORKFLOW_NODES) {
+        throw new Error(
+          `Exceeded max node count (${MAX_WORKFLOW_NODES}); aborting to avoid a loop`,
+        );
+      }
+      budget.visited += 1;
+
+      // ── Author-disabled step: skip it, don't execute it ───────────────────
+      // Recorded as a real SKIPPED step row so the run timeline shows WHY a step
+      // produced nothing, rather than the node silently vanishing from the log.
+      // Routing is deliberately the FIRST outgoing edge: a disabled node
+      // produces no branch selector, so there is nothing to route on. (A
+      // disabled TRIGGER is rejected at validation — the graph needs a root.)
+      if (current.disabled) {
+        await this.prisma.workflowStepRun.create({
+          data: {
+            companyId,
+            runId: run.id,
+            nodeId: current.id,
+            type: current.type,
+            status: 'SKIPPED',
+            input: (current.config ?? {}) as Prisma.InputJsonObject,
+            startedAt: new Date(),
+            finishedAt: new Date(),
+          },
+        });
+        this.logger.log(
+          `workflow.step.skipped run=${run.id} corr=${correlationId} node=${current.id} reason=disabled`,
+        );
+        current = this.nextNode(current, definition.edges, nodesById, {
+          output: null,
+        });
+        continue;
+      }
+
+      // APPROVAL pauses the run: persist state, open an approval, and STOP —
+      // UNLESS this node is configured autoApprove:true, in which case it falls
+      // through to runNode() below like any other step.
+      if (current.type === 'APPROVAL' && !this.isAutoApprove(current)) {
+        await this.pauseForApproval(run, companyId, current, definition, context);
+        return { kind: 'PAUSED' };
+      }
+
+      // G25 (SAFETY): a TOOL_ACTION calling a gated tool must pause for the same
+      // human approval the chat path enforces.
+      if (current.type === 'TOOL_ACTION' && !run.dryRun) {
+        const gated = await this.pauseIfToolNeedsApproval(
+          run,
+          companyId,
+          current,
+          context,
+        );
+        if (gated) {
+          return { kind: 'PAUSED' };
+        }
+      }
+
+      const result = await this.runNode(
+        run.id,
+        companyId,
+        run.workflowId,
+        current,
+        context,
+        correlationId,
+        run.dryRun,
+      );
+
+      // ── Directive: a handler asked to pause and be re-entered ─────────────
+      if (result.pause) {
+        await this.pauseAtNode(run, companyId, current, context, result.pause);
+        return { kind: 'PAUSED' };
+      }
+
+      // ── Directive: end the run here ──────────────────────────────────────
+      if (result.terminate) {
+        return {
+          kind: 'TERMINATED',
+          status: result.terminate.status,
+          reason: result.terminate.reason,
+          nodeId: current.id,
+        };
+      }
+
+      // ── Directive: fan out into lanes, converge at the join ──────────────
+      if (result.fanOut) {
+        const { lanes, joinNodeId, mode } = result.fanOut;
+        const selected = mode === 'ANY' ? lanes.slice(0, 1) : lanes;
+
+        for (const laneStartId of selected) {
+          if (!nodesById.has(laneStartId)) {
+            throw new Error(
+              `PARALLEL node "${current.id}" references unknown lane start "${laneStartId}"`,
+            );
+          }
+        }
+
+        // CONCURRENT lanes. Each gets its OWN shallow context copy: they run at
+        // the same time, and letting them mutate one shared object would be a
+        // genuine write race (two lanes setting the same key, or one reading a
+        // half-written value from the other).
+        //
+        // The step rows they write go to Postgres independently, so the database
+        // side is already safe — it is only the in-memory bag that needs
+        // isolating.
+        const laneContexts = new Map<string, Record<string, unknown>>(
+          selected.map((laneId) => [laneId, { ...context }]),
+        );
+
+        const laneResults = await Promise.all(
+          selected.map(async (laneStartId) => {
+            const outcome = await this.walkFrom({
+              ...args,
+              context: laneContexts.get(laneStartId) as Record<string, unknown>,
+              start: nodesById.get(laneStartId),
+              stopAtNodeId: joinNodeId,
+            });
+            return { laneStartId, outcome };
+          }),
+        );
+
+        // A pause or terminate in ANY lane wins. Sibling lanes have already run
+        // to completion (Promise.all settles all of them), so this is reported
+        // rather than prevented — that is the honest trade for concurrency, and
+        // it is why doc 26 §8 forbids an APPROVAL inside a lane.
+        const halted = laneResults.find(
+          (r) => r.outcome.kind === 'PAUSED' || r.outcome.kind === 'TERMINATED',
+        );
+        if (halted) {
+          return halted.outcome;
+        }
+
+        // Merge each lane's new keys back into the parent context. Two lanes
+        // writing the same key is last-merge-wins and non-deterministic under
+        // concurrency, which is exactly why publish-time validation warns about
+        // cross-lane writes.
+        const laneOutputs: Record<string, unknown> = {};
+        for (const laneStartId of selected) {
+          const laneContext = laneContexts.get(laneStartId) as Record<
+            string,
+            unknown
+          >;
+          const produced: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(laneContext)) {
+            if (context[key] !== value) {
+              context[key] = value;
+              produced[key] = value;
+            }
+          }
+          laneOutputs[laneStartId] = { completed: true, produced };
+        }
+
+        context.__lanes = laneOutputs;
+        current = nodesById.get(joinNodeId);
+        if (!current) {
+          throw new Error(
+            `PARALLEL join target "${joinNodeId}" does not exist`,
+          );
+        }
+        continue;
+      }
+
+      // ── Directive: iterate a body once per item ──────────────────────────
+      if (result.iterate) {
+        const { items, itemVar, bodyNodeId, doneNodeId } = result.iterate;
+        const body = nodesById.get(bodyNodeId);
+        if (!body) {
+          throw new Error(
+            `LOOP node "${current.id}" references unknown body node "${bodyNodeId}"`,
+          );
+        }
+
+        const loopNodeId = current.id;
+        for (let index = 0; index < items.length; index += 1) {
+          context[itemVar] = items[index];
+          context[`${itemVar}Index`] = index;
+          const bodyOutcome = await this.walkFrom({
+            ...args,
+            start: body,
+            // The body stops when it loops back to the LOOP node, so an author
+            // can wire `body → … → loop` without the walk re-entering LOOP.
+            stopAtNodeId: loopNodeId,
+          });
+          if (bodyOutcome.kind === 'PAUSED' || bodyOutcome.kind === 'TERMINATED') {
+            return bodyOutcome;
+          }
+        }
+
+        current = doneNodeId
+          ? nodesById.get(doneNodeId)
+          : this.nextNode(current, definition.edges, nodesById, {
+              output: null,
+              branch: 'done',
+            });
+        continue;
+      }
+
+      current = this.nextNode(current, definition.edges, nodesById, result);
+    }
+
+    return { kind: 'DONE' };
+  }
+
+  /**
+   * Pause the run at THIS node so it re-executes on resume (P2 risk fix).
+   *
+   * Used when a handler discovers mid-execution that it needs a human — an
+   * AI_EMPLOYEE_STEP whose tool call hit the G25 gate. `resumeNodeId` is the node
+   * itself, not the next one, because its work has not happened yet.
+   */
+  private async pauseAtNode(
+    run: RunWithWorkflow,
+    companyId: string,
+    node: WorkflowNode,
+    context: Record<string, unknown>,
+    pause: { reason: string; approvalId?: string },
+  ): Promise<void> {
+    await this.prisma.workflowRun.update({
+      where: { id: run.id },
+      data: {
+        status: 'WAITING',
+        context: context as Prisma.InputJsonObject,
+        resumeNodeId: node.id,
+      },
+    });
+    this.logger.log(
+      `workflow.run paused run=${run.id} corr=${run.correlationId ?? run.id} node=${node.id} ` +
+        `(WAITING — ${pause.reason}${pause.approvalId ? ` approval=${pause.approvalId}` : ''})`,
+    );
+  }
+
+  /**
+   * P1-03: resolve a handler from the NodeRegistry and call it.
+   *
+   * This replaced a `switch (node.type)` over eight cases. Doc 26 §9 forbids
+   * the engine branching on node type at all — adding a node must be one new
+   * file plus one providers entry, with nothing in here changing. Keep it that
+   * way: any `if (node.type === …)` reintroduced below is a review rejection.
+   */
   private executeNode(
     companyId: string,
+    workflowId: string,
+    runId: string,
     node: WorkflowNode,
     context: Record<string, unknown>,
     dryRun: boolean,
   ): Promise<NodeResult> | NodeResult {
-    switch (node.type) {
-      case 'TRIGGER':
-        return { output: { trigger: context.trigger ?? {} } };
-      case 'RETRIEVE':
-        return this.execRetrieve(companyId, node, context);
-      case 'AI_STEP':
-        return this.execAiStep(companyId, node, context);
-      case 'TOOL_ACTION':
-        return this.execToolAction(companyId, node, context, dryRun);
-      case 'WAIT':
-        return this.execWait(node);
-      case 'CONDITION':
-        return this.execCondition(node, context);
-      case 'NOTIFY':
-        return this.execNotify(node, context);
-      case 'APPROVAL':
-        // Only reached when isAutoApprove(node) is true — the run loop pauses
-        // (never calling runNode/executeNode) for a regular gated approval.
-        return this.execAutoApproval(node, context);
-      default:
-        throw new Error(`Unknown node type: ${String(node.type)}`);
-    }
-  }
-
-  /** RETRIEVE: knowledge search of a templated query → context[outputKey]. */
-  private async execRetrieve(
-    companyId: string,
-    node: WorkflowNode,
-    context: Record<string, unknown>,
-  ): Promise<NodeResult> {
-    const cfg = node.config ?? {};
-    const query = resolveTemplate(cfg.query, context).trim();
-    const rawK = Number(cfg.k);
-    const k = Number.isFinite(rawK) && rawK > 0 ? Math.min(rawK, 50) : 5;
-    const results = query
-      ? await this.knowledge.retrieve(companyId, query, k)
-      : [];
-    return {
-      output: { query, k, count: results.length, results },
-      contextValue: results,
-    };
-  }
-
-  /** AI_STEP: LLM completion of a templated prompt → context[outputKey]. */
-  private async execAiStep(
-    companyId: string,
-    node: WorkflowNode,
-    context: Record<string, unknown>,
-  ): Promise<NodeResult> {
-    const cfg = node.config ?? {};
-    const prompt = resolveTemplate(cfg.prompt, context);
-    const employeeId =
-      typeof cfg.employeeId === 'string' ? cfg.employeeId.trim() : '';
-
-    let persona = '';
-    let name = 'the workflow assistant';
-    if (employeeId) {
-      const employee = await this.prisma.aiEmployee.findFirst({
-        where: { id: employeeId, companyId },
-      });
-      if (employee) {
-        persona = employee.persona ?? '';
-        name = employee.name;
-        // Same monthly budget enforcement as chat (agent-runtime.service.ts).
-        if (employee.budgetLimit != null) {
-          const spent = await this.usage.totalCostForEmployee(
-            companyId,
-            employeeId,
-            startOfCurrentMonthUtc(),
-          );
-          if (spent >= employee.budgetLimit) {
-            throw new Error(
-              `${employee.name} has reached its monthly budget limit`,
-            );
-          }
-        }
-      }
-    }
-
-    const systemLines = [
-      `You are ${name}, executing a step in an automated workflow.`,
-    ];
-    if (persona) {
-      systemLines.push(`Persona and guidelines: ${persona}`);
-    }
-    systemLines.push(
-      'Follow the instruction below and respond with a concise, useful result.',
-    );
-
-    // Reuse the shared LlmProvider singleton (no tools → plain completion).
-    const result = await this.llm.complete({
-      system: systemLines.join('\n'),
-      messages: [{ role: 'user', content: prompt || 'Proceed.' }],
-      temperature: 0.2,
-    });
-    if (result.usage) {
-      await this.usage.record({
-        companyId,
-        employeeId: employeeId || null,
-        source: 'workflow_ai_step',
-        promptTokens: result.usage.promptTokens,
-        completionTokens: result.usage.completionTokens,
-      });
-    }
-    const text = (result.content ?? '').trim();
-    return { output: { prompt, text }, contextValue: text };
-  }
-
-  /** TOOL_ACTION: run a skill tool with templated args → context[outputKey]. */
-  private async execToolAction(
-    companyId: string,
-    node: WorkflowNode,
-    context: Record<string, unknown>,
-    dryRun: boolean,
-  ): Promise<NodeResult> {
-    const cfg = node.config ?? {};
-    const skillKey = typeof cfg.skillKey === 'string' ? cfg.skillKey : '';
-    const tool = typeof cfg.tool === 'string' ? cfg.tool : '';
-    const argsRaw =
-      cfg.args && typeof cfg.args === 'object' && !Array.isArray(cfg.args)
-        ? (cfg.args as Record<string, unknown>)
-        : undefined;
-    const args = resolveArgs(argsRaw, context);
-    // Same convention as execAiStep's cfg.employeeId: run as this employee's
-    // own connection when set, so a company that only connected this skill
-    // per-employee (no company-wide row) can still be reached from a
-    // workflow — without this, resolveInstalledForExecution below would
-    // never find the employee-owned row and the step would silently run
-    // against whatever mock/sandbox fallback the executor has for
-    // "not connected", even though a real connection exists.
-    const employeeId =
-      typeof cfg.employeeId === 'string' && cfg.employeeId.trim()
-        ? cfg.employeeId.trim()
-        : undefined;
-
-    // Validate BEFORE the dry-run short-circuit below: a dry run previewing
-    // "ok:true" for a skill/tool reference that would fail for real (unknown,
-    // or a quarantined connector) defeats the whole point of a safe preview —
-    // it must catch every failure a real run would hit, just without the
-    // real side effect. Same existence check runTool() uses.
-    if (!SkillCatalog.getTool(skillKey, tool)) {
-      throw new Error(`Unknown skill/tool: ${skillKey}/${tool}`);
-    }
-
-    // Quarantine (docs §5.5): if this skill's connector is DEGRADED/DISCONNECTED,
-    // fail the step with a clear, non-retryable "connector unavailable" error
-    // rather than hammer a dead provider. Only applies when the skill is installed
-    // as a connector AND currently unhealthy — a not-installed or CONNECTED/
-    // NOT_CONNECTED skill runs exactly as before (default mock connectors stay
-    // CONNECTED, so existing workflow tests are unaffected).
-    if (skillKey) {
-      // Same priority as resolveInstalledForExecution: the employee-owned
-      // row first (if this step runs as one), else the company-wide row.
-      // findFirst (not findUnique + the companyId_skillKey_employeeId
-      // compound key): Prisma's compound-unique-index type requires a
-      // non-null employeeId, even though the column is nullable — see the
-      // note on SkillsService.resolveInstalledForExecution.
-      const ownConnector = employeeId
-        ? await this.prisma.installedSkill.findFirst({
-            where: { companyId, skillKey, employeeId },
-            select: { connectionStatus: true },
-          })
-        : null;
-      const connector =
-        ownConnector ??
-        (await this.prisma.installedSkill.findFirst({
-          where: { companyId, skillKey, employeeId: null },
-          select: { connectionStatus: true },
-        }));
-      if (
-        connector &&
-        (connector.connectionStatus === 'DEGRADED' ||
-          connector.connectionStatus === 'DISCONNECTED')
-      ) {
-        throw new Error(
-          `Connector for "${skillKey}" is ${connector.connectionStatus} — step quarantined (connector unavailable)`,
-        );
-      }
-    }
-
-    // Test mode (founder-market-readiness-audit.md §5/§12): stop before ANY
-    // real interaction with SkillsService -- no connector lookup beyond the
-    // validation above, no egress, no SkillExecution audit row. A dry run
-    // must be provably side-effect free, not "run for real but hope nothing
-    // bad happens" — but it must still fail loudly on a misconfigured step.
-    if (dryRun) {
-      const preview = {
-        ok: true,
-        dryRun: true,
-        skillKey,
-        tool,
-        args,
-        preview: `Would call ${skillKey}/${tool} with these args — nothing was actually sent.`,
-      };
-      return { output: preview, contextValue: preview };
-    }
-
-    // Runs through SkillsService (swappable executor) + writes a SkillExecution.
-    const call = await this.skills.runTool(
-      { companyId, employeeId },
-      skillKey,
-      tool,
-      args,
-    );
-    if (!call.ok) {
-      throw new Error(`Tool ${skillKey}/${tool} did not succeed`);
-    }
-    return { output: call, contextValue: call };
-  }
-
-  /** WAIT: bounded sleep (durable/resumable waits via delayed jobs = TODO). */
-  private async execWait(node: WorkflowNode): Promise<NodeResult> {
-    const cfg = node.config ?? {};
-    const requested = Number(cfg.durationMs);
-    const durationMs = Number.isFinite(requested)
-      ? Math.min(Math.max(0, requested), MAX_WAIT_MS)
-      : 0;
-    if (durationMs > 0) {
-      await sleep(durationMs);
-    }
-    return {
-      output: {
-        requestedMs: Number.isFinite(requested) ? requested : 0,
-        waitedMs: durationMs,
-        capMs: MAX_WAIT_MS,
-      },
-    };
-  }
-
-  /** CONDITION: op(leftResolved, right) → boolean used to pick the branch edge. */
-  private execCondition(
-    node: WorkflowNode,
-    context: Record<string, unknown>,
-  ): NodeResult {
-    const cfg = node.config ?? {};
-    const left = resolveTemplate(cfg.left, context);
-    const op = (typeof cfg.op === 'string' ? cfg.op : 'eq') as ConditionOp;
-    const right = cfg.right == null ? '' : String(cfg.right);
-    const result = compare(left, op, right);
-    return { output: { left, op, right, result }, conditionResult: result };
-  }
-
-  /** Auto-approved APPROVAL (config.autoApprove: true): resolves immediately —
-   * no ApprovalRequest, no pause — but still leaves an auditable step in the run log. */
-  private execAutoApproval(
-    node: WorkflowNode,
-    context: Record<string, unknown>,
-  ): NodeResult {
-    const cfg = node.config ?? {};
-    const message = resolveTemplate(cfg.message, context);
-    return { output: { approved: true, auto: true, message } };
-  }
-
-  /** NOTIFY: record a templated message in the step output (log-style). */
-  private execNotify(
-    node: WorkflowNode,
-    context: Record<string, unknown>,
-  ): NodeResult {
-    const cfg = node.config ?? {};
-    const message = resolveTemplate(cfg.message, context);
-    this.logger.log(`NOTIFY[${node.id}]: ${message}`);
-    return { output: { message, notified: true } };
+    return this.registry
+      .get(node.type)
+      .execute({ companyId, workflowId, runId, node, context, dryRun });
   }
 
   /** Coerce the persisted Json definition into a safe {nodes, edges} shape. */

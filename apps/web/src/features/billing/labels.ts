@@ -25,13 +25,16 @@ export function formatLimit(maxEmployees: number | null): string {
 export const STATUS_LABEL: Record<SubscriptionStatus, string> = {
   ACTIVE: 'Active',
   PAST_DUE: 'Past due',
-  CANCELED: 'Canceled',
+  CANCELLED: 'Cancelled',
+  // Legacy single-L rows (D4) still need a label.
+  CANCELED: 'Cancelled',
 };
 
 /** Tailwind badge classes per status. */
 export const STATUS_BADGE: Record<SubscriptionStatus, string> = {
   ACTIVE: 'bg-green-500/15 text-green-400',
   PAST_DUE: 'bg-amber-500/15 text-amber-400',
+  CANCELLED: 'bg-white/[0.06] text-zinc-500',
   CANCELED: 'bg-white/[0.06] text-zinc-500',
 };
 

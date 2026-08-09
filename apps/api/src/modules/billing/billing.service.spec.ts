@@ -46,6 +46,10 @@ function fakeAuditLog() {
   return { record: jest.fn().mockResolvedValue(undefined) };
 }
 
+function fakeNotifications() {
+  return { paymentFailed: jest.fn().mockResolvedValue(undefined) } as never;
+}
+
 describe('BillingService payment-failure audit logging', () => {
   it('records billing.payment_failed on a genuine transition INTO past-due', async () => {
     const prisma = fakePrisma({
@@ -69,6 +73,7 @@ describe('BillingService payment-failure audit logging', () => {
       provider,
       fakeUsageService(),
       auditLog as never,
+      fakeNotifications(),
     );
 
     await service.handleWebhook(Buffer.from('{}'), 'sig');
@@ -110,6 +115,7 @@ describe('BillingService payment-failure audit logging', () => {
       provider,
       fakeUsageService(),
       auditLog as never,
+      fakeNotifications(),
     );
 
     await service.handleWebhook(Buffer.from('{}'), 'sig');
@@ -140,6 +146,7 @@ describe('BillingService payment-failure audit logging', () => {
       provider,
       fakeUsageService(),
       auditLog as never,
+      fakeNotifications(),
     );
 
     await service.handleWebhook(Buffer.from('{}'), 'sig');
@@ -171,6 +178,7 @@ describe('BillingService.getPortalUrl', () => {
       provider,
       fakeUsageService(),
       fakeAuditLog() as never,
+      fakeNotifications(),
     );
 
     const result = await service.getPortalUrl('co_4');

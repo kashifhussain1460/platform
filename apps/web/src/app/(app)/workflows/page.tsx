@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
 import { useSubscription } from '@/features/billing/hooks';
 import { GenerateWorkflowChat } from '@/features/workflows/components/GenerateWorkflowChat';
 import { WorkflowForm } from '@/features/workflows/components/WorkflowForm';
-import { WorkflowList } from '@/features/workflows/components/WorkflowList';
+import { WorkflowListTable } from '@/features/workflows/components/builder/WorkflowListTable';
 import { useSessionStore } from '@/stores/session.store';
 
 const secondaryBtnClass =
@@ -39,6 +40,9 @@ export default function WorkflowsPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4 pt-2">
         <h1 className="text-2xl font-bold text-white">Workflows</h1>
         <div className="flex gap-3">
+          <Link href="/workflows/templates" className={secondaryBtnClass}>
+            Start from a template
+          </Link>
           {canGenerate && (
             <button
               type="button"
@@ -76,7 +80,7 @@ export default function WorkflowsPage() {
         </div>
       )}
 
-      <WorkflowList />
+      <WorkflowListTable />
     </AppShell>
   );
 }

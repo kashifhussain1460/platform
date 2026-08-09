@@ -35,6 +35,7 @@ interface Actions {
     accessToken: string;
   }) => void;
   setAccessToken: (token: string | null) => void;
+  setCompany: (company: CompanyDto) => void;
   setStatus: (status: SessionStatus) => void;
   setUi: (partial: Partial<UiState>) => void;
   clear: () => void;
@@ -55,6 +56,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   setSession: ({ user, company, accessToken }) =>
     set({ user, company, accessToken, status: 'authenticated' }),
   setAccessToken: (accessToken) => set({ accessToken }),
+  setCompany: (company) => set({ company }),
   setStatus: (status) => set({ status }),
   setUi: (partial) => set(partial),
   clear: () =>

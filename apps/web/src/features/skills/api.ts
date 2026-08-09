@@ -9,6 +9,7 @@ import type {
   OAuthAuthorizeDto,
   SkillDefinitionDto,
   UpdateInstalledSkillDto,
+  WorkflowSkillRequirementsDto,
 } from '@vaep/types';
 
 // --- Catalog + installed skills --------------------------------------------
@@ -109,9 +110,28 @@ export async function checkConnectorHealth(
  * redirects the browser there; the provider calls back to the API which stores
  * the tokens and bounces to /skills?connected=<skillKey>.
  */
-export async function authorizeOAuth(id: string): Promise<OAuthAuthorizeDto> {
+export async function authorizeOAuth(
+  id: string,
+  returnTo?: string,
+): Promise<OAuthAuthorizeDto> {
   const { data } = await apiClient.get<OAuthAuthorizeDto>(
     `/skills/installed/${id}/oauth/authorize`,
+    { params: returnTo ? { returnTo } : undefined },
+  );
+  return data;
+}
+
+/**
+ * Live connection readiness for a set of skills (capability-first). Backs the
+ * in-chat AI Assist Skill card so it can refresh a skill's status after the user
+ * returns from an OAuth connect, without needing a persisted workflow.
+ */
+export async function getSkillRequirements(
+  skillKeys: string[],
+): Promise<WorkflowSkillRequirementsDto> {
+  const { data } = await apiClient.get<WorkflowSkillRequirementsDto>(
+    '/skills/requirements',
+    { params: { skillKeys: skillKeys.join(',') } },
   );
   return data;
 }

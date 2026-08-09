@@ -23,6 +23,13 @@ export interface ExecutorContext {
   config?: Record<string, unknown> | null;
   /** DECRYPTED credentials for the installed skill (api keys / OAuth tokens). */
   credentials?: Record<string, unknown> | null;
+  /**
+   * Raw secret VALUES resolved from `{{secret.X}}` refs by a workflow node
+   * before the call. Passed so runTool can scrub them (plus the connector's own
+   * credential values) out of the persisted error/result — a provider echoing a
+   * rejected token must not land in SkillExecution or a run log (doc 06 §6.2.10).
+   */
+  secretValues?: string[];
 }
 
 /** Outcome of executing a single tool. */

@@ -1,4 +1,4 @@
-import type { EmployeeRoleTemplate } from '@vaep/types';
+import { DEPARTMENTS, type EmployeeRoleTemplate } from '@vaep/types';
 
 /**
  * The code-defined catalog of hireable AI-employee role templates surfaced by
@@ -47,11 +47,24 @@ export const ONBOARDING_CATALOG: readonly EmployeeRoleTemplate[] = [
     departments: ['FINANCE'],
   },
   {
+    role: 'MARKETING',
+    suggestedName: 'MarketingAI',
+    title: 'AI Marketing Specialist',
+    description:
+      'Plans campaigns, drafts on-brand content, and manages social scheduling and publishing.',
+    departments: ['MARKETING'],
+  },
+  {
     role: 'PROJECT_MANAGER',
     suggestedName: 'PMAI',
     title: 'AI Project Manager',
     description:
       'Coordinates tasks, chases status updates, and keeps projects on track.',
-    departments: ['CUSTOMER_SUPPORT'],
+    // Genuinely cross-functional, unlike every other role here — was
+    // previously mis-tied to CUSTOMER_SUPPORT alone (irrelevant: a project
+    // manager isn't a support-department hire), which also hid it from every
+    // OTHER department a company might pick. Surfaced regardless of which
+    // department(s) are chosen, matching what the role actually does.
+    departments: [...DEPARTMENTS],
   },
 ] as const;

@@ -1,15 +1,27 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
+import { ApprovalRoutingModule } from '../approval-routing/approval-routing.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { WorkflowPermissionsModule } from '../workflow-permissions/workflow-permissions.module';
 import { BillingModule } from '../billing/billing.module';
+import { CryptoModule } from '../../common/crypto/crypto.module';
 import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { LlmModule } from '../employees/llm/llm.module';
 import { SkillsModule } from '../skills/skills.module';
 import { WorkflowEngine } from './engine/workflow-engine.service';
+import { NodeRegistry } from './engine/node-registry.service';
+import { SecretResolverService } from './engine/secret-resolver.service';
+import {
+  NODE_HANDLERS,
+  NODE_HANDLER_PROVIDERS,
+  type NodeHandler,
+} from './engine/nodes';
 import { WorkflowGeneratorService } from './engine/workflow-generator.service';
 import { WorkflowProcessor } from './engine/workflow.processor';
 import { WorkflowsController } from './workflows.controller';
 import { WorkflowWebhooksController } from './webhooks.controller';
 import { WorkflowsService } from './workflows.service';
+import { WorkflowVersionService } from './workflow-version.service';
 import { WORKFLOW_RUN_QUEUE } from './workflows.constants';
 import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
 
@@ -37,14 +49,43 @@ import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
     SkillsModule,
     LlmModule,
     BillingModule,
+    // SecretResolverService decrypts connector credentials.
+    CryptoModule,
+    // P3-05 §8.1.3 — the engine resolves APPROVAL-node routing at pause time.
+    // Dependency-light + acyclic (it imports neither Workflows nor Approvals).
+    ApprovalRoutingModule,
+    // P3-06 — enqueue-time `workflow:run` authz + the /permissions controller.
+    WorkflowPermissionsModule,
+    // System email when a run pauses at an APPROVAL / high-risk gate (leaf module).
+    NotificationsModule,
   ],
   controllers: [WorkflowsController, WorkflowWebhooksController],
   providers: [
     WorkflowsService,
+    WorkflowVersionService,
+    // P2-01: resolves {{secret.X}} at execution time so a credential is
+    // never persisted into node config, step output or the run context.
+    SecretResolverService,
     WorkflowEngine,
     WorkflowGeneratorService,
+
+    // P1-03 node registry. Adding a node type = write one handler and add it to
+    // NODE_HANDLER_PROVIDERS below. Nothing in WorkflowEngine changes.
+    ...NODE_HANDLER_PROVIDERS,
+    {
+      provide: NODE_HANDLERS,
+      useFactory: (...handlers: NodeHandler[]) => handlers,
+      inject: NODE_HANDLER_PROVIDERS,
+    },
+    NodeRegistry,
+
     ...(queueWorkersEnabled() ? [WorkflowProcessor] : []),
   ],
-  exports: [WorkflowsService],
+  exports: [
+    WorkflowsService,
+    WorkflowVersionService,
+    NodeRegistry,
+    SecretResolverService,
+  ],
 })
 export class WorkflowsModule {}

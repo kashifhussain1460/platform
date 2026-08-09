@@ -61,6 +61,10 @@ export function useCreateUser() {
         phone: null,
         role: payload.role,
         status: 'ACTIVE',
+        emailVerified: false,
+        departmentId: null,
+        teamId: null,
+        managerUserId: null,
         createdAt: new Date().toISOString(),
       };
       qc.setQueryData<UserDto[]>(userKeys.list, (old) => [

@@ -14,6 +14,7 @@ import type {
   InstalledSkillDto,
   SkillDefinitionDto,
   ToolCallDto,
+  WorkflowSkillRequirementsDto,
 } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -27,6 +28,7 @@ import { ExecuteToolDto } from './dto/execute-tool.dto';
 import { ConfigureSkillDto } from './dto/configure-skill.dto';
 import { ConnectSkillDto } from './dto/connect-skill.dto';
 import { SkillsService } from './skills.service';
+import { SkillRequirementsService } from './skill-requirements.service';
 
 /**
  * All routes are tenant-scoped by companyId from the JWT and JWT-guarded.
@@ -36,12 +38,34 @@ import { SkillsService } from './skills.service';
 @Controller('skills')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class SkillsController {
-  constructor(private readonly skills: SkillsService) {}
+  constructor(
+    private readonly skills: SkillsService,
+    private readonly requirements: SkillRequirementsService,
+  ) {}
 
   /** The built-in catalog + each skill's tools (code-defined, not per-tenant). */
   @Get('catalog')
   catalog(): SkillDefinitionDto[] {
     return this.skills.getCatalog();
+  }
+
+  /**
+   * Live connection readiness for a set of skills (capability-first). Backs the
+   * in-chat AI Assist Skill card's refresh after a connect — `?skillKeys=a,b`.
+   * Any member may read; `canManageConnection` reflects OWNER/ADMIN.
+   */
+  @Get('requirements')
+  skillRequirements(
+    @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('skillKeys') skillKeys?: string,
+  ): Promise<WorkflowSkillRequirementsDto> {
+    const keys = (skillKeys ?? '')
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean);
+    const canManageConnection = user.role === 'OWNER' || user.role === 'ADMIN';
+    return this.requirements.forSkillKeys(companyId, keys, { canManageConnection });
   }
 
   @Post('install')

@@ -58,5 +58,7 @@ export const ROLE_SCOPE: Record<EmployeeRole, string> = {
   HR: 'answering policy questions and supporting onboarding/day-to-day people ops',
   ACCOUNTANT: 'bookkeeping questions, expense checks, and finance-related requests',
   PROJECT_MANAGER: 'coordinating tasks, chasing status updates, and keeping projects on track',
+  MARKETING:
+    'planning campaigns, drafting on-brand content for review, scheduling and publishing approved posts, and reporting on performance',
   CUSTOM: 'the tasks described in your persona below',
 };

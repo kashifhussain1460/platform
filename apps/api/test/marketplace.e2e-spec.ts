@@ -3,7 +3,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { PrismaService } from '../src/common/prisma/prisma.service';
 
 // Marketplace e2e: needs a live Postgres + Redis. Skipped when DATABASE_URL is
 // unset so it never blocks the build. Run it with:
@@ -16,7 +15,6 @@ const describeIfDb = hasDb ? describe : describe.skip;
 
 describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', () => {
   let app: INestApplication;
-  let prisma: PrismaService;
   const email = `marketplace_e2e_${Date.now()}@example.com`;
   const password = 'password123';
   let accessToken = '';
@@ -32,7 +30,6 @@ describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', ()
     app.use(cookieParser());
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
-    prisma = app.get(PrismaService);
 
     await request(app.getHttpServer())
       .post('/auth/register')
@@ -92,6 +89,21 @@ describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', ()
     expect(
       list.body.some((e: { id: string }) => e.id === res.body.id),
     ).toBe(true);
+  });
+
+  it('POST /marketplace/employees/marketing-ai/install hires role MARKETING, not CUSTOM', async () => {
+    // Regression: this entry predated the MARKETING EmployeeRole and was left
+    // as role: 'CUSTOM' — an employee hired from here could not satisfy any of
+    // the 11 Marketing workflow templates' `requires: {employeeRoles:
+    // ['MARKETING']}` prerequisite (workflow-templates.service.ts), so it was
+    // installable but silently unusable for its own product's Marketing
+    // workflows.
+    const res = await request(app.getHttpServer())
+      .post('/marketplace/employees/marketing-ai/install')
+      .set(auth())
+      .send({ name: 'Max the Marketer' })
+      .expect(201);
+    expect(res.body.role).toBe('MARKETING');
   });
 
   it('POST /marketplace/workflows/:key/install installs a workflow that appears in /workflows', async () => {

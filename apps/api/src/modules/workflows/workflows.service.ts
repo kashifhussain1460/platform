@@ -4,9 +4,10 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, type Workflow } from '@prisma/client';
+import { Prisma, type Workflow, type WorkflowRun } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import type {
   Condition,
@@ -17,9 +18,12 @@ import type {
   WorkflowDto,
   WorkflowRunDto,
 } from '@vaep/types';
+import { isInlineExecution } from '../../common/resilience/workflow-execution-mode';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/pagination';
 import { AuditLogService } from '../audit/audit-log.service';
+import { WorkflowPermissionService } from '../workflow-permissions/workflow-permissions.service';
+import { WorkflowEngine } from './engine/workflow-engine.service';
 import { evaluateConditions } from './engine/conditions';
 import { validateDefinitionStructure } from './engine/definition-validator';
 import { CreateWorkflowDto } from './dto/create-workflow.dto';
@@ -43,6 +47,18 @@ function schedulerId(workflowId: string): string {
 }
 
 /**
+ * Terminal run states (doc 16 §7). Once a run is in one of these it must never
+ * transition again — guards against terminal→terminal overwrites.
+ */
+const TERMINAL_RUN_STATUSES = new Set<string>([
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+  'TIMED_OUT',
+  'COMPENSATED',
+]);
+
+/**
  * Tenant-scoped CRUD for workflows plus run creation and trigger/activation.
  *
  * A run is created PENDING and its execution is enqueued on the BullMQ
@@ -55,12 +71,62 @@ function schedulerId(workflowId: string): string {
  */
 @Injectable()
 export class WorkflowsService {
+  private readonly logger = new Logger(WorkflowsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(WORKFLOW_RUN_QUEUE)
     private readonly queue: Queue<WorkflowRunJobData>,
     private readonly auditLog: AuditLogService,
+    // P3-06 — enqueue-time `workflow:run` authorization (doc 16 §21).
+    private readonly permissions: WorkflowPermissionService,
+    // Only used when WORKFLOW_EXECUTION_MODE=inline (no worker to hand off to).
+    // Safe to inject: the engine does NOT depend on this service, so no cycle.
+    private readonly engine: WorkflowEngine,
   ) {}
+
+  /**
+   * Hand a run off for execution. `queue` mode enqueues for the persistent
+   * worker; `inline` mode runs it here, because on a serverless-only deployment
+   * there is no worker and an enqueued job would sit PENDING for ever (G40).
+   *
+   * Inline execution is AWAITED deliberately. Fire-and-forget would be frozen or
+   * killed the moment the response is sent on a serverless host, which is the
+   * exact environment this mode exists for. The observable consequence is that a
+   * run may already be COMPLETED when the create response arrives — polling
+   * clients simply find it finished, which is harmless.
+   */
+  private async dispatchRun(
+    job: WorkflowRunJobData,
+    companyId: string,
+  ): Promise<void> {
+    if (!isInlineExecution()) {
+      await this.queue.add(WORKFLOW_RUN_JOB, job, {
+        removeOnComplete: true,
+        removeOnFail: 100,
+      });
+      return;
+    }
+
+    try {
+      if ('runId' in job && job.runId) {
+        if (job.resume) await this.engine.resume(job.runId);
+        else await this.engine.execute(job.runId);
+      } else if ('workflowId' in job && job.workflowId) {
+        await this.engine.trigger(job.workflowId, job.source ?? 'SCHEDULE');
+      }
+    } catch (err) {
+      // The engine records a node failure as a FAILED run — a terminal domain
+      // outcome the poller reads. So a throw here is an infrastructure problem,
+      // and it must NOT turn the caller's "start this run" request into a 500:
+      // the run row exists and its status is authoritative.
+      this.logger.error(
+        `inline execution failed (company=${companyId}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
 
   // --- CRUD ----------------------------------------------------------------
 
@@ -77,6 +143,8 @@ export class WorkflowsService {
         description: dto.description ?? null,
         definition: (dto.definition ??
           STARTER_DEFINITION) as unknown as Prisma.InputJsonObject,
+        // P3-06 — the creator owns it (may manage its permissions even as a MEMBER).
+        ownerUserId: actorUserId ?? null,
       },
     });
     await this.auditLog.record({
@@ -92,7 +160,10 @@ export class WorkflowsService {
 
   async list(companyId: string, limitRaw?: unknown): Promise<WorkflowDto[]> {
     const workflows = await this.prisma.workflow.findMany({
-      where: { companyId },
+      // Scratch workflows exist only so the AI Assist can dry-run a draft
+      // through the real engine (doc 30 §13.1). They are created and deleted
+      // within one tool call and must never appear in the user's list.
+      where: { companyId, isAssistScratch: false },
       orderBy: { createdAt: 'desc' },
       take: clampLimit(limitRaw),
     });
@@ -161,25 +232,90 @@ export class WorkflowsService {
     return toWorkflowDto(workflow);
   }
 
+  /**
+   * SOFT delete (gap G29). Sets `status = ARCHIVED` and keeps the workflow row,
+   * every WorkflowRun and every WorkflowStepRun.
+   *
+   * This used to be `prisma.workflow.delete()`, which cascaded
+   * (`WorkflowRun.workflow` and `WorkflowStepRun.run` both declare
+   * `onDelete: Cascade`) and silently destroyed the entire execution history.
+   * An AuditLog row recorded *that* a deletion happened but could not recover
+   * what it erased — so "show me every CV screening decision from Q1" stopped
+   * being answerable the moment somebody tidied up an old workflow.
+   *
+   * Refuses with 409 while any run is still in flight: archiving a workflow out
+   * from under a PENDING/RUNNING/WAITING run would strand it against a
+   * definition that can no longer be activated or edited.
+   *
+   * `hard: true` is the genuine-erasure escape hatch (data-subject deletion
+   * requests). It is caller-gated to platform admins in the controller, is
+   * still blocked on in-flight runs, and is audited separately.
+   */
   async remove(
     companyId: string,
     id: string,
     actorUserId?: string,
+    opts: { hard?: boolean } = {},
   ): Promise<void> {
     const existing = await this.findOwned(companyId, id);
+
+    const activeRuns = await this.prisma.workflowRun.count({
+      where: {
+        companyId,
+        workflowId: id,
+        status: { in: ['PENDING', 'RUNNING', 'WAITING'] },
+      },
+    });
+    if (activeRuns > 0) {
+      throw new ConflictException(
+        `Cannot delete workflow "${existing.name}": ${activeRuns} run(s) still in flight. ` +
+          `Wait for them to finish or cancel them first.`,
+      );
+    }
+
     // Best-effort: drop any repeatable schedule so it doesn't fire post-delete.
     if (existing.triggerType === 'SCHEDULE') {
       await this.removeSchedule(id);
     }
-    // Cascades to runs and their step runs (onDelete: Cascade).
-    await this.prisma.workflow.delete({ where: { id } });
+
+    if (opts.hard) {
+      // Cascades to runs and their step runs (onDelete: Cascade). Irreversible.
+      await this.prisma.workflow.delete({ where: { id } });
+      this.logger.warn(
+        `workflow.hard_delete workflow=${id} company=${companyId} actor=${actorUserId ?? 'unknown'} ` +
+          `name="${existing.name}" — execution history permanently destroyed`,
+      );
+      await this.auditLog.record({
+        companyId,
+        actorUserId,
+        action: 'workflow.hard_delete',
+        entityType: 'Workflow',
+        entityId: id,
+        metadata: { name: existing.name, historyDestroyed: true },
+      });
+      return;
+    }
+
+    if (existing.status === 'ARCHIVED') {
+      // Idempotent: DELETE is expected to be safe to repeat.
+      return;
+    }
+
+    await this.prisma.workflow.update({
+      where: { id },
+      data: { status: 'ARCHIVED', activatedAt: null },
+    });
+    this.logger.log(
+      `workflow.archive workflow=${id} company=${companyId} actor=${actorUserId ?? 'unknown'} ` +
+        `name="${existing.name}" (run history retained)`,
+    );
     await this.auditLog.record({
       companyId,
       actorUserId,
-      action: 'workflow.delete',
+      action: 'workflow.archive',
       entityType: 'Workflow',
       entityId: id,
-      metadata: { name: existing.name },
+      metadata: { name: existing.name, previousStatus: existing.status },
     });
   }
 
@@ -192,6 +328,8 @@ export class WorkflowsService {
   async activate(companyId: string, id: string): Promise<WorkflowDto> {
     const existing = await this.findOwned(companyId, id);
 
+    this.assertNotArchived(existing, 'activate');
+
     if (!this.hasRunnableSteps(existing.definition)) {
       throw new BadRequestException(
         'Add at least one step (beyond the trigger) before activating',
@@ -201,6 +339,14 @@ export class WorkflowsService {
     const type = existing.triggerType as TriggerType;
     const config = existing.triggerConfig as TriggerConfig | null;
     this.validateTrigger(type, config);
+
+    // Two EVENT workflows on the same event + overlapping connector would BOTH
+    // fire on every matching event (the Gmail double-fire footgun). Refuse to
+    // activate a second one; the author must deactivate the other or scope each
+    // to a different connector.
+    if (type === 'EVENT') {
+      await this.assertNoConflictingEventTrigger(companyId, id, config);
+    }
 
     // Generate a webhook token on first WEBHOOK activation (crypto-random).
     const webhookToken =
@@ -235,6 +381,49 @@ export class WorkflowsService {
       data: { status: 'PAUSED' },
     });
     return toWorkflowDto(workflow);
+  }
+
+  /**
+   * Reject activating an EVENT workflow when another ACTIVE EVENT workflow already
+   * listens for the same eventType with an overlapping connector scope. Two such
+   * workflows would both fire on every matching event. Scopes overlap unless BOTH
+   * are pinned to a different `connectorId` (an unscoped trigger matches every
+   * connector, so it overlaps everything of that eventType).
+   */
+  private async assertNoConflictingEventTrigger(
+    companyId: string,
+    selfId: string,
+    config: TriggerConfig | null,
+  ): Promise<void> {
+    const eventType = config?.eventType;
+    if (!eventType) return;
+    const myConnector = config?.connectorId ?? null;
+    const others = await this.prisma.workflow.findMany({
+      where: {
+        companyId,
+        status: 'ACTIVE',
+        triggerType: 'EVENT',
+        id: { not: selfId },
+        triggerConfig: { path: ['eventType'], equals: eventType },
+      },
+      select: { name: true, triggerConfig: true },
+    });
+    for (const other of others) {
+      const otherConnector =
+        ((other.triggerConfig ?? null) as TriggerConfig | null)?.connectorId ?? null;
+      const overlaps =
+        myConnector == null ||
+        otherConnector == null ||
+        myConnector === otherConnector;
+      if (overlaps) {
+        throw new ConflictException(
+          `"${other.name}" is already live on the same trigger (${eventType}` +
+            `${myConnector ? '' : ', all connectors'}). Two workflows on the same ` +
+            `event would both fire on every event. Deactivate it first, or scope ` +
+            `each workflow to a different connector.`,
+        );
+      }
+    }
   }
 
   // --- Event / webhook firing (Step 11) -----------------------------------
@@ -288,6 +477,8 @@ export class WorkflowsService {
         triggerEventId: eventId,
         // undefined → enqueueRun generates one (manual fire with no eventId).
         correlationId: eventId ?? undefined,
+        // Same canonical event must not fire the same workflow twice (P0-2).
+        idempotencyKey: eventId ? `event:${wf.id}:${eventId}` : null,
       });
       runIds.push(run.id);
     }
@@ -307,6 +498,7 @@ export class WorkflowsService {
   async fireWebhook(
     token: string,
     payload?: Record<string, unknown>,
+    idempotencyKey?: string | null,
   ): Promise<WorkflowRunDto> {
     const workflow = await this.prisma.workflow.findUnique({
       where: { webhookToken: token },
@@ -318,7 +510,11 @@ export class WorkflowsService {
     ) {
       throw new NotFoundException('Webhook not found');
     }
-    return this.enqueueRun(workflow.companyId, workflow.id, 'WEBHOOK', payload);
+    // A provider delivery id (or explicit Idempotency-Key) namespaced to the
+    // webhook makes a redelivery a no-op instead of a duplicate run (P0-2).
+    return this.enqueueRun(workflow.companyId, workflow.id, 'WEBHOOK', payload, {
+      idempotencyKey: idempotencyKey ? `webhook:${token}:${idempotencyKey}` : null,
+    });
   }
 
   // --- Runs ----------------------------------------------------------------
@@ -327,11 +523,21 @@ export class WorkflowsService {
   async createRun(
     companyId: string,
     id: string,
+    actingUserId: string,
     trigger?: Record<string, unknown>,
     dryRun?: boolean,
+    idempotencyKey?: string | null,
   ): Promise<WorkflowRunDto> {
-    await this.findOwned(companyId, id);
-    return this.enqueueRun(companyId, id, 'MANUAL', trigger, { dryRun });
+    const existing = await this.findOwned(companyId, id);
+    this.assertNotArchived(existing, 'run');
+    // MANUAL run: the subject is the clicking user (doc 09 §9.C.3).
+    return this.enqueueRun(companyId, id, 'MANUAL', trigger, {
+      dryRun,
+      subjectUserId: actingUserId,
+      // Namespaced to the workflow so the same client key can't collide across
+      // workflows; a double-click / retry then returns the same run (P1-2).
+      idempotencyKey: idempotencyKey ? `run:${id}:${idempotencyKey}` : null,
+    });
   }
 
   async listRuns(
@@ -367,9 +573,11 @@ export class WorkflowsService {
    * WAITING is ignored (a double-approve cannot double-run). Called by
    * ApprovalService when a WORKFLOW-kind request is approved.
    */
-  async resumeRun(runId: string): Promise<void> {
-    const run = await this.prisma.workflowRun.findUnique({
-      where: { id: runId },
+  async resumeRun(runId: string, companyId: string): Promise<void> {
+    // Tenant-scoped by (id, companyId) so a runId from one tenant can never
+    // resume another tenant's run even if a future caller forgets to check.
+    const run = await this.prisma.workflowRun.findFirst({
+      where: { id: runId, companyId },
     });
     if (!run || run.status !== 'WAITING') {
       return;
@@ -378,10 +586,9 @@ export class WorkflowsService {
       where: { id: runId },
       data: { status: 'RUNNING', error: null },
     });
-    await this.queue.add(
-      WORKFLOW_RUN_JOB,
+    await this.dispatchRun(
       { runId, resume: true, companyId: run.companyId },
-      { removeOnComplete: true, removeOnFail: 100 },
+      run.companyId,
     );
   }
 
@@ -390,11 +597,19 @@ export class WorkflowsService {
    * mark it FAILED with the reason and clear its resume pointer. A run already
    * COMPLETED/FAILED is left untouched. Called by ApprovalService on reject.
    */
-  async cancelRun(runId: string, reason: string): Promise<void> {
-    const run = await this.prisma.workflowRun.findUnique({
-      where: { id: runId },
+  async cancelRun(
+    runId: string,
+    reason: string,
+    companyId: string,
+  ): Promise<void> {
+    const run = await this.prisma.workflowRun.findFirst({
+      where: { id: runId, companyId },
     });
-    if (!run || run.status === 'COMPLETED' || run.status === 'FAILED') {
+    // Never overwrite ANY terminal state. Previously only COMPLETED/FAILED were
+    // guarded, so a reject / SLA-expire / auto-reject arriving after a user
+    // CANCELLED (or a TIMED_OUT) run would illegally rewrite it to FAILED — a
+    // terminal→terminal transition the doc 16 §7 state table forbids.
+    if (!run || TERMINAL_RUN_STATUSES.has(run.status)) {
       return;
     }
     await this.prisma.workflowRun.update({
@@ -406,6 +621,71 @@ export class WorkflowsService {
         resumeNodeId: null,
       },
     });
+  }
+
+  /**
+   * User-initiated cancel of a non-terminal run (privileged + audited). Authoritative
+   * for PENDING and WAITING runs; a RUNNING run's current step may still finish (the
+   * engine is not yet cancellation-aware mid-step).
+   */
+  async cancelRunByUser(
+    companyId: string,
+    runId: string,
+    userId: string,
+  ): Promise<WorkflowRunDto> {
+    const run = await this.prisma.workflowRun.findFirst({
+      where: { id: runId, companyId },
+      select: { status: true },
+    });
+    if (!run) {
+      throw new NotFoundException('Workflow run not found');
+    }
+    if (
+      run.status === 'COMPLETED' ||
+      run.status === 'FAILED' ||
+      run.status === 'CANCELLED' ||
+      run.status === 'TIMED_OUT'
+    ) {
+      throw new ConflictException('This run has already finished.');
+    }
+    await this.prisma.workflowRun.update({
+      where: { id: runId },
+      data: {
+        status: 'CANCELLED',
+        finishedAt: new Date(),
+        error: 'Cancelled by a user',
+        resumeNodeId: null,
+      },
+    });
+    await this.auditLog.record({
+      companyId,
+      actorUserId: userId,
+      action: 'workflow.run.cancel',
+      entityType: 'WorkflowRun',
+      entityId: runId,
+    });
+    return this.getRun(companyId, runId);
+  }
+
+  /**
+   * Retry a run by starting a FRESH run of the same workflow with the same trigger
+   * input — never resurrects the old run (two histories in one row would destroy
+   * the audit trail). Re-checks run permission via createRun.
+   */
+  async retryRun(
+    companyId: string,
+    runId: string,
+    userId: string,
+  ): Promise<WorkflowRunDto> {
+    const run = await this.prisma.workflowRun.findFirst({
+      where: { id: runId, companyId },
+      select: { workflowId: true, trigger: true, dryRun: true },
+    });
+    if (!run) {
+      throw new NotFoundException('Workflow run not found');
+    }
+    const trigger = (run.trigger as Record<string, unknown> | null) ?? undefined;
+    return this.createRun(companyId, run.workflowId, userId, trigger, run.dryRun);
   }
 
   /** Test/introspection hook: the queue's registered job schedulers. */
@@ -431,31 +711,142 @@ export class WorkflowsService {
       triggerEventId?: string | null;
       correlationId?: string;
       dryRun?: boolean;
+      subjectUserId?: string | null;
+      idempotencyKey?: string | null;
     },
   ): Promise<WorkflowRunDto> {
-    const run = await this.prisma.workflowRun.create({
-      data: {
-        companyId,
-        workflowId,
-        status: 'PENDING',
-        source,
-        dryRun: opts?.dryRun ?? false,
-        trigger:
-          trigger === undefined
-            ? Prisma.JsonNull
-            : (trigger as Prisma.InputJsonObject),
-        triggerEventId: opts?.triggerEventId ?? null,
-        correlationId: opts?.correlationId ?? randomUUID(),
+    // Idempotency (P0-2 webhook / P1-2 run): a caller-supplied key dedups
+    // retries and provider redeliveries within a tenant. A run already created
+    // for this (companyId, key) is returned as-is — its side effects fire once.
+    // Absent key → no dedup (back-compat: existing callers are unaffected).
+    const idempotencyKey = opts?.idempotencyKey ?? null;
+    if (idempotencyKey) {
+      const prior = await this.prisma.workflowRun.findUnique({
+        where: { companyId_idempotencyKey: { companyId, idempotencyKey } },
+      });
+      if (prior) return toWorkflowRunDto(prior);
+    }
+    // P1-02 (gap G1): pin the exact graph this run will execute. Null is a
+    // legitimate value for a workflow that predates versioning and has not been
+    // backfilled — the engine then falls back to Workflow.definition rather
+    // than refusing to run, so no existing automation breaks.
+    const pinned = await this.prisma.workflow.findFirst({
+      where: { id: workflowId, companyId },
+      select: {
+        activeVersionId: true,
+        activeVersion: { select: { publishedById: true } },
       },
     });
 
-    await this.queue.add(
-      WORKFLOW_RUN_JOB,
-      { runId: run.id, companyId },
-      { removeOnComplete: true, removeOnFail: 100 },
-    );
+    // P3-06 (doc 16 §21): `workflow:run` is authorised HERE, at enqueue — not per
+    // attempt. The run-as subject is the clicking user (MANUAL) or the pinned
+    // version's publisher, role re-resolved fresh (SCHEDULE/EVENT/WEBHOOK, §9.C.3).
+    const subjectUserId =
+      source === 'MANUAL'
+        ? opts?.subjectUserId ?? null
+        : pinned?.activeVersion?.publishedById ?? null;
+    await this.permissions.assertCanRun(companyId, workflowId, subjectUserId);
 
-    return toWorkflowRunDto(run);
+    let run: WorkflowRun;
+    try {
+      run = await this.prisma.workflowRun.create({
+        data: {
+          companyId,
+          workflowId,
+          workflowVersionId: pinned?.activeVersionId ?? null,
+          status: 'PENDING',
+          source,
+          dryRun: opts?.dryRun ?? false,
+          // Who started it (MANUAL = the clicking user; automated triggers = system).
+          startedByUserId: source === 'MANUAL' ? subjectUserId : null,
+          trigger:
+            trigger === undefined
+              ? Prisma.JsonNull
+              : (trigger as Prisma.InputJsonObject),
+          triggerEventId: opts?.triggerEventId ?? null,
+          correlationId: opts?.correlationId ?? randomUUID(),
+          idempotencyKey,
+        },
+      });
+    } catch (e) {
+      // Concurrent request with the same idempotency key won the create race.
+      // Return the winner rather than dispatching a duplicate run.
+      if (
+        idempotencyKey &&
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        const winner = await this.prisma.workflowRun.findUnique({
+          where: { companyId_idempotencyKey: { companyId, idempotencyKey } },
+        });
+        if (winner) return toWorkflowRunDto(winner);
+      }
+      throw e;
+    }
+
+    await this.dispatchRun({ runId: run.id, companyId }, companyId);
+
+    // Re-read: inline execution has already moved the run on (often to a
+    // terminal state), so returning the pre-dispatch row would report a status
+    // that is already stale.
+    const settled = isInlineExecution()
+      ? ((await this.prisma.workflowRun.findUnique({ where: { id: run.id } })) ??
+        run)
+      : run;
+    return toWorkflowRunDto(settled);
+  }
+
+  /**
+   * Sweep runs orphaned by a process that died mid-execution.
+   *
+   * Normally driven by a BullMQ repeatable; exposed here so a platform scheduler
+   * can drive it too, because repeatables never fire without a persistent worker
+   * (see `workflow-execution-mode.ts`). Thin pass-through so the admin surface
+   * talks to this service rather than reaching into the engine.
+   */
+  sweepStuckRuns(): Promise<{ swept: number }> {
+    return this.engine.sweepStuckRuns();
+  }
+
+  /**
+   * Fire one workflow as if its schedule had elapsed. Same reasoning as
+   * {@link sweepStuckRuns}: the repeatable that normally does this needs a
+   * worker that a serverless deployment does not have.
+   */
+  fireScheduled(workflowId: string): Promise<void> {
+    return this.engine.trigger(workflowId, 'SCHEDULE');
+  }
+
+  /**
+   * Create a throwaway workflow so the AI Assist can dry-run a draft through the
+   * REAL engine (doc 30 §13.1).
+   *
+   * A real row rather than a virtual execution: the engine runs from a persisted
+   * `Workflow` + `WorkflowRun`, and inventing a parallel in-memory path would
+   * fork engine behaviour — at which point the "test" stops testing the thing
+   * that actually runs.
+   *
+   * Marked `isAssistScratch` so it is excluded from `list()`, and the caller
+   * deletes it in a `finally`. Deliberately NOT activated: it exists to be run
+   * once, dry, and thrown away.
+   */
+  async createAssistScratch(
+    companyId: string,
+    definition: WorkflowDefinition,
+    actorUserId: string,
+  ): Promise<{ id: string }> {
+    this.validateDefinition(definition);
+    return this.prisma.workflow.create({
+      data: {
+        companyId,
+        name: '[assist test]',
+        status: 'ACTIVE', // runnable without going through activate()
+        definition: definition as unknown as Prisma.InputJsonObject,
+        ownerUserId: actorUserId,
+        isAssistScratch: true,
+      },
+      select: { id: true },
+    });
   }
 
   /** True when the definition has ≥1 node that is not a TRIGGER. */
@@ -513,6 +904,16 @@ export class WorkflowsService {
     workflowId: string,
     config: TriggerConfig | null,
   ): Promise<void> {
+    // In inline mode the schedule is driven by the cron sweep
+    // (`/admin/cron/workflow-schedules`), so registering a BullMQ repeatable as
+    // well is not merely useless — it is a DOUBLE-FIRE bug. If any worker is
+    // reachable (a mixed deployment, or a leftover connected to the same Redis)
+    // the workflow fires twice per interval: once from the repeatable and once
+    // from the sweep. Caught by `inline-execution.e2e-spec.ts`, which saw two
+    // runs where it expected one.
+    if (isInlineExecution()) {
+      return;
+    }
     const repeat =
       typeof config?.cron === 'string' && config.cron.trim().length > 0
         ? { pattern: config.cron.trim() }
@@ -527,6 +928,11 @@ export class WorkflowsService {
 
   /** Best-effort removal of a workflow's repeatable SCHEDULE job. */
   private async removeSchedule(workflowId: string): Promise<void> {
+    // Nothing was registered in inline mode, so there is nothing to remove —
+    // and touching the queue here would need a Redis round trip for no reason.
+    if (isInlineExecution()) {
+      return;
+    }
     try {
       await this.queue.removeJobScheduler(schedulerId(workflowId));
     } catch {
@@ -535,6 +941,20 @@ export class WorkflowsService {
   }
 
   // --- Ownership helper ----------------------------------------------------
+
+  /**
+   * An ARCHIVED workflow (soft-deleted, G29) is readable but not operational.
+   * Guards every path that would make it live again, so archiving is a real
+   * stop rather than a label. Restoring is deliberate: PATCH the status back.
+   */
+  private assertNotArchived(workflow: Workflow, action: string): void {
+    if (workflow.status === 'ARCHIVED') {
+      throw new ConflictException(
+        `Cannot ${action} workflow "${workflow.name}": it is archived. ` +
+          `Restore it first by setting its status back to DRAFT.`,
+      );
+    }
+  }
 
   private async findOwned(companyId: string, id: string): Promise<Workflow> {
     const workflow = await this.prisma.workflow.findFirst({

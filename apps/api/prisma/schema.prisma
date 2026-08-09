@@ -44,6 +44,10 @@ enum EmployeeRole {
   ACCOUNTANT
   PROJECT_MANAGER
   CUSTOM
+  // Closes gap G10. Without it a Marketing AI Employee had to be CUSTOM, which
+  // breaks role-scoped knowledge retrieval (KnowledgeDocument.category) and
+  // role-based analytics — it would silently retrieve another role's knowledge.
+  MARKETING
 }
 
 enum EmployeeStatus {
@@ -99,6 +103,10 @@ enum WorkflowStatus {
   DRAFT
   ACTIVE
   PAUSED
+  // Closes gap G29. DELETE /workflows/:id was a hard delete that cascaded to
+  // every WorkflowRun and WorkflowStepRun, destroying execution history that an
+  // AuditLog row records the loss of but cannot recover. Delete now archives.
+  ARCHIVED
 }
 
 // How an ACTIVE workflow is invoked. MANUAL is the default and preserves the
@@ -116,6 +124,11 @@ enum WorkflowRunStatus {
   WAITING
   COMPLETED
   FAILED
+  // P1 durable state machine (docs 05 / 16 §7). Decision D4 SETTLED: the
+  // canonical spelling everywhere is the double-L `CANCELLED`.
+  CANCELLED
+  COMPENSATING
+  TIMED_OUT
 }
 
 enum StepRunStatus {
@@ -124,12 +137,75 @@ enum StepRunStatus {
   COMPLETED
   FAILED
   SKIPPED
+  // P1: failed with attempts remaining; durable wait / awaiting approval;
+  // side effect rolled back by a saga compensation.
+  RETRYING
+  WAITING
+  COMPENSATED
+}
+
+/// P1 — lifecycle of one immutable version of a workflow graph (ADR-002).
+enum WorkflowVersionStatus {
+  DRAFT
+  PUBLISHED
+  DEPRECATED
+  ARCHIVED
+}
+
+/// P1 — coarse grouping for the workflow library/marketplace.
+enum WorkflowCategory {
+  HR
+  RECRUITMENT
+  MARKETING
+  SALES
+  SUPPORT
+  FINANCE
+  OPERATIONS
+  IT
+  COMPLIANCE
+  CUSTOM
+}
+
+/// P3-06 (doc 09 §9.C.5) — who a WorkflowPermission grant targets.
+enum WorkflowPermissionSubjectType {
+  USER
+  ROLE
+  DEPARTMENT
+  TEAM
+  EMPLOYEE
+}
+
+/// P3-06 (doc 09 §9.C.5) — what a WorkflowPermission grant allows on a workflow.
+enum WorkflowPermissionAction {
+  VIEW
+  EDIT_GRAPH
+  UPDATE
+  PUBLISH
+  RUN
+  DELETE
+  MANAGE_PERMISSIONS
 }
 
 enum ApprovalStatus {
   PENDING
   APPROVED
   REJECTED
+  // P3-05 §8.2 — a routed level whose SLA breached and escalated to the next tier
+  // (terminal for THIS row; a new PENDING row is created for the next tier).
+  ESCALATED
+  // P3-05 §8.2 — SLA breached, escalation chain exhausted, onTimeout=NONE (terminal).
+  EXPIRED
+}
+
+/// P3-05 §8.1 — how an ApprovalRequest level resolves WHO must decide. null on the
+/// row = unrouted (legacy): canDecide falls back to today's exact OWNER/ADMIN rule.
+enum ApproverRuleType {
+  USER
+  ROLE
+  DEPARTMENT
+  TEAM
+  EMPLOYEE_MANAGER
+  ANY_ADMIN
 }
 
 // What an approval request gates. TOOL (default) is a high-risk AI-employee tool
@@ -150,9 +226,18 @@ enum Plan {
   ENTERPRISE
 }
 
+/// Decision D4 (settled 2026-08-01): the canonical spelling across this schema is
+/// the DOUBLE-L `CANCELLED`, matching `SlotStatus.CANCELLED` and
+/// `WorkflowRunStatus.CANCELLED` and doc 00 §0.7.1.
+///
+/// `CANCELED` (single L) is retained ONLY because Postgres cannot drop an enum
+/// value. It is backfilled to `CANCELLED` by migration and is never written
+/// again — treat it as legacy-read-only.
 enum SubscriptionStatus {
   ACTIVE
   PAST_DUE
+  CANCELLED
+  /// @deprecated legacy single-L spelling — never write this.
   CANCELED
 }
 
@@ -170,6 +255,14 @@ model Company {
   description String?
   // Set when the AI Onboarding Wizard is completed; null = not yet onboarded.
   onboardedAt DateTime?
+  // Resumable minimal onboarding (server-side, survives refresh/logout/device):
+  // onboardingStep = furthest step reached; onboardingRoles = the AI Employees
+  // selected in step 2 (source of truth for goal reconciliation, distinct from
+  // hired employees which are never destructively removed); businessGoals =
+  // step-3 preferences (NOT authorization — never consulted for RBAC).
+  onboardingStep  String?
+  onboardingRoles String[] @default([])
+  businessGoals   String[] @default([])
   createdAt   DateTime  @default(now())
 
   users                       User[]
@@ -198,6 +291,10 @@ model Company {
   planeWorkspace              PlaneWorkspace?
   planeProjects               PlaneProject[]
   trackedIssues               TrackedIssue[]
+  staffMembers                StaffMember[]
+  workflowTemplates           WorkflowTemplate[]
+  workflowPermissions         WorkflowPermission[]
+  assistSessions              AssistSession[]
 }
 
 // Minimal who-did-what trail (founder-market-readiness-audit.md §6/§4: full
@@ -255,7 +352,70 @@ model User {
   status       UserStatus @default(ACTIVE)
   createdAt    DateTime   @default(now())
 
+  // Email verification (OTP). `emailVerifiedAt` null = unverified. The code is
+  // stored HASHED (never plaintext), single-use, time-limited. While the mail
+  // sender is disabled (MAIL_ENABLED=false) the code is the fixed dev OTP.
+  emailVerifiedAt           DateTime?
+  verificationCodeHash      String?
+  verificationCodeExpiresAt DateTime?
+  verificationSentAt        DateTime?
+
+  // Password-reset OTP (parallel to the verification OTP). Recovery is
+  // OTP-based: forgot-password issues a code (fixed dev OTP while mail is off),
+  // verify-reset-otp checks it and mints a single-use PasswordResetToken. Stored
+  // HASHED, time-limited, cleared on use.
+  passwordResetCodeHash      String?
+  passwordResetCodeExpiresAt DateTime?
+
+  // --- P3-05 §8.0.4 org-structure links (required for DEPARTMENT/TEAM/EMPLOYEE_MANAGER
+  // approval routing to resolve to a decider). All nullable/additive.
+  departmentId     String?
+  department       Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  teamId           String?
+  team             Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  managerUserId    String?
+  manager          User?        @relation("UserManager", fields: [managerUserId], references: [id], onDelete: SetNull)
+  directReports    User[]       @relation("UserManager")
+  managedEmployees AiEmployee[] @relation("AiEmployeeManager")
+  passwordResetTokens PasswordResetToken[]
+  refreshTokens       RefreshToken[]
+
   @@unique([companyId, email])
+  @@index([companyId, departmentId])
+  @@index([companyId, teamId])
+}
+
+// Password-reset tokens. The raw token lives ONLY in the emailed link; we store
+// a SHA-256 of it (the token is 256-bit random, so a fast hash is safe here and
+// enables O(1) lookup). Single-use (usedAt), short-lived (expiresAt); a new
+// request invalidates a user's prior unused tokens.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// Refresh-token session store — the stateful layer that makes the (otherwise
+// stateless) refresh JWT REVOCABLE. We store a sha256 of the issued refresh
+// token; refresh rotates (revokes the old row, writes a new one), logout revokes
+// the presented one, and password reset revokes all of a user's tokens. Access
+// tokens stay short-lived JWTs (≤15m); this bounds the refresh side.
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 // --- Knowledge / RAG -------------------------------------------------------
@@ -319,6 +479,9 @@ model AiEmployee {
   // Rich employee configuration (Step 5). All optional; sensible defaults apply.
   department        String?
   managerName       String?
+  // P3-05 §8.0.4 — real FK for EMPLOYEE_MANAGER approval routing (managerName kept as display fallback).
+  managerUserId     String?
+  managerUser       User?           @relation("AiEmployeeManager", fields: [managerUserId], references: [id], onDelete: SetNull)
   workingHoursStart String?
   workingHoursEnd   String?
   timezone          String?
@@ -445,7 +608,8 @@ model InstalledSkill {
   inboundCursor     String?
   createdAt         DateTime              @default(now())
 
-  employees EmployeeSkill[]
+  employees          EmployeeSkill[]
+  workflowSecretRefs WorkflowSecretRef[]
 
   @@unique([companyId, skillKey, employeeId])
   @@index([companyId])
@@ -507,8 +671,55 @@ model Workflow {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  runs WorkflowRun[]
+  // --- P1 versioning (docs 01 / 12 / 16) ------------------------------------
+  // `definition` above is DEPRECATED but deliberately NOT dropped: the legacy
+  // walk still reads it while WORKFLOW_ENGINE_MODE=legacy_walk, and it is the
+  // rollback path for the version backfill.
+  // @unique because these are 1-1: a given version can be the active (or draft)
+  // version of at most one workflow — it belongs to exactly one workflow.
+  activeVersionId String?           @unique
+  activeVersion   WorkflowVersion?  @relation("ActiveVersion", fields: [activeVersionId], references: [id], onDelete: SetNull)
+  draftVersionId  String?           @unique
+  draftVersion    WorkflowVersion?  @relation("DraftVersion", fields: [draftVersionId], references: [id], onDelete: SetNull)
+  versions        WorkflowVersion[] @relation("WorkflowVersions")
 
+  category   WorkflowCategory?
+  archivedAt DateTime?
+
+  // P3-06 (doc 09 §9.C.6) — the creator; a workflow owner (even a MEMBER) may
+  // manage its permissions / share it. Null on workflows created before P3-06.
+  ownerUserId String?
+
+  // --- P3-02 template provenance (doc 19 §6.1) ------------------------------
+  // Install performs a deep COPY with provenance recorded but NO live link — a
+  // (possibly third-party) template author must never be able to change a
+  // customer's running automation. Upgrades are OFFERED, never applied.
+  sourceTemplateId      String?
+  sourceTemplateVersion Int?
+
+  // --- Orlixa AI Assist (doc 30) --------------------------------------------
+  /// Throwaway workflow created only so the assist can DRY-RUN a draft through
+  /// the real engine (doc 30 §13.1). Excluded from GET /workflows and swept if
+  /// a crash leaks one. Never set on a workflow a human created.
+  isAssistScratch       Boolean @default(false)
+  /// Provenance: the assist session this workflow was accepted from. Answers
+  /// "who built this and how"; the session may later be deleted, which must
+  /// never cascade to the workflow.
+  assistSessionId       String?
+  // Idempotency for POST /workflow-templates/:id/install (doc 19 §11-14): a
+  // repeated Idempotency-Key returns the original workflow, never a duplicate.
+  // Partial-unique per tenant (mirrors WorkflowRun.idempotencyKey).
+  installIdempotencyKey String?
+
+  runs        WorkflowRun[]
+  // P2-01: stored variable VALUES and secret REFERENCES. Both are keyed to the
+  // workflow, not a version — values are mutable and outlive any one version.
+  variables   WorkflowVariable[]
+  secretRefs  WorkflowSecretRef[]
+  // P3-06 (doc 09 §9.C.5) — access-control grants scoping this workflow.
+  permissions WorkflowPermission[]
+
+  @@unique([companyId, installIdempotencyKey])
   @@index([companyId])
 }
 
@@ -541,11 +752,41 @@ model WorkflowRun {
   finishedAt     DateTime?
   createdAt      DateTime          @default(now())
 
-  steps WorkflowStepRun[]
+  // --- P1 durable state machine (docs 05 / 16) ------------------------------
+  // NULLABLE ON PURPOSE: runs created before the version backfill have no
+  // version. Never backfilled to a guess — null means "pre-versioning" and the
+  // engine handles that branch explicitly.
+  workflowVersionId String?
+  workflowVersion   WorkflowVersion? @relation(fields: [workflowVersionId], references: [id], onDelete: SetNull)
 
+  idempotencyKey   String?
+  deadlineAt       DateTime?
+  /// RunFailureClass (doc 00 §0.7.1) as a STRING, not a DB enum — adding a
+  /// failure class must not require a migration.
+  failureClass     String?
+  actingEmployeeId String?
+  startedByUserId  String?
+
+  steps    WorkflowStepRun[]
+  attempts WorkflowStepAttempt[]
+  timers   WorkflowRunTimer[]
+  joins    WorkflowJoinState[]
+  outbox   RunEventOutbox[]
+
+  /// Partial by nature: NULL idempotencyKeys do not collide in Postgres.
+  @@unique([companyId, idempotencyKey])
   @@index([companyId])
   // Lineage lookups: WorkflowRun(s) triggered by a given CanonicalEvent.
   @@index([companyId, triggerEventId])
+  @@index([companyId, workflowId, createdAt])
+  @@index([companyId, workflowVersionId])
+  // Reaper sweep — intentionally NOT tenant-prefixed: it is a cross-tenant
+  // background scan. The query still re-reads each row's own companyId.
+  @@index([status, deadlineAt])
+  // "Active runs for this tenant" (dashboard, analytics) and the basis for the
+  // stuck-run sweep. Previously only companyId was indexed, so every
+  // status-filtered listing scanned the tenant's whole run history.
+  @@index([companyId, status])
 }
 
 model WorkflowStepRun {
@@ -563,7 +804,20 @@ model WorkflowStepRun {
   finishedAt DateTime?
   createdAt  DateTime      @default(now())
 
+  // P1: the current attempt number for this step (1-based). Attempt history
+  // lives in WorkflowStepAttempt.
+  attempt  Int                   @default(1)
+  attempts WorkflowStepAttempt[]
+
   @@index([companyId])
+  // LIVE DEFECT FIX: WorkflowsService.getRun() polls this table via
+  // `include: { steps }` (≈1 req/s per open run in the UI run log), emitting
+  // WHERE "runId" = $1. The only index was on companyId, so every poll was a
+  // sequential scan of the highest-volume table in the system.
+  @@index([runId])
+  // Timeline reads and WorkflowEngine.completePausedApproval(), which looks up
+  // a RUNNING step of a given type for a run.
+  @@index([runId, status])
 }
 
 // --- Approval Center -------------------------------------------------------
@@ -594,8 +848,46 @@ model ApprovalRequest {
   note           String?
   createdAt      DateTime       @default(now())
 
+  // --- P3-05 §8.1 routing + multi-level chains (all additive, no existing column changes) ---
+  /// Groups every row of one logical decision. Equals this row's own id for the first
+  /// row of a fresh chain (§8.1.10 id-generation); inherited by every later level/tier row.
+  chainId           String            @default("")
+  /// 1-based sequential business-required sign-off step.
+  level             Int               @default(1)
+  /// 0-based escalation fallback within `level` (0 = the level's own configured rule).
+  escalationTier    Int               @default(0)
+  /// Resolved to one user for USER/EMPLOYEE_MANAGER rules; null for a pool rule or unrouted row.
+  assigneeUserId    String?
+  /// null = unrouted: canDecide() falls back to EXACTLY today's OWNER/ADMIN rule.
+  approverRuleType  ApproverRuleType?
+  /// The raw configured target (userId | Role | Department.id | Team.id); null for computed/unrouted.
+  approverRuleValue String?
+  // --- P3-05 §8.2 SLA (populated by routing; acted on by the sweep in a later increment) ---
+  /// SLA deadline for THIS row. Null = no SLA configured for this level.
+  dueAt             DateTime?
+  slaMinutes        Int?
+  /// Snapshot of the level's onTimeout that applied to this row.
+  timeoutPolicy     String?
+  /// True when status became APPROVED/REJECTED via the timeout policy, not a human.
+  autoDecided       Boolean           @default(false)
+  /// Points at the row created when THIS row breached SLA and escalated. Plain pointer, NOT an FK.
+  escalatedToId     String?
+  /// The FULL ApprovalRoutingConfig captured once at chain creation; identical across the chain.
+  /// Never serialised to any DTO (§8.1.6) — internal only.
+  routingSnapshot   Json?
+
   @@index([companyId])
   @@index([companyId, status])
+  // The G25 approval gate looks up "is this run+tool already approved?" on every
+  // gated TOOL_ACTION step (workflow-engine.service.ts). workflowRunId was
+  // unindexed, so that check scanned the tenant's whole approval history.
+  @@index([companyId, workflowRunId])
+  // P3-05 §8.1 — chain history reads + the "my approval inbox" (assignedToMe) view.
+  @@index([companyId, chainId])
+  @@index([companyId, assigneeUserId, status])
+  // P3-05 §8.2 — the cross-tenant SLA sweep queries WHERE status='PENDING' AND dueAt<=now()
+  // WITHOUT a companyId filter, so a leading-companyId index cannot serve it.
+  @@index([status, dueAt])
 }
 
 // --- Billing & Subscription (Steps 1 + 13) ---------------------------------
@@ -636,6 +928,7 @@ model Department {
   createdAt   DateTime @default(now())
 
   teams Team[]
+  users User[] // P3-05 §8.1.5 mechanical inverse of User.department
 
   @@unique([companyId, name])
   @@index([companyId])
@@ -650,21 +943,25 @@ model Team {
   department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   createdAt    DateTime    @default(now())
 
+  users User[] // P3-05 §8.1.5 mechanical inverse of User.team
+
   @@unique([companyId, name])
   @@index([companyId])
 }
 
 model SecurityPolicy {
-  id                    String   @id @default(cuid())
-  companyId             String   @unique
-  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  passwordMinLength     Int      @default(8)
-  mfaRequired           Boolean  @default(false)
-  sessionTimeoutMinutes Int      @default(0)
-  allowedEmailDomains   String[] @default([])
-  dataRetentionDays     Int      @default(0)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id                        String   @id @default(cuid())
+  companyId                 String   @unique
+  company                   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  passwordMinLength         Int      @default(8)
+  mfaRequired               Boolean  @default(false)
+  sessionTimeoutMinutes     Int      @default(0)
+  allowedEmailDomains       String[] @default([])
+  dataRetentionDays         Int      @default(0)
+  // P3-05 §8.1.5 — default SLA (minutes) for a routing level that omits its own slaMinutes.
+  defaultApprovalSlaMinutes Int?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 }
 
 // --- Connector Event Ingestion (Unit A) ------------------------------------
@@ -954,13 +1251,13 @@ model SupportMessage {
 }
 
 model PlaneWorkspace {
-  id                 String   @id @default(cuid())
-  companyId          String   @unique
-  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id                 String         @id @default(cuid())
+  companyId          String         @unique
+  company            Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   planeWorkspaceSlug String
-  apiToken           String   // CryptoService-encrypted at rest
-  webhookSecret      String   // CryptoService-encrypted at rest
-  createdAt          DateTime @default(now())
+  apiToken           String // CryptoService-encrypted at rest
+  webhookSecret      String // CryptoService-encrypted at rest
+  createdAt          DateTime       @default(now())
   projects           PlaneProject[]
 
   @@index([companyId])
@@ -994,4 +1291,485 @@ model TrackedIssue {
 
   @@index([companyId])
   @@index([companyId, planeIssueId])
+}
+
+// ============================================================================
+//  P1 RUNTIME — durable execution state machine
+//  Specs: docs/architecture/workflow-system/05-execution-engine.md (L1),
+//         16-workflow-runtime-spec.md (L2), 12-database.md.
+//  All additive: nothing above is dropped or narrowed.
+// ============================================================================
+
+/// One immutable version of a workflow graph (ADR-002). Immutability once
+/// PUBLISHED is enforced in the SERVICE layer, not by a DB trigger: a trigger
+/// would block legitimate admin repair and is invisible to anyone reading this
+/// schema.
+///
+/// Declared variables live inside `definition`; stored variable VALUES belong to
+/// the Workflow, not the version. Do not add a variables relation here.
+model WorkflowVersion {
+  id         String   @id @default(cuid())
+  /// Denormalised from Workflow so tenant filters never need a join.
+  companyId  String
+  workflowId String
+  workflow   Workflow @relation("WorkflowVersions", fields: [workflowId], references: [id], onDelete: Cascade)
+
+  version    Int
+  status     WorkflowVersionStatus @default(DRAFT)
+  /// The frozen graph (doc 14 JSON contract).
+  definition Json
+
+  publishedAt   DateTime?
+  publishedById String?
+  changeNote    String?
+  createdAt     DateTime  @default(now())
+
+  runs      WorkflowRun[]
+  activeFor Workflow?     @relation("ActiveVersion")
+  draftFor  Workflow?     @relation("DraftVersion")
+
+  @@unique([workflowId, version])
+  @@index([companyId, workflowId])
+}
+
+/// One attempt at one node. The highest-volume table in the system (design
+/// target 10M rows/day), so indexes are deliberately minimal — every index is a
+/// write cost paid on every attempt.
+model WorkflowStepAttempt {
+  id        String          @id @default(cuid())
+  companyId String
+  runId     String
+  run       WorkflowRun     @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stepId    String
+  step      WorkflowStepRun @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  attempt Int
+  status  StepRunStatus @default(PENDING)
+
+  /// Lease (doc 16 §6.3): claimed by a guarded single-statement UPDATE, renewed
+  /// by a heartbeat, expiring so a dead worker's attempt is reaped.
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+
+  /// Set when a worker died BETWEEN the side effect and its bookkeeping commit
+  /// (doc 16 §6.5). Such an attempt is never auto-retried — re-running a
+  /// possibly-completed side effect is worse than surfacing it to a human.
+  outcomeUnknown Boolean @default(false)
+
+  /// sha256(runId:nodeId:attempt) — per ATTEMPT, so a retry may legitimately
+  /// re-issue the call (the previous one may have failed before reaching the
+  /// provider).
+  idempotencyKey String?
+
+  error        String?
+  failureClass String?
+  output       Json?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([stepId, attempt])
+  @@index([runId, attempt])
+  /// Reaper: expired leases. Cross-tenant by design (see WorkflowRun note).
+  @@index([leaseExpiresAt])
+}
+
+/// A durable timer: a WAIT, a run deadline, or an approval SLA.
+model WorkflowRunTimer {
+  id        String      @id @default(cuid())
+  companyId String
+  runId     String
+  run       WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  nodeId  String
+  /// 'WAIT' | 'DEADLINE' | 'APPROVAL_SLA'
+  kind    String
+  /// Always computed from the DATABASE clock (now() + interval), never
+  /// Date.now() — workers disagree about the time (doc 16 E6).
+  fireAt  DateTime
+  firedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([fireAt])
+  @@index([runId])
+}
+
+/// Fan-in state for a PARALLEL/JOIN pair.
+model WorkflowJoinState {
+  id        String      @id @default(cuid())
+  companyId String
+  runId     String
+  run       WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  joinNodeId  String
+  expected    Int
+  /// Incremented with an atomic `UPDATE ... SET arrived = arrived + 1`.
+  /// Never read-then-write: that loses a lane under contention.
+  arrived     Int    @default(0)
+  laneOutputs Json?
+
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([runId, joinNodeId])
+  @@index([runId])
+}
+
+/// Transactional outbox: written in the SAME transaction as the state change it
+/// describes, then published by a relay. A direct publish would either fire for
+/// a rolled-back transaction or be lost on crash.
+///
+/// This is a QUEUE, not a log — published rows are pruned (doc 16 §17).
+model RunEventOutbox {
+  /// BigInt autoincrement: `seq` ordering comes from the DATABASE, not from
+  /// workers racing. The envelope field is `seq`, NOT `sequence` (doc 14 §14.B.7).
+  id        BigInt      @id @default(autoincrement())
+  companyId String
+  runId     String
+  run       WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  eventType String
+  /// Never contains a secret or resolved credential — surfaced in DLQ dumps.
+  payload   Json
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  /// The relay's only query: unpublished, in order.
+  @@index([publishedAt, id])
+  @@index([runId])
+}
+
+/// P2-01 — a workflow variable's stored VALUE.
+///
+/// Keyed to the WORKFLOW, not a version: declared variables are versioned
+/// (inside WorkflowVersion.definition), but their stored values are mutable and
+/// outlive any single version. Conflating the two was a real review defect.
+model WorkflowVariable {
+  id         String   @id @default(cuid())
+  companyId  String
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  key   String
+  /// VariableScope (doc 00 §0.7.1) as a string — adding a scope must not need a
+  /// migration. Only RUNTIME / WORKFLOW / OUTPUT are writable by a graph.
+  scope String
+  /// VariableType.
+  type  String
+  value Json?
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([workflowId, scope, key])
+  @@index([companyId, workflowId])
+}
+
+/// P2-01 — a REFERENCE to a secret, never the secret itself.
+///
+/// The value is resolved at execution time through the connector layer. Storing
+/// it here (or in node config) would persist it into the immutable version JSON,
+/// which surfaces in run history and DLQ dumps.
+model WorkflowSecretRef {
+  id         String   @id @default(cuid())
+  companyId  String
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  key              String
+  installedSkillId String
+  installedSkill   InstalledSkill @relation(fields: [installedSkillId], references: [id], onDelete: Cascade)
+  /// Which field on the connector's credentials this refers to.
+  fieldName        String
+
+  createdAt DateTime @default(now())
+
+  @@unique([workflowId, key])
+  @@index([companyId, workflowId])
+}
+
+// ============================================================================
+// HR STAFF RECORDS (Wave P3-01) — the customer's human workforce.
+// Authoritative DDL: docs/architecture/database/2026-08-01-complete-database-design.md
+// §HR (2072-2192), reconciling the 12-database.md vs 03-ai-employees.md conflict
+// (ledger C6 — AttendanceRecord + StaffDocument.aiConfidence merged in).
+//
+// Tenancy: only StaffMember carries a formal `company Company @relation`; the five
+// satellites carry a plain `companyId` column + index (§5.7 convention, same as
+// SkillExecution / RawEvent) and cascade off StaffMember.
+//
+// Special-category / personal PII is encrypted at rest at the APPLICATION layer
+// via CryptoService (AES-256-GCM envelope stored in the same String column) — see
+// modules/hr/hr-pii.util.ts (HR_PII_FIELDS). Encrypted columns are never indexed
+// or used in WHERE, so ciphertext-at-rest breaks no query. Fields marked 🔒 below.
+// ============================================================================
+
+// A single roster spanning CANDIDATE → … → EXITED as one status transition, not a
+// Candidate/Employee hand-off between two systems.
+model StaffMember {
+  id             String    @id @default(cuid())
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId         String?   @unique // optional link to a platform login — not a formal @relation (§5.7)
+  employeeCode   String?
+  fullName       String
+  workEmail      String?
+  personalEmail  String? // 🔒 personal PII (encrypted at rest)
+  phone          String? // 🔒 personal PII (encrypted at rest)
+  departmentId   String? // not a formal @relation, matching this model's own convention (§5.7)
+  managerStaffId String? // not a formal @relation, matching this model's own convention (§5.7)
+  jobTitle       String?
+  employmentType String? // FULL_TIME | PART_TIME | CONTRACT | INTERN
+  status         String    @default("ACTIVE") // CANDIDATE|ONBOARDING|ACTIVE|ON_LEAVE|EXITING|EXITED
+  hiredAt        DateTime?
+  exitedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  leaveRequests     LeaveRequest[]
+  documents         StaffDocument[]
+  reviews           PerformanceReview[]
+  onboarding        OnboardingTask[]
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([companyId, employeeCode])
+  @@index([companyId, status])
+  @@index([companyId, departmentId])
+}
+
+model LeaveRequest {
+  id                String      @id @default(cuid())
+  companyId         String
+  staffId           String
+  staff             StaffMember @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  leaveType         String // ANNUAL | SICK | UNPAID | PARENTAL | OTHER
+  startDate         DateTime    @db.Date
+  endDate           DateTime    @db.Date
+  days              Float
+  reason            String? // 🔒🔒 SPECIAL-CATEGORY PII (health/sick-leave) — encrypted at rest
+  status            String      @default("PENDING") // PENDING|APPROVED|REJECTED|CANCELLED
+  approvalRequestId String? // links to the Approval Center when routed
+  decidedAt         DateTime?
+  createdAt         DateTime    @default(now())
+
+  @@index([companyId, staffId, status])
+  @@index([companyId, startDate])
+}
+
+model StaffDocument {
+  id               String      @id @default(cuid())
+  companyId        String
+  staffId          String
+  staff            StaffMember @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  docType          String // ID | VISA | CONTRACT | CERTIFICATE | OTHER (e.g. passports)
+  storageKey       String // the scan lives in object storage, never in Postgres
+  fileName         String // 🔒 can leak identity — encrypted at rest
+  mimeType         String
+  verifiedAt       DateTime?
+  verifiedByUserId String?
+  aiConfidence     Float? // AI extraction/classification confidence (C6, merged from DocumentVerificationRecord)
+  expiresAt        DateTime?
+  createdAt        DateTime    @default(now())
+
+  @@index([companyId, staffId])
+  @@index([companyId, expiresAt]) // "documents expiring soon" — a real HR workflow trigger
+}
+
+model PerformanceReview {
+  id             String      @id @default(cuid())
+  companyId      String
+  staffId        String
+  staff          StaffMember @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  periodStart    DateTime    @db.Date
+  periodEnd      DateTime    @db.Date
+  reviewerUserId String?
+  aiDraft        String? // 🔒 sensitive AI draft (encrypted at rest, kept separate from final)
+  finalReview    String? // 🔒 sensitive (encrypted at rest)
+  rating         Int?
+  status         String      @default("DRAFT") // DRAFT|IN_REVIEW|SHARED|ACKNOWLEDGED
+  createdAt      DateTime    @default(now())
+
+  @@index([companyId, staffId])
+}
+
+model OnboardingTask {
+  id          String      @id @default(cuid())
+  companyId   String
+  staffId     String
+  staff       StaffMember @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  title       String
+  ownerType   String // AI_EMPLOYEE | HUMAN
+  ownerId     String?
+  dueAt       DateTime?
+  completedAt DateTime?
+  runId       String? // the workflow run that created/owns this task, for traceability
+  createdAt   DateTime    @default(now())
+
+  @@index([companyId, staffId])
+  @@index([companyId, completedAt])
+}
+
+model AttendanceRecord {
+  id        String      @id @default(cuid())
+  companyId String
+  staffId   String
+  staff     StaffMember @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  date      DateTime    @db.Date
+  status    String // PRESENT | ABSENT | LATE | HALF_DAY | ON_LEAVE
+  note      String?
+  createdAt DateTime    @default(now())
+
+  @@unique([staffId, date])
+  @@index([companyId])
+  @@index([companyId, staffId, date])
+}
+
+// ============================================================================
+// WORKFLOW TEMPLATES (Wave P3-02) — installable, parameterised workflow blueprints.
+// See docs/architecture/workflow-system/19-workflow-templates-spec.md.
+// ============================================================================
+
+model WorkflowTemplate {
+  id String @id @default(cuid())
+
+  /// NULL = first-party, code-defined and trusted (seeded from the catalog).
+  /// Non-null = tenant-authored; its definition must pass the SAME publish
+  /// validation as a user graph, and may not contain DB_QUERY or inline creds.
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  key         String
+  version     Int
+  name        String
+  description String?
+  category    WorkflowCategory
+  /// The graph (doc 14 JSON) with {{param.*}} placeholders — resolved at install.
+  definition  Json
+  /// TemplateParameter[] (doc 19 §6.3).
+  parameters  Json
+  /// { skills: string[], employeeRoles: EmployeeRole[], minPlan?: Plan }.
+  requires    Json
+  status      WorkflowVersionStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+
+  // Uniqueness is per OWNER, not global: tenant B authoring key "foo" must not
+  // collide with tenant A's "foo" (cross-tenant coupling). First-party rows carry
+  // companyId = NULL; Postgres treats NULLs as distinct so this does NOT dedupe
+  // them at the DB level — the boot seeder upserts them idempotently instead.
+  @@unique([companyId, key, version])
+  @@index([category, status])
+}
+
+// ============================================================================
+// WORKFLOW PERMISSIONS (Wave P3-06) — per-workflow access-control grants.
+// See docs/architecture/workflow-system/09-permissions.md §9.C.5. A grant ties a
+// subject (a user / role / department / team / AI employee) to an action on one
+// workflow. `workflow:run` is checked at ENQUEUE (doc 16 §21). A workflow with NO
+// grants is open to any member (back-compat); adding RUN grants restricts it.
+// ============================================================================
+
+model WorkflowPermission {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  subjectType     WorkflowPermissionSubjectType
+  /// User.id | Role value | Department.id | Team.id | AiEmployee.id (by subjectType).
+  subjectId       String
+  action          WorkflowPermissionAction
+  grantedByUserId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([workflowId, subjectType, subjectId, action])
+  @@index([companyId, workflowId]) // "grants on this workflow" (hot path)
+  @@index([companyId, subjectType, subjectId]) // "this subject's grants"
+}
+
+// ── Orlixa AI Assist (doc 30) ────────────────────────────────────────────────
+// The conversational workflow builder. Sessions are the agent's working
+// material: the in-progress graph lives here as `draftDefinition` and only
+// becomes a real Workflow when a human accepts it (doc 30 AD-30-05), so an
+// abandoned conversation never litters /workflows.
+
+enum AssistSessionStatus {
+  ACTIVE
+  COMPLETED
+  /// Hit the per-session token budget. The draft survives and is still acceptable.
+  EXHAUSTED
+  ARCHIVED
+}
+
+enum AssistMessageRole {
+  USER
+  ASSISTANT
+  /// A structured clarifying form the agent asked (doc 30 §11).
+  QUESTION
+  /// The user's typed answers to a QUESTION.
+  ANSWER
+  /// An inline "connect this skill" card (doc 30 §12).
+  CONNECTION
+  /// The result of a dry-run self-test (doc 30 §13.2).
+  TEST
+  /// Seeded context, e.g. the failing step when entered via "Fix with AI".
+  SYSTEM
+}
+
+model AssistSession {
+  id        String              @id @default(cuid())
+  companyId String
+  company   Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// Author. Sessions are PRIVATE to their author (doc 30 §7): a half-built
+  /// draft is working material and the transcript carries their raw business
+  /// context. Admins may delete, not read.
+  userId    String
+  title     String
+  status    AssistSessionStatus @default(ACTIVE)
+
+  /// The in-progress graph. NOT a Workflow until accepted.
+  draftDefinition Json?
+  /// Bumped on every mutation; powers optimistic UI + stale-patch rejection.
+  draftVersion    Int   @default(0)
+
+  /// Set when this session EDITS an existing workflow instead of creating one.
+  targetWorkflowId  String?
+  /// Set once accepted — the workflow that came out of this conversation.
+  createdWorkflowId String?
+  /// Seeded when entered via "Fix with AI" from a failed run.
+  originRunId       String?
+
+  promptTokens     Int @default(0)
+  completionTokens Int @default(0)
+
+  messages AssistMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, userId, updatedAt])
+  @@index([companyId, status])
+}
+
+model AssistMessage {
+  id        String        @id @default(cuid())
+  sessionId String
+  session   AssistSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  companyId String
+
+  role     AssistMessageRole
+  content  String            @db.Text
+  /// Role-specific payload: ASSISTANT → {toolTrace,graphVersion,unresolved};
+  /// QUESTION → the form; ANSWER → submitted values; CONNECTION → {skillKey…};
+  /// TEST → the AssistTestResult.
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@index([companyId])
 }

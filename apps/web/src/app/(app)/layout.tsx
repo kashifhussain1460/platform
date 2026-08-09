@@ -25,21 +25,28 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const status = useSessionStore((s) => s.status);
   const company = useSessionStore((s) => s.company);
+  const user = useSessionStore((s) => s.user);
+  const verified = Boolean(user?.emailVerified);
   const onboarded = Boolean(company?.onboardedAt);
   const onOnboarding = pathname === '/onboarding';
 
+  // Deterministic post-auth routing: EMAIL_UNVERIFIED → verify, then
+  // ONBOARDING_INCOMPLETE → wizard, else the app. /verify-email lives in the
+  // (auth) group, so an unverified user in a protected route is sent there.
   useEffect(() => {
     if (status === 'guest') {
       router.replace('/login');
     } else if (status === 'authenticated') {
-      if (!onboarded && !onOnboarding) router.replace('/onboarding');
+      if (!verified) router.replace('/verify-email');
+      else if (!onboarded && !onOnboarding) router.replace('/onboarding');
       else if (onboarded && onOnboarding) router.replace('/dashboard');
     }
-  }, [status, onboarded, onOnboarding, router]);
+  }, [status, verified, onboarded, onOnboarding, router]);
 
   if (status === 'loading') return <FullScreen>Loading your workspace…</FullScreen>;
   if (status === 'guest') return null;
   // A redirect is pending — render nothing to avoid a flash of the wrong page.
+  if (!verified) return null;
   if (!onboarded && !onOnboarding) return null;
   if (onboarded && onOnboarding) return null;
   return <>{children}</>;
