@@ -18,6 +18,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import type { KnowledgeDocumentDto, SearchResultDto } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.provider';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ListDocumentsQueryDto } from './dto/list-documents-query.dto';
 import { SearchDto } from './dto/search.dto';
@@ -89,9 +91,11 @@ export class KnowledgeController {
   @HttpCode(204)
   remove(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<void> {
-    return this.knowledge.remove(companyId, id);
+    // The caller is passed so the delete is department-scoped and audited.
+    return this.knowledge.remove(companyId, id, user.userId);
   }
 
   @Post('search')

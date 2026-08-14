@@ -1,20 +1,25 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
+import type { Prisma } from '@prisma/client';
 import type { WorkflowDefinition, WorkflowNode } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AttemptLeaseService } from './attempt-lease.service';
 import { LOCK_NOT_ACQUIRED, RunLockService } from './run-lock.service';
 import { RunStateWriter } from './run-state-writer.service';
 import { TraversalService } from './traversal.service';
+import { nextRunnableNode } from './graph';
 import { isTerminalRunStatus } from './run-state';
 import {
+  WF_ADVANCE_JOB,
   WF_ATTEMPT_JOB,
   WF_NODE_ATTEMPT_QUEUE,
   WF_RUN_ADVANCE_QUEUE,
+  wfJobId,
   type AdvanceJobData,
   type NodeAttemptJobData,
 } from './workflow-runtime.constants';
+import { runInJobContext } from '../../common/observability/job-context';
 
 /**
  * P1-04 — the advance worker (doc 16 §6.1).
@@ -39,25 +44,58 @@ export class RunAdvanceProcessor extends WorkerHost {
     private readonly traversal: TraversalService,
     @InjectQueue(WF_NODE_ATTEMPT_QUEUE)
     private readonly attemptQueue: Queue<NodeAttemptJobData>,
+    @InjectQueue(WF_RUN_ADVANCE_QUEUE)
+    private readonly advanceQueue: Queue<AdvanceJobData>,
   ) {
     super();
   }
 
   async process(job: Job<AdvanceJobData>): Promise<void> {
-    const { runId, companyId } = job.data;
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job<AdvanceJobData>): Promise<void> {
+    const { runId, companyId, fromNodeId } = job.data;
 
     const outcome = await this.locks.withRunLock(runId, async () =>
-      this.decide(runId, companyId),
+      this.decide(runId, companyId, fromNodeId ?? null),
     );
 
     if (outcome === LOCK_NOT_ACQUIRED) {
-      // Another worker is advancing this run and will enqueue what comes next.
+      // RE-ENQUEUE, do not drop.
+      //
+      // This used to return, on the reasoning that "another worker is advancing
+      // this run and will enqueue what comes next". That holds for a LINEAR run,
+      // where every advance asks the same question. It is false for fan-in: two
+      // lanes finishing together produce two advances carrying DIFFERENT
+      // `fromNodeId`s, and the one that loses the lock is the one whose lane
+      // arrival never gets recorded — so `WorkflowJoinState.arrived` stalls one
+      // short of `expected` and the JOIN waits for ever.
+      //
+      // An advance is cheap and idempotent, so retrying is always safe; dropping
+      // it never is. Found by the first PARALLEL test ever run against this
+      // engine, which hung with both lanes COMPLETED and no JOIN.
+      await this.advanceQueue.add(
+        WF_ADVANCE_JOB,
+        { runId, companyId, fromNodeId },
+        {
+          delay: LOCK_RETRY_DELAY_MS,
+          removeOnComplete: true,
+          removeOnFail: 100,
+        },
+      );
       return;
     }
   }
 
   /** Runs INSIDE the run's advisory lock. */
-  private async decide(runId: string, companyId: string): Promise<void> {
+  private async decide(
+    runId: string,
+    companyId: string,
+    fromNodeId: string | null,
+  ): Promise<void> {
     const run = await this.prisma.workflowRun.findUnique({
       where: { id: runId },
       include: { workflow: true, workflowVersion: true },
@@ -79,6 +117,10 @@ export class RunAdvanceProcessor extends WorkerHost {
     }
 
     if (run.status === 'PENDING') {
+      // Seed the context BEFORE the first node runs, exactly as the legacy walk
+      // does: `{{trigger.*}}` and persisted WORKFLOW/OUTPUT-scope variables have
+      // to be readable by node 1, not from node 2 onwards.
+      await this.seedContext(run);
       await this.state.transitionRun({
         runId,
         companyId,
@@ -100,7 +142,59 @@ export class RunAdvanceProcessor extends WorkerHost {
       return;
     }
 
-    const next = await this.nextNode(run.id, companyId, definition, run.resumeNodeId);
+    const steps = await this.prisma.workflowStepRun.findMany({
+      where: { runId, companyId },
+      select: {
+        nodeId: true,
+        status: true,
+        branch: true,
+        finishedAt: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // A step that failed terminally ends the run. Without this the advance would
+    // hand the SAME failed node back on every pass and the run would sit RUNNING
+    // for ever — the exact "stuck run" class the reaper exists to notice.
+    const failed = steps.find((s) => s.status === 'FAILED');
+    if (failed) {
+      const step = await this.prisma.workflowStepRun.findFirst({
+        where: { runId, companyId, nodeId: failed.nodeId, status: 'FAILED' },
+        select: { error: true },
+      });
+      await this.state.transitionRun({
+        runId,
+        companyId,
+        to: 'FAILED',
+        error: step?.error ?? `Step "${failed.nodeId}" failed`,
+        resumeNodeId: null,
+        event: 'run.failed',
+        eventData: { failedNodeId: failed.nodeId },
+      });
+      return;
+    }
+
+    let next: WorkflowNode | undefined;
+    try {
+      next = run.resumeNodeId
+        ? definition.nodes.find((n) => n.id === run.resumeNodeId)
+        : nextRunnableNode({ definition, steps, fromNodeId });
+    } catch (error) {
+      // A misconfigured graph (unmatched branch, dangling edge) must fail the run
+      // loudly rather than quietly finish it having skipped everything downstream.
+      await this.state.transitionRun({
+        runId,
+        companyId,
+        to: 'FAILED',
+        error: error instanceof Error ? error.message : String(error),
+        failureClass: 'VALIDATION_ERROR',
+        resumeNodeId: null,
+        event: 'run.failed',
+      });
+      return;
+    }
+
     if (!next) {
       await this.state.transitionRun({
         runId,
@@ -128,10 +222,78 @@ export class RunAdvanceProcessor extends WorkerHost {
       return;
     }
 
+    // ── Author-disabled node: record it SKIPPED and route past it ────────────
+    //
+    // The legacy walk does this inline in its loop; the durable engine did not,
+    // so a node the author had switched OFF was dispatched and EXECUTED — a
+    // deactivated "email the candidate" step would have sent the email. The
+    // graph helper already treats SKIPPED as settled, so the row is all the
+    // routing needs.
+    //
+    // A real SKIPPED row, not a silent hop: the timeline has to explain why a
+    // step produced nothing, or the gap reads as a bug. Routing follows the
+    // FIRST outgoing edge because a disabled node produces no branch selector
+    // to route on. (A disabled TRIGGER is refused at validation — a graph needs
+    // a root.)
+    if (next.disabled) {
+      await this.prisma.workflowStepRun.create({
+        data: {
+          companyId,
+          runId,
+          nodeId: next.id,
+          type: next.type,
+          status: 'SKIPPED',
+          input: (next.config ?? {}) as Prisma.InputJsonObject,
+          startedAt: new Date(),
+          finishedAt: new Date(),
+        },
+      });
+      // Consume the resume pointer if it aimed here, or the next advance would
+      // resolve to this same disabled node and skip it again for ever.
+      if (run.resumeNodeId === next.id) {
+        await this.prisma.workflowRun.update({
+          where: { id: run.id },
+          data: { resumeNodeId: null },
+        });
+      }
+      this.logger.log(
+        `workflow.step.skipped run=${runId} node=${next.id} reason=disabled`,
+      );
+      await this.advanceQueue.add(
+        WF_ADVANCE_JOB,
+        { runId, companyId, fromNodeId: next.id },
+        { removeOnComplete: true, removeOnFail: 100 },
+      );
+      return;
+    }
+
     // A JOIN may only proceed once every fanned-out lane has arrived. Without
     // this the run would sail past the join while lanes were still running, and
     // downstream steps would read half-populated context.
     if (next.type === 'JOIN') {
+      // Collect the arriving lane's output before recording its arrival.
+      //
+      // The legacy walk sets `context.__lanes = laneOutputs` before handing
+      // control to the JOIN; the durable path never did, so a JOIN here always
+      // reported `arrived: 0` and every downstream step saw nothing the lanes
+      // produced. Fan-out worked and fan-IN silently lost the results.
+      if (fromNodeId) {
+        const laneStep = await this.prisma.workflowStepRun.findFirst({
+          where: { runId, companyId, nodeId: fromNodeId },
+          orderBy: { createdAt: 'desc' },
+          select: { output: true },
+        });
+        const lanes = {
+          ...((run.context as Record<string, unknown> | null)?.[
+            LANE_OUTPUT_KEY
+          ] as Record<string, unknown> | undefined),
+          [fromNodeId]: { completed: true, output: laneStep?.output ?? null },
+        };
+        // A jsonb merge, so two lanes arriving at once cannot erase each other
+        // — the exact lost-update the WAVE 1 context fix exists to prevent.
+        await this.state.mergeRunContext(runId, { [LANE_OUTPUT_KEY]: lanes });
+      }
+
       const join = await this.traversal.recordLaneArrival(run.id, next.id);
       if (!join.complete) {
         this.logger.debug(
@@ -141,32 +303,59 @@ export class RunAdvanceProcessor extends WorkerHost {
       }
     }
 
+    // Consume the resume pointer as soon as its node is dispatched. Leaving it
+    // set would make every later advance return to the same node — the run
+    // would re-execute the approval step for ever instead of moving on. If this
+    // process dies before the attempt is queued, the reaper's stuck-run sweep
+    // re-derives the same node from the step rows, so clearing early is safe.
+    if (run.resumeNodeId) {
+      await this.prisma.workflowRun.update({
+        where: { id: run.id },
+        data: { resumeNodeId: null },
+      });
+    }
+
     await this.enqueueAttempt(run.id, companyId, next);
   }
 
   /**
-   * The next node to execute, or undefined when the run is finished.
+   * Seed a fresh run's context, mirroring `WorkflowEngine.run` exactly.
    *
-   * Deliberately simple for the first cutover: resume where told, else the
-   * first node with no completed step. Branch selection continues to be owned
-   * by the legacy walk until the state machine takes over graph traversal —
-   * keeping this wave's blast radius to state management, not routing.
+   * `{{trigger.*}}` and any persisted WORKFLOW/OUTPUT-scope variable must be
+   * readable by the FIRST node. The legacy walk builds this in memory before it
+   * starts; the state machine has no such moment — each node attempt is its own
+   * job that reads the context from the row — so the seed has to be persisted
+   * here, once, on PENDING → RUNNING.
+   *
+   * Stored values are seeded UNDER the trigger, so a value produced by this run
+   * always beats one left behind by a previous run.
    */
-  private async nextNode(
-    runId: string,
-    companyId: string,
-    definition: WorkflowDefinition,
-    resumeNodeId: string | null,
-  ): Promise<WorkflowNode | undefined> {
-    if (resumeNodeId) {
-      return definition.nodes.find((n) => n.id === resumeNodeId);
-    }
-    const done = await this.prisma.workflowStepRun.findMany({
-      where: { runId, companyId, status: { in: ['COMPLETED', 'SKIPPED'] } },
-      select: { nodeId: true },
+  private async seedContext(run: {
+    id: string;
+    companyId: string;
+    workflowId: string;
+    trigger: unknown;
+    context: unknown;
+  }): Promise<void> {
+    const stored = await this.prisma.workflowVariable.findMany({
+      where: {
+        companyId: run.companyId,
+        workflowId: run.workflowId,
+        scope: { in: ['WORKFLOW', 'OUTPUT'] },
+      },
+      select: { key: true, value: true },
     });
-    const doneIds = new Set(done.map((d) => d.nodeId));
-    return definition.nodes.find((n) => !doneIds.has(n.id));
+
+    const existing = (run.context ?? {}) as Record<string, unknown>;
+    const seed: Record<string, unknown> = {};
+    for (const variable of stored) {
+      if (!(variable.key in existing)) seed[variable.key] = variable.value;
+    }
+    if (!('trigger' in existing)) {
+      seed.trigger = (run.trigger as Record<string, unknown> | null) ?? {};
+    }
+
+    await this.state.mergeRunContext(run.id, seed);
   }
 
   /** Create the step + attempt rows, then queue the attempt. */
@@ -191,17 +380,44 @@ export class RunAdvanceProcessor extends WorkerHost {
             },
           }));
 
-        const nextAttempt = step.attempt;
-        const row = await tx.workflowStepAttempt.upsert({
-          where: { stepId_attempt: { stepId: step.id, attempt: nextAttempt } },
-          create: {
+        // Reuse an attempt that has not started; otherwise open the NEXT one.
+        //
+        // The previous code upserted `stepId_attempt: {stepId, attempt: step.attempt}`,
+        // and `step.attempt` is never incremented — so it always resolved to
+        // attempt 1. After an approval pause that row is already COMPLETED, the
+        // upsert's empty `update: {}` returned it unchanged, and the lease could
+        // not be claimed. The run then sat RUNNING for ever with nothing to do:
+        // approval granted, work never resumed.
+        const pending = await tx.workflowStepAttempt.findFirst({
+          where: { stepId: step.id, status: 'PENDING' },
+          orderBy: { attempt: 'desc' },
+        });
+        if (pending) {
+          return {
+            stepId: step.id,
+            attemptId: pending.id,
+            attempt: pending.attempt,
+          };
+        }
+
+        const last = await tx.workflowStepAttempt.findFirst({
+          where: { stepId: step.id },
+          orderBy: { attempt: 'desc' },
+          select: { attempt: true },
+        });
+        const nextAttempt = (last?.attempt ?? 0) + 1;
+        const row = await tx.workflowStepAttempt.create({
+          data: {
             companyId,
             runId,
             stepId: step.id,
             attempt: nextAttempt,
             status: 'PENDING',
           },
-          update: {},
+        });
+        await tx.workflowStepRun.update({
+          where: { id: step.id },
+          data: { attempt: nextAttempt },
         });
         return { stepId: step.id, attemptId: row.id, attempt: nextAttempt };
       },
@@ -213,7 +429,7 @@ export class RunAdvanceProcessor extends WorkerHost {
       {
         // Deduplicated by attempt id: a duplicate advance cannot double-queue
         // the same attempt.
-        jobId: `attempt:${attemptId}`,
+        jobId: wfJobId('attempt', attemptId),
         removeOnComplete: true,
         removeOnFail: 100,
       },
@@ -232,6 +448,12 @@ export class RunAdvanceProcessor extends WorkerHost {
     };
   }
 }
+
+/** Backoff before retrying an advance that lost the run lock. */
+const LOCK_RETRY_DELAY_MS = 200;
+
+/** Where JOIN reads collected lane outputs from (JoinNodeHandler's default). */
+const LANE_OUTPUT_KEY = '__lanes';
 
 /** Mirrors the legacy walk's MAX_WORKFLOW_NODES bound. */
 const MAX_STEPS_PER_RUN = 50;

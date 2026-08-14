@@ -135,8 +135,11 @@ describeIfDb('Journey A — HR admin, from scratch to audited execution', () => 
       .send({ credentials: { token: 'xoxb-journey-test' } })
       .expect(201);
 
-    // 4. Validate (failure path): a cyclic graph is rejected at save time.
-    await request(app.getHttpServer())
+    // 4. Validate (failure path): a cyclic graph SAVES — a half-wired graph is
+    //    the normal state of one being built, and the builder autosaves — but it
+    //    can never be RUN. The check moved off the save path in WAVE 7; it did
+    //    not go away.
+    const doomed = await request(app.getHttpServer())
       .post('/workflows')
       .set(bearer(token))
       .send({
@@ -154,6 +157,11 @@ describeIfDb('Journey A — HR admin, from scratch to audited execution', () => 
           ],
         },
       })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/workflows/${doomed.body.id}/run`)
+      .set(bearer(token))
+      .send({})
       .expect(400);
 
     // 5. Create the real workflow from scratch → DRAFT.

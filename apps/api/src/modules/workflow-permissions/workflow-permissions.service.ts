@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type WorkflowPermission } from '@prisma/client';
+import { AuditLogService } from '../audit/audit-log.service';
 import type {
   CreateWorkflowPermissionDto,
   Role,
@@ -44,7 +45,13 @@ interface RunSubject {
 export class WorkflowPermissionService {
   private readonly logger = new Logger(WorkflowPermissionService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // WAVE 9 §Audit — granting or revoking who may run a workflow is a
+    // privilege change, and privilege changes were leaving no trace at all.
+    // AuditLogService is @Global, so this stays a leaf module.
+    private readonly auditLog: AuditLogService,
+  ) {}
 
   /**
    * Enqueue-time gate (doc 16 §21): may this run's subject run this workflow?
@@ -120,6 +127,21 @@ export class WorkflowPermissionService {
       this.logger.log(
         `workflow-permission.grant company=${companyId} workflow=${workflowId} ${dto.subjectType}:${dto.subjectId} → ${dto.action}`,
       );
+      await this.auditLog.record({
+        companyId,
+        actorUserId: actor.userId,
+        action: 'workflow.permission.granted',
+        entityType: 'WorkflowPermission',
+        entityId: row.id,
+        // Who can now do what, on which workflow — the three things anyone
+        // asking "how did they have access?" needs.
+        metadata: {
+          workflowId,
+          subjectType: dto.subjectType,
+          subjectId: dto.subjectId,
+          permission: dto.action,
+        },
+      });
       return toWorkflowPermissionDto(row);
     } catch (err) {
       if (
@@ -139,12 +161,31 @@ export class WorkflowPermissionService {
     permissionId: string,
   ): Promise<void> {
     await this.assertCanManage(companyId, workflowId, actor);
+    // Read before delete: the row is the only record of WHAT was revoked, and
+    // after `deleteMany` it is gone. An audit entry saying "a grant was
+    // revoked" without naming the subject or the action answers nothing.
+    const existing = await this.prisma.workflowPermission.findFirst({
+      where: { id: permissionId, companyId, workflowId },
+    });
     const result = await this.prisma.workflowPermission.deleteMany({
       where: { id: permissionId, companyId, workflowId },
     });
     if (result.count === 0) {
       throw new NotFoundException('Permission grant not found');
     }
+    await this.auditLog.record({
+      companyId,
+      actorUserId: actor.userId,
+      action: 'workflow.permission.revoked',
+      entityType: 'WorkflowPermission',
+      entityId: permissionId,
+      metadata: {
+        workflowId,
+        subjectType: existing?.subjectType,
+        subjectId: existing?.subjectId,
+        permission: existing?.action,
+      },
+    });
   }
 
   // --- helpers -------------------------------------------------------------

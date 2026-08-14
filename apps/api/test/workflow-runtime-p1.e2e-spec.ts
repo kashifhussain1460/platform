@@ -73,11 +73,26 @@ describeIfDb('P1 durable runtime', () => {
 
   // ── P1-07 cutover flag ─────────────────────────────────────────────────────
 
-  it('defaults every company to the legacy walk — shipping P1 changes nothing', () => {
-    // The single most important safety property of this wave: the new engine is
-    // inert until a tenant is explicitly opted in.
-    expect(mode.modeFor(companyId)).toBe('legacy_walk');
-    expect(mode.usesStateMachine(companyId)).toBe(false);
+  it('defaults every company to the DURABLE engine; legacy_walk is the opt-OUT', () => {
+    // This assertion was inverted in WAVE 9, and the inversion is the point.
+    //
+    // While P1 was landing, "inert until a tenant opts in" was the safety
+    // property that mattered. It then stayed inert: attempts, leases, reaper
+    // recovery and exactly-once side effects were real, tested code that NO run
+    // anywhere ever reached. A safety feature that is off by default is a
+    // feature nobody has, so the default flipped — and this test flips with it,
+    // rather than being deleted, because "which engine runs by default" is
+    // exactly the fact that must never change silently.
+    // Honours an explicit override so a `WORKFLOW_ENGINE_MODE=legacy_walk` run
+    // (the rollback path, which must stay exercisable) does not fail here —
+    // while still failing if the UNSET default ever changes without anyone
+    // saying so.
+    const expected =
+      process.env.WORKFLOW_ENGINE_MODE === 'legacy_walk'
+        ? 'legacy_walk'
+        : 'state_machine';
+    expect(mode.modeFor(companyId)).toBe(expected);
+    expect(mode.usesStateMachine(companyId)).toBe(expected === 'state_machine');
   });
 
   // ── P1-04 guarded transitions + outbox ─────────────────────────────────────

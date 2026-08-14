@@ -8,11 +8,22 @@ import { RunStateWriter } from './run-state-writer.service';
 import {
   WF_ATTEMPT_JOB,
   WF_NODE_ATTEMPT_QUEUE,
+  wfJobId,
   type NodeAttemptJobData,
 } from './workflow-runtime.constants';
 
 /** Reserved context key holding a LOOP's iteration cursor, per loop node. */
 const LOOP_CURSOR_KEY = '__loopCursor';
+
+/** What a loop remembers between iterations. */
+interface LoopCursor {
+  index: number;
+  itemVar: string;
+  bodyNodeId: string;
+  total: number;
+  items?: unknown[];
+  doneNodeId?: string | null;
+}
 
 export type TraversalOutcome =
   /** Nothing special — the advance worker picks the next node normally. */
@@ -104,7 +115,88 @@ export class TraversalService {
       return this.startIteration({ runId, companyId, node, context, result });
     }
 
+    // A completed LOOP BODY drives the next iteration.
+    //
+    // This is what made the durable engine run a loop exactly ONCE. The first
+    // iteration was dispatched by `startIteration`, and then nothing ever
+    // advanced the cursor: the body finished, `applyDirective` fell through to
+    // CONTINUE, and the generic advance walked past the body to whatever edge
+    // followed it. `readLoopCursor` existed for precisely this and had no
+    // caller — wired, never driven, exactly like the runtime itself before
+    // WAVE 1.
+    const iterated = await this.continueLoopIfBody({
+      runId,
+      companyId,
+      nodeId: node.id,
+      context,
+    });
+    if (iterated) return iterated;
+
     return { kind: 'CONTINUE' };
+  }
+
+  /**
+   * If `nodeId` is the body of a loop with an in-flight cursor, advance it.
+   *
+   * Returns DISPATCHED when another iteration was queued, HALTED-equivalent
+   * CONTINUE when the loop is exhausted (so the normal walk resumes from the
+   * body's outgoing edge / the loop's `done` target), or null when this node is
+   * not a loop body at all.
+   */
+  private async continueLoopIfBody(input: {
+    runId: string;
+    companyId: string;
+    nodeId: string;
+    context: Record<string, unknown>;
+  }): Promise<TraversalOutcome | null> {
+    const { runId, companyId, nodeId, context } = input;
+    // Re-read the context: the body's own output was merged after the caller
+    // captured its copy, and the cursor lives in the same column.
+    const run = await this.prisma.workflowRun.findUnique({
+      where: { id: runId },
+      select: { context: true },
+    });
+    const live = (run?.context ?? context) as Record<string, unknown>;
+    const cursors = (live[LOOP_CURSOR_KEY] ?? {}) as Record<
+      string,
+      LoopCursor | undefined
+    >;
+
+    for (const [loopNodeId, cursor] of Object.entries(cursors)) {
+      if (!cursor || cursor.bodyNodeId !== nodeId) continue;
+
+      const { dispatched } = await this.advanceLoopCursor({
+        runId,
+        companyId,
+        loopNodeId,
+        context: live,
+        items: cursor.items ?? [],
+        itemVar: cursor.itemVar,
+        bodyNodeId: cursor.bodyNodeId,
+        nextIndex: cursor.index + 1,
+        doneNodeId: cursor.doneNodeId ?? null,
+      });
+      if (dispatched) return { kind: 'DISPATCHED' };
+
+      // Exhausted. If the LOOP named a `done` target, jump there explicitly —
+      // the body's own outgoing edge normally points back at the loop, so
+      // falling through would re-enter it.
+      //
+      // Written DIRECTLY, not through `transitionRun`: the run is already
+      // RUNNING, and the state writer short-circuits when the status is
+      // unchanged (correctly — it is a *transition* writer). Routing the
+      // pointer through it silently dropped the write and the loop fell out to
+      // its body's edge instead of `done`. `resumeNodeId` is a routing pointer,
+      // not a status, and the advance worker clears it the same way.
+      if (cursor.doneNodeId) {
+        await this.prisma.workflowRun.update({
+          where: { id: runId },
+          data: { resumeNodeId: cursor.doneNodeId },
+        });
+      }
+      return { kind: 'CONTINUE' };
+    }
+    return null;
   }
 
   /**
@@ -217,6 +309,7 @@ export class TraversalService {
       itemVar,
       bodyNodeId,
       nextIndex: 0,
+      doneNodeId: result.iterate!.doneNodeId ?? null,
     });
     return { kind: 'DISPATCHED' };
   }
@@ -237,6 +330,7 @@ export class TraversalService {
     itemVar: string;
     bodyNodeId: string;
     nextIndex: number;
+    doneNodeId?: string | null;
   }): Promise<{ dispatched: boolean }> {
     const {
       runId,
@@ -247,46 +341,49 @@ export class TraversalService {
       itemVar,
       bodyNodeId,
       nextIndex,
+      doneNodeId,
     } = input;
 
     if (nextIndex >= items.length) {
       const cursors = { ...(context[LOOP_CURSOR_KEY] as object | undefined) };
       delete (cursors as Record<string, unknown>)[loopNodeId];
-      await this.prisma.workflowRun.update({
-        where: { id: runId },
-        data: { context: { ...context, [LOOP_CURSOR_KEY]: cursors } as never },
-      });
+      // W1-c: patch ONLY the cursor key. Writing the whole context back would
+      // clobber any key a concurrent lane committed while this loop was running.
+      await this.state.mergeRunContext(runId, { [LOOP_CURSOR_KEY]: cursors });
       return { dispatched: false };
     }
 
     const cursors = {
       ...(context[LOOP_CURSOR_KEY] as Record<string, unknown> | undefined),
-      [loopNodeId]: { index: nextIndex, itemVar, bodyNodeId, total: items.length },
+      [loopNodeId]: {
+        index: nextIndex,
+        itemVar,
+        bodyNodeId,
+        total: items.length,
+        // Kept on the cursor so a completed BODY can find its loop, its
+        // remaining items and where to go when it runs out — the body step has
+        // no other way back to the LOOP node that started it.
+        items,
+        doneNodeId: doneNodeId ?? null,
+      },
     };
 
-    await this.prisma.workflowRun.update({
-      where: { id: runId },
-      data: {
-        context: {
-          ...context,
-          [itemVar]: items[nextIndex],
-          [`${itemVar}Index`]: nextIndex,
-          [LOOP_CURSOR_KEY]: cursors,
-        } as never,
-      },
+    await this.state.mergeRunContext(runId, {
+      [itemVar]: items[nextIndex],
+      [`${itemVar}Index`]: nextIndex,
+      [LOOP_CURSOR_KEY]: cursors,
     });
 
-    const body = await this.prisma.workflowStepRun.findFirst({
-      where: { runId, companyId, nodeId: bodyNodeId },
-      select: { id: true },
-    });
-    // Each iteration is a NEW attempt on the body step, so the attempt history
-    // shows every pass rather than overwriting one row.
+    // Each iteration gets its OWN step row. Reusing one row per body node meant
+    // iteration 2 had to transition that row COMPLETED → RUNNING, which the step
+    // state table forbids (COMPLETED is terminal), so the second pass of any loop
+    // threw instead of running. A row per iteration also makes the run log show
+    // what actually happened rather than only the last pass.
     await this.enqueueNode({
       runId,
       companyId,
       node: { id: bodyNodeId, type: 'NOOP', config: {} } as WorkflowNode,
-      existingStepId: body?.id,
+      forceNewStep: true,
     });
 
     this.logger.log(
@@ -311,17 +408,16 @@ export class TraversalService {
     runId: string;
     companyId: string;
     node: WorkflowNode;
-    existingStepId?: string;
+    /** Loop iterations: always open a fresh step row instead of reusing one. */
+    forceNewStep?: boolean;
   }): Promise<void> {
     const { runId, companyId, node } = input;
 
     const { stepId, attemptId, attempt } = await this.prisma.$transaction(
       async (tx) => {
         const step =
-          (input.existingStepId
-            ? await tx.workflowStepRun.findUnique({
-                where: { id: input.existingStepId },
-              })
+          (input.forceNewStep
+            ? null
             : await tx.workflowStepRun.findFirst({
                 where: { runId, companyId, nodeId: node.id },
               })) ??
@@ -361,7 +457,7 @@ export class TraversalService {
       WF_ATTEMPT_JOB,
       { runId, companyId, stepId, attemptId, nodeId: node.id, attempt },
       {
-        jobId: `attempt:${attemptId}`,
+        jobId: wfJobId('attempt', attemptId),
         removeOnComplete: true,
         removeOnFail: 100,
       },

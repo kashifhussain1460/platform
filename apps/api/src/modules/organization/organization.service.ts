@@ -10,6 +10,8 @@ import type {
   SecurityPolicyDto,
   TeamDto,
 } from '@vaep/types';
+import { normalizeScope } from '../authorization/authorization.policy';
+import { SecurityPolicyService } from '../authorization/security-policy.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
@@ -35,6 +37,7 @@ export class OrganizationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogService,
+    private readonly securityPolicy: SecurityPolicyService,
   ) {}
 
   // --- Departments ---------------------------------------------------------
@@ -53,7 +56,14 @@ export class OrganizationService {
   ): Promise<DepartmentDto> {
     try {
       const dept = await this.prisma.department.create({
-        data: { companyId, name: dto.name, description: dto.description ?? null },
+        data: {
+          companyId,
+          name: dto.name,
+          description: dto.description ?? null,
+          // WAVE 2 §2.1 — normalised so `Project Manager`, `PROJECT_MANAGER`
+          // and `project-manager` are one scope regardless of how they are typed.
+          scopes: (dto.scopes ?? []).map(normalizeScope),
+        },
       });
       return toDepartmentDto(dept);
     } catch (err) {
@@ -75,6 +85,9 @@ export class OrganizationService {
           name: dto.name,
           description:
             dto.description === undefined ? undefined : dto.description,
+          // Replaces the whole list; `[]` turns department isolation back OFF.
+          scopes:
+            dto.scopes === undefined ? undefined : dto.scopes.map(normalizeScope),
         },
       });
       return toDepartmentDto(dept);
@@ -150,6 +163,10 @@ export class OrganizationService {
     dto: UpdateSecurityPolicyDto,
     actorUserId?: string,
   ): Promise<SecurityPolicyDto> {
+    // WAVE 2 §2.4 — refuse to persist a setting nothing enforces. Storing
+    // `mfaRequired: true` with no MFA implementation would report a protection
+    // the platform does not apply, which is worse than leaving it off.
+    this.securityPolicy.assertPolicyIsEnforceable(dto);
     await this.ensureSecurityPolicy(companyId);
     const policy = await this.prisma.securityPolicy.update({
       where: { companyId },

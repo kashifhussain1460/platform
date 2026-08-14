@@ -83,6 +83,7 @@ export class SetVariableNodeHandler implements NodeHandler {
       // Threaded into the run context under the variable's own name, so
       // `{{name}}` works downstream via the existing resolver.
       contextValue: value,
+      contextKey: name,
     };
   }
 }

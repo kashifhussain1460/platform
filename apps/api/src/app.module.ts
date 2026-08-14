@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppConfigModule } from './config/config.module';
@@ -6,6 +6,9 @@ import { PrismaModule } from './common/prisma/prisma.module';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { ResilienceModule } from './common/resilience/resilience.module';
 import { TenantAwareThrottlerGuard } from './common/resilience/tenant-throttler.guard';
+import { ExecutionContextMiddleware } from './common/observability/execution-context.middleware';
+import { ObservabilityModule } from './common/observability/observability.module';
+import { AuthorizationModule } from './modules/authorization/authorization.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { UsageModule } from './modules/usage/usage.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -18,6 +21,7 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { SkillsModule } from './modules/skills/skills.module';
 import { MarketingModule } from './modules/engines/marketing/marketing.module';
 import { SupportModule } from './modules/engines/support/support.module';
+import { PmModule } from './modules/engines/pm/pm.module';
 import { WorkflowsModule } from './modules/workflows/workflows.module';
 import { WorkflowRuntimeModule } from './modules/workflow-runtime/workflow-runtime.module';
 import { EventsModule } from './modules/events/events.module';
@@ -30,6 +34,7 @@ import { WorkflowTemplatesModule } from './modules/workflow-templates/workflow-t
 import { OrganizationModule } from './modules/organization/organization.module';
 import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { HrModule } from './modules/hr/hr.module';
+import { RetentionModule } from './modules/retention/retention.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -44,6 +49,10 @@ import { HealthModule } from './modules/health/health.module';
     PrismaModule,
     CryptoModule,
     ResilienceModule,
+    // WAVE 5 §5.1/§5.3 — execution context + metrics (global leaf).
+    ObservabilityModule,
+    // WAVE 2 §2.2 — global leaf: the single authorization layer.
+    AuthorizationModule,
     AuditModule,
     UsageModule,
     AuthModule,
@@ -56,6 +65,7 @@ import { HealthModule } from './modules/health/health.module';
     SkillsModule,
     MarketingModule,
     SupportModule,
+    PmModule,
     WorkflowsModule,
     WorkflowRuntimeModule,
     EventsModule,
@@ -67,8 +77,18 @@ import { HealthModule } from './modules/health/health.module';
     AssistModule,
     OrganizationModule,
     HrModule,
+    RetentionModule,
     AdminModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: TenantAwareThrottlerGuard }],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * WAVE 5 §5.1 — every route runs inside an execution context, so a log line,
+   * an audit entry and a metric emitted anywhere downstream share one request
+   * and trace id.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(ExecutionContextMiddleware).forRoutes('*');
+  }
+}

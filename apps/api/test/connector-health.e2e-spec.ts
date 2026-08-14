@@ -8,6 +8,7 @@ import { CryptoService } from '../src/common/crypto/crypto.service';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { ConnectorHealthService } from '../src/modules/skills/connectors/connector-health.service';
 import { ConnectorTokenService } from '../src/modules/skills/connectors/connector-token.service';
+import { MetricsRegistry } from '../src/common/observability/metrics.registry';
 
 // Connector health / DEGRADED lifecycle + single-flight token refresh e2e (Unit
 // B). The single-flight UNIT block always runs (no DB / no network — a stubbed
@@ -80,6 +81,7 @@ describe('ConnectorTokenService single-flight refresh (stubbed prisma + fetch)',
       config,
       health as never,
       fetchStub as never,
+      new MetricsRegistry(),
     );
 
     const results = await Promise.all([
@@ -119,6 +121,7 @@ describe('ConnectorTokenService single-flight refresh (stubbed prisma + fetch)',
       config,
       health as never,
       fetchStub as never,
+      new MetricsRegistry(),
     );
 
     const token = await svc.getAccessToken('con_1');
@@ -141,6 +144,7 @@ describe('ConnectorTokenService single-flight refresh (stubbed prisma + fetch)',
       config,
       health as never,
       fetchStub as never,
+      new MetricsRegistry(),
     );
 
     await expect(svc.getAccessToken('con_1')).rejects.toThrow(/invalid_grant/);

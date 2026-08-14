@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type Workflow, type WorkflowRun } from '@prisma/client';
+import type { Queue } from 'bullmq';
 import type {
   ApprovalNodeConfig,
   WorkflowDefinition,
@@ -12,6 +14,12 @@ import { BillingService } from '../../billing/billing.service';
 import { ApprovalRoutingService } from '../../approval-routing/approval-routing.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { toolRequiresApproval } from '../../skills/tool-approval-policy';
+import { EngineModeService } from '../../workflow-runtime/engine-mode';
+import {
+  WF_ADVANCE_JOB,
+  WF_RUN_ADVANCE_QUEUE,
+  type AdvanceJobData,
+} from '../../workflow-runtime/workflow-runtime.constants';
 import {
   MAX_WORKFLOW_NODES,
   WORKFLOW_RUN_STUCK_TIMEOUT_MS,
@@ -99,6 +107,10 @@ export class WorkflowEngine {
     private readonly approvalRouting: ApprovalRoutingService,
     // System email when a run pauses for approval (leaf module, no cycle).
     private readonly notifications: NotificationsService,
+    // WAVE 1 — so a SCHEDULE fire honours the cutover flag too (leaf module).
+    private readonly engineMode: EngineModeService,
+    @InjectQueue(WF_RUN_ADVANCE_QUEUE)
+    private readonly advanceQueue: Queue<AdvanceJobData>,
   ) {}
 
   /**
@@ -191,6 +203,29 @@ export class WorkflowEngine {
       return;
     }
 
+    // WAVE 1 — hand a state-machine company's run to the durable runtime.
+    //
+    // This check is here, not only in `WorkflowsService.dispatchRun`, because
+    // `trigger()` (SCHEDULE fires) creates its run and calls `execute()`
+    // DIRECTLY, never passing through dispatchRun. Without this, a tenant opted
+    // in to the durable engine would still have every scheduled run walked by
+    // the legacy engine — the cutover would silently cover manual runs only.
+    //
+    // Placed AFTER the subscription gate so a blocked company is still failed
+    // fast and identically on both engines, and BEFORE the RUNNING claim so the
+    // advance worker sees the PENDING run it expects.
+    if (this.engineMode.usesStateMachine(run.companyId)) {
+      await this.advanceQueue.add(
+        WF_ADVANCE_JOB,
+        { runId, companyId: run.companyId },
+        { removeOnComplete: true, removeOnFail: 100 },
+      );
+      this.logger.log(
+        `run=${runId} handed to the durable runtime (state_machine mode)`,
+      );
+      return;
+    }
+
     // Atomic claim: the WHERE clause guarantees only ONE concurrent caller's
     // update can match+affect this row when two workers race the same
     // PENDING run (e.g. a duplicate-delivered queue job) -- the earlier
@@ -253,7 +288,20 @@ export class WorkflowEngine {
   async sweepStuckRuns(): Promise<{ swept: number }> {
     const cutoff = new Date(Date.now() - WORKFLOW_RUN_STUCK_TIMEOUT_MS);
     const stuck = await this.prisma.workflowRun.findMany({
-      where: { status: { in: ['PENDING', 'RUNNING'] }, createdAt: { lt: cutoff } },
+      where: {
+        status: { in: ['PENDING', 'RUNNING'] },
+        createdAt: { lt: cutoff },
+        // WAVE 1: never touch a run owned by the durable runtime. The reaper is
+        // authoritative for those (`ReaperService.sweepStuckRuns`, which
+        // conversely requires `attempts: { some: {} }`), and it RECOVERS a run
+        // where this watchdog KILLS it. With both live, a durable run that
+        // legitimately took over ten minutes — a long WAIT, a slow provider, a
+        // retry with backoff — would be failed here while the reaper was busy
+        // re-enqueueing it. Neither would be authoritative and the run would end
+        // up FAILED with work still in flight. A WorkflowStepAttempt row exists
+        // only on the durable path, so it is the exact discriminator.
+        attempts: { none: {} },
+      },
       select: { id: true, companyId: true, workflowId: true, createdAt: true },
     });
     if (stuck.length === 0) {
@@ -685,10 +733,14 @@ export class WorkflowEngine {
         dryRun,
       );
 
+      // A handler-declared key wins over the author's `outputKey`: SET_VARIABLE
+      // binds under the variable's own name by contract, and without this it
+      // bound nowhere at all unless the author happened to set outputKey too.
       const outputKey =
-        typeof node.config?.outputKey === 'string'
+        result.contextKey?.trim() ||
+        (typeof node.config?.outputKey === 'string'
           ? node.config.outputKey.trim()
-          : '';
+          : '');
       if (outputKey && result.contextValue !== undefined) {
         context[outputKey] = result.contextValue;
       }

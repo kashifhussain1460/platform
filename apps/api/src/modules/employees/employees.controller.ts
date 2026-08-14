@@ -15,25 +15,29 @@ import type {
   ConversationDto,
 } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.provider';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
+import { AuthorizationGuard } from '../authorization/authorization.guard';
+import { RequirePermission } from '../authorization/require-permission.decorator';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { EmployeesService } from './employees.service';
 
 /**
  * All routes are tenant-scoped by companyId from the JWT and JWT-guarded.
- * Managing employees (create/update/delete) is @Roles('OWNER','ADMIN'); reads
- * and starting/continuing conversations (chat) stay open to any member.
+ * Managing employees (create/update/delete) requires the `employee:manage`
+ * capability — floor ADMIN, i.e. exactly the `@Roles('OWNER','ADMIN')` it
+ * replaces; reads and starting/continuing conversations (chat) stay open to any
+ * member.
  */
 @Controller('employees')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, AuthorizationGuard)
 export class EmployeesController {
   constructor(private readonly employees: EmployeesService) {}
 
   @Post()
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('employee:manage')
   create(
     @CurrentTenant() companyId: string,
     @Body() dto: CreateEmployeeDto,
@@ -44,21 +48,24 @@ export class EmployeesController {
   @Get()
   list(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('limit') limit?: string,
   ): Promise<AiEmployeeDto[]> {
-    return this.employees.list(companyId, limit);
+    // WAVE 2 — the caller is passed so the roster is department-scoped.
+    return this.employees.list(companyId, limit, user.userId);
   }
 
   @Get(':id')
   get(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<AiEmployeeDto> {
-    return this.employees.get(companyId, id);
+    return this.employees.get(companyId, id, user.userId);
   }
 
   @Patch(':id')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('employee:manage')
   update(
     @CurrentTenant() companyId: string,
     @Param('id') id: string,
@@ -68,7 +75,7 @@ export class EmployeesController {
   }
 
   @Delete(':id')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('employee:manage')
   @HttpCode(204)
   remove(
     @CurrentTenant() companyId: string,

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { ConditionOp } from '@vaep/types';
 import { MAX_WAIT_MS } from '../../workflows.constants';
 import { resolveTemplate } from '../template';
@@ -87,25 +87,5 @@ export class ApprovalNodeHandler implements NodeHandler {
     const cfg = node.config ?? {};
     const message = resolveTemplate(cfg.message, context);
     return { output: { approved: true, auto: true, message } };
-  }
-}
-
-/**
- * NOTIFY: records a templated message in the step output (log-style).
- *
- * This does NOT send anything. A real notification is a TOOL_ACTION against
- * gmail/slack — see doc 27 §0.4, where mistaking NOTIFY for a real message is
- * called out as a recurring trap.
- */
-@Injectable()
-export class NotifyNodeHandler implements NodeHandler {
-  readonly type = 'NOTIFY' as const;
-  private readonly logger = new Logger(NotifyNodeHandler.name);
-
-  execute({ node, context }: NodeExecContext): NodeResult {
-    const cfg = node.config ?? {};
-    const message = resolveTemplate(cfg.message, context);
-    this.logger.log(`NOTIFY[${node.id}]: ${message}`);
-    return { output: { message, notified: true } };
   }
 }

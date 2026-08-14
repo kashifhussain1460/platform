@@ -28,6 +28,10 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SkillsService } from '../skills/skills.service';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { toApprovalRequestDto } from './approvals.mapper';
+import {
+  METRIC,
+  MetricsRegistry,
+} from '../../common/observability/metrics.registry';
 
 /**
  * Re-exported from the shared policy module so there is exactly ONE definition
@@ -80,6 +84,7 @@ export class ApprovalService {
     private readonly routing: ApprovalRoutingService,
     private readonly auditLog: AuditLogService,
     private readonly notifications: NotificationsService,
+    private readonly metrics: MetricsRegistry,
   ) {}
 
   /**
@@ -388,6 +393,24 @@ export class ApprovalService {
         `Approval request is already ${existing.status.toLowerCase()}`,
       );
     }
+    // WAVE 5 §5.3 — how long a human made the workflow wait. This is the one
+    // metric here that measures PEOPLE rather than machines, and it is the one
+    // that explains a "slow" automation to a customer: a 4-hour p95 approval
+    // wait is not a platform performance problem, and without this metric it
+    // looks exactly like one.
+    const decided = await this.prisma.approvalRequest.findUnique({
+      where: { id },
+      select: { createdAt: true, kind: true },
+    });
+    if (decided) {
+      this.metrics.observe(
+        METRIC.approvalWaitDuration,
+        'Time from approval request to human decision',
+        Date.now() - decided.createdAt.getTime(),
+        { kind: decided.kind, status },
+      );
+    }
+
     // Immutable trail for a money/PII-gating decision (P1-5). Single chokepoint
     // for human approve/reject/modify.
     await this.auditLog.record({

@@ -109,8 +109,11 @@ describeIfDb('Workflow node disabled (Deactivate)', () => {
     expect(fetched.body.definition.nodes[1].disabled).toBeUndefined();
   });
 
-  it('rejects a disabled TRIGGER (the graph would have no root)', async () => {
-    const res = await request(app.getHttpServer())
+  it('SAVES a disabled TRIGGER but refuses to RUN it (the graph would have no root)', async () => {
+    // Toggling a node off is a normal editing action, so the save must survive
+    // it. Executing is what cannot happen: the engine SKIPS a disabled node and
+    // walks on, which for the entry node leaves the run with no root.
+    const created = await request(app.getHttpServer())
       .post('/workflows')
       .set(bearer(token))
       .send({
@@ -123,8 +126,14 @@ describeIfDb('Workflow node disabled (Deactivate)', () => {
           edges: [{ from: 'n1', to: 'n2' }],
         },
       })
+      .expect(201);
+
+    const run = await request(app.getHttpServer())
+      .post(`/workflows/${created.body.id}/run`)
+      .set(bearer(token))
+      .send({})
       .expect(400);
-    expect(String(res.body.message)).toMatch(/cannot be disabled/);
+    expect(String(run.body.message)).toMatch(/cannot be disabled/);
   });
 
   it('SKIPS a disabled node at run time and continues to the next one', async () => {

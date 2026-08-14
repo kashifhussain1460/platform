@@ -43,6 +43,21 @@ export class AttemptLeaseService {
    * The `WHERE` clause is the whole mechanism: it only matches an attempt that
    * is unowned or whose lease has already expired, so two workers racing can
    * never both get a row back.
+   *
+   * WAVE 1: the status check is part of that guard, not decoration. A COMPLETED
+   * attempt has its `leaseOwner` cleared in T2, so without it a redelivered
+   * attempt job — BullMQ is at-least-once, and `removeOnComplete` frees the
+   * jobId for reuse — would re-claim a FINISHED attempt and re-run its side
+   * effect. That is precisely the duplicate external effect the whole runtime
+   * exists to prevent.
+   *
+   * It is `IN ('PENDING','RUNNING')`, not `= 'PENDING'`: an attempt whose lease
+   * expired is still RUNNING, and re-claiming it is how a dead worker's work is
+   * recovered. Narrowing this to PENDING would close the duplicate-effect hole
+   * but also disable that recovery. The two are not in tension — a FINISHED
+   * attempt is never re-claimable, an unfinished one is — and in practice the
+   * reaper reaches an expired attempt first and marks it `outcomeUnknown`
+   * rather than letting it be retried blindly.
    */
   async claim(attemptId: string): Promise<LeaseClaim | null> {
     const expiresAt = new Date(Date.now() + LEASE_TTL_SECONDS * 1000);
@@ -54,6 +69,7 @@ export class AttemptLeaseService {
              "status"         = 'RUNNING',
              "startedAt"      = COALESCE("startedAt", now())
        WHERE "id" = ${attemptId}
+         AND "status" IN ('PENDING', 'RUNNING')
          AND ("leaseOwner" IS NULL OR "leaseExpiresAt" < now())
       RETURNING "id"
     `;
@@ -81,13 +97,24 @@ export class AttemptLeaseService {
     return rows.length > 0;
   }
 
-  /** Release on clean completion so the row does not wait out its TTL. */
+  /**
+   * Hand an attempt BACK without having done its work, so another worker can
+   * pick it up immediately instead of waiting out the TTL.
+   *
+   * The status returns to PENDING, which is what makes it claimable again now
+   * that `claim` requires PENDING. Only ever call this when the side effect
+   * definitely did NOT happen — a graceful shutdown before execution, say. An
+   * attempt that already ran is finished by the attempt processor's T2 commit
+   * (COMPLETED/FAILED) or, if the worker died mid-effect, by the reaper as
+   * `outcomeUnknown`; neither is claimable again, on purpose.
+   */
   async release(attemptId: string): Promise<void> {
     await this.prisma.$executeRaw`
       UPDATE "WorkflowStepAttempt"
-         SET "leaseOwner" = NULL, "leaseExpiresAt" = NULL
+         SET "leaseOwner" = NULL, "leaseExpiresAt" = NULL, "status" = 'PENDING'
        WHERE "id" = ${attemptId}
          AND "leaseOwner" = ${this.workerId}
+         AND "status" = 'RUNNING'
     `;
   }
 

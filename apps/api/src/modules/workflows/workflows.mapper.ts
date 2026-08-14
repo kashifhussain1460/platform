@@ -11,6 +11,7 @@ import type {
   WorkflowRunDto,
   WorkflowStepRunDto,
 } from '@vaep/types';
+import { reachableNodeIds } from './engine/definition-validator';
 
 /** Prisma row → public DTO mappers for the workflows module. */
 
@@ -29,18 +30,23 @@ export const STARTER_DEFINITION: WorkflowDefinition = {
 };
 
 /**
- * Non-blocking structural warnings (docs/test-cases WF-D2): a node other than
- * TRIGGER with no incoming edge is unreachable — dead code the run will never
- * visit, with no error anywhere today. Purely informational; never rejects a
- * save (unlike validateDefinition's duplicate-id / unknown-edge-ref checks).
+ * Non-blocking structural warnings (docs/test-cases WF-D2): a node the trigger
+ * cannot reach is dead code the run will never visit. Purely informational here
+ * — a draft is allowed to contain one — but the same condition blocks publish,
+ * activate and run (`UNREACHABLE_NODE` in the definition validator), so a
+ * workflow can no longer go live with steps that silently never execute.
+ *
+ * Shares `reachableNodeIds` with the validator rather than re-deriving it: this
+ * used to test "has an incoming edge", which called every PARALLEL lane start
+ * unreachable even though the engine starts lanes from the node's config.
  */
 export function computeWarnings(definition: WorkflowDefinition): string[] {
-  const reachableTargets = new Set(definition.edges.map((e) => e.to));
+  const reachable = reachableNodeIds(definition);
   return definition.nodes
-    .filter((n) => n.type !== 'TRIGGER' && !reachableTargets.has(n.id))
+    .filter((n) => !reachable.has(n.id))
     .map(
       (n) =>
-        `Step "${n.name || n.id}" (${n.type}) has no incoming edge — it will never run.`,
+        `Step "${n.name || n.id}" (${n.type}) can't be reached from the trigger — it will never run.`,
     );
 }
 

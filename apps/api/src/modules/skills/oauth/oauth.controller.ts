@@ -4,9 +4,9 @@ import type { OAuthAuthorizeDto } from '@vaep/types';
 import { CurrentTenant } from '../../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/auth.provider';
-import { Roles } from '../../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
-import { RolesGuard } from '../../auth/roles.guard';
+import { AuthorizationGuard } from '../../authorization/authorization.guard';
+import { RequirePermission } from '../../authorization/require-permission.decorator';
 import { OAuthService } from './oauth.service';
 
 /**
@@ -27,8 +27,8 @@ export class SkillsOAuthController {
    * carried in the signed state so an in-chat connect resumes where it began.
    */
   @Get('installed/:id/oauth/authorize')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('OWNER', 'ADMIN')
+  @UseGuards(JwtAuthGuard, AuthorizationGuard)
+  @RequirePermission('skill:connect')
   async authorize(
     @CurrentTenant() companyId: string,
     @CurrentUser() user: AuthenticatedUser,

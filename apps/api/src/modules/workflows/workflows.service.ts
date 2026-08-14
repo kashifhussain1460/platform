@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type Workflow, type WorkflowRun } from '@prisma/client';
 import type { Queue } from 'bullmq';
+import { WORKFLOW_RUN_STATUSES } from '@vaep/types';
 import type {
   Condition,
   FireEventResultDto,
@@ -17,15 +18,27 @@ import type {
   WorkflowDefinition,
   WorkflowDto,
   WorkflowRunDto,
+  WorkflowRunStatus,
 } from '@vaep/types';
 import { isInlineExecution } from '../../common/resilience/workflow-execution-mode';
+import { AuthorizationService } from '../authorization/authorization.service';
+import { RunStateWriter } from '../workflow-runtime/run-state-writer.service';
+import { EngineModeService } from '../workflow-runtime/engine-mode';
+import {
+  WF_ADVANCE_JOB,
+  WF_RUN_ADVANCE_QUEUE,
+  type AdvanceJobData,
+} from '../workflow-runtime/workflow-runtime.constants';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/pagination';
 import { AuditLogService } from '../audit/audit-log.service';
 import { WorkflowPermissionService } from '../workflow-permissions/workflow-permissions.service';
 import { WorkflowEngine } from './engine/workflow-engine.service';
 import { evaluateConditions } from './engine/conditions';
-import { validateDefinitionStructure } from './engine/definition-validator';
+import {
+  validateDefinitionStructure,
+  validateStorableDefinition,
+} from './engine/definition-validator';
 import { CreateWorkflowDto } from './dto/create-workflow.dto';
 import { UpdateWorkflowDto } from './dto/update-workflow.dto';
 import {
@@ -83,6 +96,16 @@ export class WorkflowsService {
     // Only used when WORKFLOW_EXECUTION_MODE=inline (no worker to hand off to).
     // Safe to inject: the engine does NOT depend on this service, so no cycle.
     private readonly engine: WorkflowEngine,
+    // WAVE 1 — which engine this company's runs go to. From the leaf
+    // EngineModeModule, NOT WorkflowRuntimeModule (which imports this module).
+    private readonly engineMode: EngineModeService,
+    @InjectQueue(WF_RUN_ADVANCE_QUEUE)
+    private readonly advanceQueue: Queue<AdvanceJobData>,
+    // WAVE 2 §2.2 — the single authorization layer (global leaf module).
+    private readonly authz: AuthorizationService,
+    // WAVE 1 §8 — the ONLY writer of run status, so resume/cancel emit their
+    // outbox events like every other transition.
+    private readonly runState: RunStateWriter,
   ) {}
 
   /**
@@ -100,6 +123,17 @@ export class WorkflowsService {
     job: WorkflowRunJobData,
     companyId: string,
   ): Promise<void> {
+    // WAVE 1 (gap W1-a) — THE cutover. Until this line existed the durable
+    // runtime was unreachable code: its workers booted, subscribed to
+    // `wf-run-advance`, and idled for ever because nothing produced to that
+    // queue. `EngineModeService` defaults every company to `legacy_walk`, so
+    // this changes nothing until a tenant is opted in — and rolling back is
+    // clearing an env var, not shipping a deploy.
+    if (this.engineMode.usesStateMachine(companyId)) {
+      await this.dispatchDurable(job, companyId);
+      return;
+    }
+
     if (!isInlineExecution()) {
       await this.queue.add(WORKFLOW_RUN_JOB, job, {
         removeOnComplete: true,
@@ -128,6 +162,42 @@ export class WorkflowsService {
     }
   }
 
+  /**
+   * Hand a run to the DURABLE state machine: enqueue one `advance` job and stop.
+   *
+   * There is deliberately no "execute" call here. The state machine decides what
+   * to do next by reading Postgres, so the producer's only job is to wake it —
+   * which is also why a duplicate dispatch is harmless: two advances for the
+   * same run take the run's advisory lock in turn and the second finds the work
+   * already done.
+   *
+   * A `{workflowId, source}` job (a SCHEDULE fire) has no run yet. Creating the
+   * run is the legacy trigger's responsibility, and it is the same code path in
+   * both engines, so those still go through the queue — the run it creates then
+   * dispatches through THIS method and lands on the durable path.
+   */
+  private async dispatchDurable(
+    job: WorkflowRunJobData,
+    companyId: string,
+  ): Promise<void> {
+    if (!('runId' in job) || !job.runId) {
+      await this.queue.add(WORKFLOW_RUN_JOB, job, {
+        removeOnComplete: true,
+        removeOnFail: 100,
+      });
+      return;
+    }
+
+    await this.advanceQueue.add(
+      WF_ADVANCE_JOB,
+      { runId: job.runId, companyId },
+      {
+        removeOnComplete: true,
+        removeOnFail: 100,
+      },
+    );
+  }
+
   // --- CRUD ----------------------------------------------------------------
 
   async create(
@@ -135,7 +205,7 @@ export class WorkflowsService {
     dto: CreateWorkflowDto,
     actorUserId?: string,
   ): Promise<WorkflowDto> {
-    this.validateDefinition(dto.definition);
+    this.validateStorable(dto.definition);
     const workflow = await this.prisma.workflow.create({
       data: {
         companyId,
@@ -145,6 +215,10 @@ export class WorkflowsService {
           STARTER_DEFINITION) as unknown as Prisma.InputJsonObject,
         // P3-06 — the creator owns it (may manage its permissions even as a MEMBER).
         ownerUserId: actorUserId ?? null,
+        // WAVE 2 §2.1 — the department axis authorization scopes on. Until now
+        // `category` could only be set by a template install, so a hand-authored
+        // workflow had nothing for department isolation to isolate on.
+        category: dto.category ?? null,
       },
     });
     await this.auditLog.record({
@@ -158,7 +232,11 @@ export class WorkflowsService {
     return toWorkflowDto(workflow);
   }
 
-  async list(companyId: string, limitRaw?: unknown): Promise<WorkflowDto[]> {
+  async list(
+    companyId: string,
+    limitRaw?: unknown,
+    actorUserId?: string,
+  ): Promise<WorkflowDto[]> {
     const workflows = await this.prisma.workflow.findMany({
       // Scratch workflows exist only so the AI Assist can dry-run a draft
       // through the real engine (doc 30 §13.1). They are created and deleted
@@ -167,11 +245,57 @@ export class WorkflowsService {
       orderBy: { createdAt: 'desc' },
       take: clampLimit(limitRaw),
     });
-    return workflows.map(toWorkflowDto);
+
+    // WAVE 2 §2.1 — the LIST must apply the same rule as the detail read.
+    // A list that shows names the detail endpoint then denies is still a leak:
+    // "HR — Terminations checklist" tells a Marketing admin what they should not
+    // know, even when opening it 403s.
+    const actor = await this.authz.actorById(companyId, actorUserId);
+    const visible = actor
+      ? await this.authz.filter(actor, 'workflow:read', workflows, (wf) => ({
+          type: 'workflow' as const,
+          companyId,
+          id: wf.id,
+          scope: wf.category,
+          ownerUserId: wf.ownerUserId,
+        }))
+      : workflows;
+    return visible.map(toWorkflowDto);
   }
 
-  async get(companyId: string, id: string): Promise<WorkflowDto> {
-    return toWorkflowDto(await this.findOwned(companyId, id));
+  async get(
+    companyId: string,
+    id: string,
+    actorUserId?: string,
+  ): Promise<WorkflowDto> {
+    const workflow = await this.findOwned(companyId, id);
+    await this.assertScope(companyId, actorUserId, workflow, 'workflow:read');
+    return toWorkflowDto(workflow);
+  }
+
+  /**
+   * Department-scope a loaded workflow (WAVE 2 §2.1).
+   *
+   * Deliberately AFTER the row is loaded: the rule depends on the resource's
+   * own `category`, which a route guard cannot know. `actorUserId` absent means
+   * a machine caller (the engine, a template installer) that was authorized at
+   * its own entry point and has no human to scope to.
+   */
+  private async assertScope(
+    companyId: string,
+    actorUserId: string | undefined,
+    workflow: Workflow,
+    action: 'workflow:read' | 'workflow:run' | 'workflow:update',
+  ): Promise<void> {
+    const actor = await this.authz.actorById(companyId, actorUserId);
+    if (!actor) return;
+    await this.authz.assert(actor, action, {
+      type: 'workflow',
+      companyId,
+      id: workflow.id,
+      scope: workflow.category,
+      ownerUserId: workflow.ownerUserId,
+    });
   }
 
   async update(
@@ -202,7 +326,7 @@ export class WorkflowsService {
         dto.triggerConfig ?? (existing.triggerConfig as TriggerConfig | null);
       this.validateTrigger(type, config);
     }
-    this.validateDefinition(dto.definition);
+    this.validateStorable(dto.definition);
 
     const workflow = await this.prisma.workflow.update({
       where: { id },
@@ -219,6 +343,9 @@ export class WorkflowsService {
           dto.definition === undefined
             ? undefined
             : (dto.definition as unknown as Prisma.InputJsonObject),
+        // WAVE 2 §2.1 — undefined leaves it alone; explicit null makes the
+        // workflow company-wide (visible to every department) again.
+        category: dto.category === undefined ? undefined : dto.category,
       },
     });
     await this.auditLog.record({
@@ -334,6 +461,13 @@ export class WorkflowsService {
       throw new BadRequestException(
         'Add at least one step (beyond the trigger) before activating',
       );
+    }
+    // Readiness is enforced here rather than at save time (see
+    // `validateStorable`), so activating is where a half-finished graph is
+    // refused. Skipped when a published version is pinned — publish already ran
+    // the same check on it, and this field is only the fallback graph.
+    if (!existing.activeVersionId) {
+      this.assertRunnable(existing.definition);
     }
 
     const type = existing.triggerType as TriggerType;
@@ -530,6 +664,17 @@ export class WorkflowsService {
   ): Promise<WorkflowRunDto> {
     const existing = await this.findOwned(companyId, id);
     this.assertNotArchived(existing, 'run');
+    // WAVE 2 §2.1 — running is the side-effecting action, so it is scoped as
+    // well as read. A Marketing admin must not be able to fire an HR workflow
+    // just because they learned its id.
+    await this.assertScope(companyId, actingUserId, existing, 'workflow:run');
+    // Drafts are allowed to be incomplete (see `validateStorable`), so the
+    // readiness check moved here. Without it, relaxing save-time validation
+    // would let someone POST a run for a half-built graph — the disabled Run
+    // button in the builder is a hint, not a control.
+    if (!existing.activeVersionId) {
+      this.assertRunnable(existing.definition);
+    }
     // MANUAL run: the subject is the clicking user (doc 09 §9.C.3).
     return this.enqueueRun(companyId, id, 'MANUAL', trigger, {
       dryRun,
@@ -552,6 +697,41 @@ export class WorkflowsService {
       take: clampLimit(limitRaw),
     });
     return runs.map((r) => toWorkflowRunDto(r));
+  }
+
+  /**
+   * Every run in the tenant, newest first — the cross-workflow operations view.
+   *
+   * The workflow NAME is joined in rather than fetched per row: an operations
+   * table of 100 runs would otherwise be 100 extra requests. An unrecognised
+   * `status` filter is ignored rather than rejected, so a stale bookmark degrades
+   * to "all runs" instead of a 400.
+   */
+  async listAllRuns(
+    companyId: string,
+    filters: { status?: string; workflowId?: string; limit?: unknown } = {},
+  ): Promise<WorkflowRunDto[]> {
+    const status = WORKFLOW_RUN_STATUSES.includes(
+      filters.status as WorkflowRunStatus,
+    )
+      ? (filters.status as WorkflowRunStatus)
+      : undefined;
+
+    const runs = await this.prisma.workflowRun.findMany({
+      where: {
+        companyId,
+        ...(status ? { status } : {}),
+        ...(filters.workflowId ? { workflowId: filters.workflowId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: clampLimit(filters.limit),
+      include: { workflow: { select: { name: true } } },
+    });
+
+    return runs.map((r) => ({
+      ...toWorkflowRunDto(r),
+      workflowName: r.workflow?.name,
+    }));
   }
 
   /** A single run WITH its step runs (for polling). Tenant-scoped. */
@@ -582,9 +762,16 @@ export class WorkflowsService {
     if (!run || run.status !== 'WAITING') {
       return;
     }
-    await this.prisma.workflowRun.update({
-      where: { id: runId },
-      data: { status: 'RUNNING', error: null },
+    // WAVE 1 §8 → closed: go through RunStateWriter so the transition is
+    // guarded AND emits its outbox event. Writing `status` directly here meant
+    // a resumed run produced no `run.resumed` event, so the realtime stream
+    // (WAVE 5) showed a run frozen at WAITING until its next step finished.
+    await this.runState.transitionRun({
+      runId,
+      companyId: run.companyId,
+      to: 'RUNNING',
+      error: null,
+      event: 'run.resumed',
     });
     await this.dispatchRun(
       { runId, resume: true, companyId: run.companyId },
@@ -612,14 +799,14 @@ export class WorkflowsService {
     if (!run || TERMINAL_RUN_STATUSES.has(run.status)) {
       return;
     }
-    await this.prisma.workflowRun.update({
-      where: { id: runId },
-      data: {
-        status: 'FAILED',
-        finishedAt: new Date(),
-        error: reason,
-        resumeNodeId: null,
-      },
+    // Same reason as resumeRun: guarded + emits `run.failed` for the stream.
+    await this.runState.transitionRun({
+      runId,
+      companyId: run.companyId,
+      to: 'FAILED',
+      error: reason,
+      resumeNodeId: null,
+      event: 'run.failed',
     });
   }
 
@@ -871,6 +1058,36 @@ export class WorkflowsService {
       return;
     }
     validateDefinitionStructure(definition);
+  }
+
+  /**
+   * SAVE-time validation for create/update — integrity only.
+   *
+   * A workflow the customer is still drawing is incomplete by definition. The
+   * builder autosaves after every canvas change, so running the full readiness
+   * check here meant that dropping a node made the whole draft unsaveable until
+   * every field on it was filled in: the canvas showed "Couldn't save — retry"
+   * and everything after that point was lost on refresh. Readiness is enforced
+   * where it matters — publish, activate and run (`assertRunnable` below), so
+   * an unfinished graph still cannot execute. Found by driving the real builder
+   * in a browser (WAVE 7).
+   */
+  private validateStorable(definition: WorkflowDefinition | undefined): void {
+    if (!definition) {
+      return;
+    }
+    validateStorableDefinition(definition);
+  }
+
+  /**
+   * The other half of `validateStorable`: full readiness, checked at the moment
+   * a graph is about to execute (activate / run) instead of while it is drawn.
+   * Takes the raw Prisma JSON column, which is what both callers hold.
+   */
+  private assertRunnable(definition: Prisma.JsonValue): void {
+    this.validateDefinition(
+      (definition ?? undefined) as WorkflowDefinition | undefined,
+    );
   }
 
   /** Validate a trigger's config shape (SCHEDULE/EVENT); 400 otherwise. */

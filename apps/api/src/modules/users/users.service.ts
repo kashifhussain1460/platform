@@ -4,17 +4,20 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type User } from '@prisma/client';
 import type { UserDto } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { SecurityPolicyService } from '../authorization/security-policy.service';
 import {
   AUTH_PROVIDER,
   type AuthenticatedUser,
   type AuthProvider,
 } from '../auth/auth.provider';
+import { AuthService } from '../auth/auth.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -30,11 +33,17 @@ import { toUserDto } from './users.mapper';
  */
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(AUTH_PROVIDER) private readonly auth: AuthProvider,
     private readonly auditLog: AuditLogService,
     private readonly notifications: NotificationsService,
+    private readonly securityPolicy: SecurityPolicyService,
+    // For the invited member's verification code. AuthModule is already
+    // imported here and does not import UsersModule → no cycle.
+    private readonly authService: AuthService,
   ) {}
 
   /** All users in the caller's company (oldest first, so the owner leads). */
@@ -70,6 +79,20 @@ export class UsersService {
           passwordHash,
         },
       });
+      // Issue the email-verification code, exactly as registration does. An
+      // invited member is parked at `/verify-email` on first sign-in, and that
+      // screen tells them a code has been sent — so one has to actually be
+      // sent, or the invite dead-ends. Best-effort like register's: a mail
+      // failure must not lose the created user, and Resend still works.
+      try {
+        await this.authService.issueVerification(user.id, user.email);
+      } catch (err) {
+        this.logger.error(
+          `create: issueVerification failed userId=${user.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
       // Tell the new member they've been added (never emails the password —
       // they set/reset their own). Best-effort inside NotificationsService.
       await this.notifications.teamInvite(companyId, {
@@ -128,10 +151,52 @@ export class UsersService {
       }
     }
 
+    // WAVE 2 — a department/team must belong to THIS company. Without the check
+    // an admin could place their own users under another tenant's department id,
+    // and the authorization policy compares ids: the placement would silently
+    // scope them against a department they cannot see.
+    if (dto.departmentId) {
+      const dept = await this.prisma.department.findFirst({
+        where: { id: dto.departmentId, companyId },
+        select: { id: true },
+      });
+      if (!dept) throw new NotFoundException('Department not found');
+    }
+    if (dto.teamId) {
+      const team = await this.prisma.team.findFirst({
+        where: { id: dto.teamId, companyId },
+        select: { id: true },
+      });
+      if (!team) throw new NotFoundException('Team not found');
+    }
+
     const user = await this.prisma.user.update({
       where: { id: target.id },
-      data: { name: dto.name, role: dto.role, status: dto.status },
+      data: {
+        name: dto.name,
+        role: dto.role,
+        status: dto.status,
+        // undefined leaves it alone; explicit null removes the placement.
+        departmentId: dto.departmentId === undefined ? undefined : dto.departmentId,
+        teamId: dto.teamId === undefined ? undefined : dto.teamId,
+      },
     });
+
+    // A department change alters what this person can SEE, so it is an
+    // authorization event and belongs in the trail alongside role changes.
+    if (
+      dto.departmentId !== undefined &&
+      dto.departmentId !== target.departmentId
+    ) {
+      await this.auditLog.record({
+        companyId,
+        actorUserId: caller.userId,
+        action: 'user.department_changed',
+        entityType: 'User',
+        entityId: user.id,
+        metadata: { from: target.departmentId, to: dto.departmentId },
+      });
+    }
     if (dto.role !== undefined && dto.role !== target.role) {
       await this.auditLog.record({
         companyId,
@@ -201,33 +266,17 @@ export class UsersService {
   }
 
   /**
-   * LIGHT security-policy enforcement on user creation (P1 #7). Reads the
-   * company's SecurityPolicy (falling back to safe defaults when none exists):
-   * rejects passwords shorter than `passwordMinLength` (default 8) and, when
-   * `allowedEmailDomains` is non-empty, emails whose domain isn't listed.
+   * WAVE 2 §2.4 — delegates to the single SecurityPolicyService.
+   *
+   * This used to be a local copy of the rules, which is how password reset ended
+   * up bypassing `passwordMinLength` entirely: the copy here was kept current
+   * and the other paths never had one.
    */
   private async enforceSecurityPolicy(
     companyId: string,
     dto: CreateUserDto,
   ): Promise<void> {
-    const policy = await this.prisma.securityPolicy.findUnique({
-      where: { companyId },
-    });
-    const minLength = policy?.passwordMinLength ?? 8;
-    if (dto.password.length < minLength) {
-      throw new BadRequestException(
-        `Password must be at least ${minLength} characters`,
-      );
-    }
-    const allowedDomains = policy?.allowedEmailDomains ?? [];
-    if (allowedDomains.length > 0) {
-      const domain = dto.email.split('@')[1]?.toLowerCase() ?? '';
-      const allowed = allowedDomains.map((d) => d.toLowerCase());
-      if (!allowed.includes(domain)) {
-        throw new BadRequestException(
-          `Email domain must be one of: ${allowedDomains.join(', ')}`,
-        );
-      }
-    }
+    await this.securityPolicy.assertPasswordMeetsPolicy(companyId, dto.password);
+    await this.securityPolicy.assertEmailDomainAllowed(companyId, dto.email);
   }
 }

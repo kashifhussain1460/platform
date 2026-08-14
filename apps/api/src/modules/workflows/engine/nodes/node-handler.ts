@@ -19,6 +19,18 @@ export interface NodeResult {
   output: unknown;
   /** Stored at context[node.config.outputKey] when both are present. */
   contextValue?: unknown;
+  /**
+   * The context key a handler wants its `contextValue` bound to, overriding
+   * `node.config.outputKey`.
+   *
+   * Exists because SET_VARIABLE's whole contract is "bind under the variable's
+   * OWN name" — its doc comment said so, and neither engine implemented it: both
+   * bound `contextValue` only when the author had also set an unrelated
+   * `outputKey`, so a RUNTIME variable was silently discarded and the next node
+   * saw nothing. Found by the first durable LOOP test, which could not read the
+   * array a SET_VARIABLE had just written.
+   */
+  contextKey?: string;
   /** CONDITION branch selector (true/false). */
   conditionResult?: boolean;
   /**
@@ -100,6 +112,21 @@ export interface NodeExecContext {
   context: Record<string, unknown>;
   /** Test mode: side-effecting handlers must preview instead of acting. */
   dryRun: boolean;
+  /**
+   * Aborted when the node exceeds its execution budget.
+   *
+   * OPTIONAL because only the durable runtime supplies one — the legacy walker
+   * has no per-node timeout to hang it off. A handler that calls out to a slow
+   * third party (an LLM, a provider API) should pass this down; one that does
+   * not simply keeps the older behaviour of running to completion and having
+   * its result discarded.
+   *
+   * Without it a timed-out node frees its worker slot while the request it
+   * started keeps running — for a model call that is real money spent on an
+   * answer nobody reads, and no usage row, because the code that would have
+   * written one was already unwound.
+   */
+  signal?: AbortSignal;
 }
 
 export interface NodeHandler {

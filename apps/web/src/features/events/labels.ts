@@ -12,7 +12,15 @@ export const CANONICAL_EVENT_LABELS: Record<CanonicalEventType, string> = {
   JIRA_ISSUE_UPDATED: 'Jira issue updated',
   NEW_GITHUB_PR: 'New GitHub PR',
   NEW_GITHUB_ISSUE: 'New GitHub issue',
-  NEW_TICKET: 'New ticket',
+  NEW_TICKET: 'New support ticket',
+  TICKET_REPLIED: 'Customer replied on a ticket',
+  NEW_PROJECT_ISSUE: 'New project issue',
+  PROJECT_ISSUE_UPDATED: 'Project issue updated',
+  // Provider-neutral (§16/§17): a support conversation being handed over and a
+  // project issue being reassigned are the same thing to an automation, so the
+  // label must not name either product.
+  ASSIGNMENT_CHANGED: 'Assignment changed',
+  STATUS_CHANGED: 'Status changed',
   NEW_DOCUMENT: 'New document',
   NEW_CANDIDATE: 'New candidate',
   UNKNOWN: 'Unknown event',

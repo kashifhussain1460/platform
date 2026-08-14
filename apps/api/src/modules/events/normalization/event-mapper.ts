@@ -182,6 +182,179 @@ function mapGmail(raw: RawEventInput): CanonicalMapping {
   };
 }
 
+
+/**
+ * WAVE 3 §3.4 — Chatwoot.
+ *
+ * A conversation's FIRST inbound message is a new ticket; any later inbound one
+ * is a reply. Outgoing (agent/bot) messages are deliberately not canonical
+ * events: they are our OWN side effects coming back, and turning them into
+ * events is how a support workflow ends up replying to itself in a loop.
+ *
+ * dedupeKey is the Chatwoot message id when present. Two different messages in
+ * one conversation must not collide, so the conversation id alone is not enough.
+ */
+function mapChatwoot(raw: RawEventInput): CanonicalMapping {
+  const payload = raw.payload ?? {};
+  const conversation = obj(payload['conversation']);
+  const conversationId =
+    str(payload['__conversationId']) ??
+    (conversation?.['id'] != null ? String(conversation['id']) : undefined);
+  const messageId = payload['id'] != null ? String(payload['id']) : undefined;
+  const messageType = str(payload['message_type']) ?? '';
+  const isFirst = payload['__isFirstMessage'] === true;
+
+  // Chatwoot names the delivery in `event`; message deliveries carry
+  // `message_type` instead. Both shapes arrive on the same webhook.
+  const event = str(payload['event']) ?? '';
+
+  let type: CanonicalEventType = 'UNKNOWN';
+  if (messageType === 'incoming' || messageType === '0') {
+    type = isFirst ? 'NEW_TICKET' : 'TICKET_REPLIED';
+  } else if (
+    event === 'conversation_updated' ||
+    event === 'conversation.updated'
+  ) {
+    // §16 lists assignment.changed and status.changed as required, and Chatwoot
+    // delivers BOTH as `conversation_updated` — the difference is which field
+    // moved. Reading `changed_attributes` is the only way to tell them apart;
+    // without it a workflow could not distinguish "handed to a human" from
+    // "resolved", which are opposite outcomes.
+    const changed = changedAttributeKeys(payload);
+    if (changed.includes('assignee_id') || changed.includes('assignee')) {
+      type = 'ASSIGNMENT_CHANGED';
+    } else if (changed.includes('status')) {
+      type = 'STATUS_CHANGED';
+    }
+  }
+
+  // A lifecycle change has no message id, so the message-id key would collapse
+  // every update of one conversation into a single event and dedupe all but the
+  // first away. The changed fields + timestamp make each transition distinct.
+  const lifecycleStamp =
+    type === 'ASSIGNMENT_CHANGED' || type === 'STATUS_CHANGED'
+      ? `${conversationId ?? 'unknown'}:${type}:${
+          str(payload['updated_at']) ?? hashPayload(payload)
+        }`
+      : undefined;
+  const idPart =
+    lifecycleStamp ?? messageId ?? raw.externalId ?? hashPayload(payload);
+  return {
+    type,
+    dedupeKey: `chatwoot:${idPart}`,
+    occurredAt: parseDate(payload['created_at']),
+    subject:
+      conversationId != null
+        ? { type: 'conversation', conversationId }
+        : null,
+    data: {
+      conversationId: conversationId ?? null,
+      messageId: messageId ?? null,
+      content: payload['content'] ?? null,
+      contactEmail: obj(payload['sender'])?.['email'] ?? null,
+      messageType: messageType || null,
+      status: conversation?.['status'] ?? payload['status'] ?? null,
+      assigneeId:
+        obj(payload['assignee'])?.['id'] ?? payload['assignee_id'] ?? null,
+      changedAttributes: changedAttributeKeys(payload),
+    },
+  };
+}
+
+/**
+ * The keys Chatwoot reports as changed.
+ *
+ * It sends `changed_attributes: [{ status: { current_value, previous_value } }]`
+ * — an ARRAY OF OBJECTS, not a list of names, which is the shape that makes a
+ * naive `includes('status')` silently never match.
+ */
+function changedAttributeKeys(payload: Record<string, unknown>): string[] {
+  const raw = payload['changed_attributes'];
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry) =>
+    entry && typeof entry === 'object' ? Object.keys(entry) : [],
+  );
+}
+
+/**
+ * WAVE 3 §3.5 — Plane.
+ *
+ * Plane sends `{ event, action, data }`. Only issue events are mapped; anything
+ * else is UNKNOWN rather than an error, so connecting Plane cannot start failing
+ * deliveries for event kinds we do not model yet.
+ */
+function mapPlane(raw: RawEventInput): CanonicalMapping {
+  const payload = raw.payload ?? {};
+  const event = str(payload['event']) ?? '';
+  const action = str(payload['action']) ?? '';
+  const data = obj(payload['data']) ?? {};
+  const issueId = data['id'] != null ? String(data['id']) : undefined;
+  const projectId = data['project'] != null ? String(data['project']) : undefined;
+
+  let type: CanonicalEventType = 'UNKNOWN';
+  if (event === 'issue') {
+    if (action === 'created') type = 'NEW_PROJECT_ISSUE';
+    else if (action === 'updated') {
+      // §17 requires status.changed and assignment.changed as distinct events.
+      // Plane delivers both as `issue.updated`, so — as with Chatwoot — the
+      // changed field is what separates them. A generic "updated" is still
+      // emitted when neither moved, so nothing that used to trigger stops.
+      const changed = planeChangedKeys(payload);
+      if (changed.includes('assignees') || changed.includes('assignee_ids')) {
+        type = 'ASSIGNMENT_CHANGED';
+      } else if (changed.includes('state') || changed.includes('state_id')) {
+        type = 'STATUS_CHANGED';
+      } else {
+        type = 'PROJECT_ISSUE_UPDATED';
+      }
+    }
+  }
+
+  // An UPDATE must not dedupe against the CREATE of the same issue, nor against
+  // a later update — so the key carries the action and the update timestamp.
+  const stamp =
+    str(data['updated_at']) ?? str(data['created_at']) ?? hashPayload(payload);
+  const idPart = issueId ? `${issueId}:${action}:${stamp}` : hashPayload(payload);
+  return {
+    type,
+    dedupeKey: `plane:${idPart}`,
+    occurredAt: parseDate(data['updated_at'] ?? data['created_at']),
+    subject: issueId
+      ? { type: 'issue', issueId, projectId: projectId ?? null }
+      : null,
+    data: {
+      issueId: issueId ?? null,
+      projectId: projectId ?? null,
+      name: data['name'] ?? null,
+      state: data['state'] ?? null,
+      priority: data['priority'] ?? null,
+      sequenceId: data['sequence_id'] ?? null,
+      action: action || null,
+      assignees: data['assignees'] ?? null,
+      changedKeys: planeChangedKeys(payload),
+    },
+  };
+}
+
+/**
+ * Which fields Plane says moved on an `issue.updated`.
+ *
+ * Plane has shipped more than one shape here (`activity.field`, and a plain
+ * `changed_fields` list), so both are read. Returning `[]` when neither is
+ * present is deliberate: an update whose changed fields are unknown stays a
+ * generic `PROJECT_ISSUE_UPDATED` rather than being guessed into a status
+ * change, because a wrong event type fires the wrong workflow.
+ */
+function planeChangedKeys(payload: Record<string, unknown>): string[] {
+  const activity = obj(payload['activity']);
+  const field = str(activity?.['field']);
+  const listed = payload['changed_fields'];
+  const fromList = Array.isArray(listed)
+    ? listed.filter((v): v is string => typeof v === 'string')
+    : [];
+  return field ? [field, ...fromList] : fromList;
+}
+
 /** Dispatch to the provider's mapper (generic fallback). Pure + total. */
 export function mapRawEvent(raw: RawEventInput): CanonicalMapping {
   switch (raw.provider) {
@@ -189,6 +362,10 @@ export function mapRawEvent(raw: RawEventInput): CanonicalMapping {
       return mapGithub(raw);
     case 'gmail':
       return mapGmail(raw);
+    case 'chatwoot':
+      return mapChatwoot(raw);
+    case 'plane':
+      return mapPlane(raw);
     default:
       return mapGeneric(raw);
   }

@@ -9,6 +9,7 @@ import {
 } from '../events.constants';
 import { DEFAULT_QUEUE_CONCURRENCY } from '../../../common/resilience/queue-concurrency.constants';
 import { ConnectorReconcileService } from './connector-reconcile.service';
+import { runInJobContext } from '../../../common/observability/job-context';
 
 /**
  * In-process BullMQ worker for the scheduled reconciliation sweep (docs §2.3),
@@ -52,6 +53,12 @@ export class ConnectorReconcileProcessor
   }
 
   async process(job: Job): Promise<void> {
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job): Promise<void> {
     if (job.name !== CONNECTOR_RECONCILE_JOB) {
       return;
     }

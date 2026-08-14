@@ -9,6 +9,7 @@ import {
   WF_TIMER_SWEEP_JOB,
   WF_TIMER_SWEEP_SCHEDULER,
 } from './workflow-runtime.constants';
+import { runInJobContext } from '../../common/observability/job-context';
 
 /**
  * P1-05/P1-06 — the periodic maintenance worker.
@@ -44,6 +45,12 @@ export class WorkflowTimerProcessor extends WorkerHost implements OnModuleInit {
   }
 
   async process(job: Job): Promise<void> {
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job): Promise<void> {
     if (job.name !== WF_TIMER_SWEEP_JOB) return;
 
     await this.reaper.sweep();

@@ -6,6 +6,7 @@ import type {
   MessageDto,
   RunResultDto,
 } from '@vaep/types';
+import { AuthorizationService } from '../authorization/authorization.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/pagination';
 import { UsageService, startOfCurrentMonthUtc } from '../usage/usage.service';
@@ -37,6 +38,8 @@ export class EmployeesService {
     private readonly runtime: AgentRuntimeService,
     private readonly billing: BillingService,
     private readonly usage: UsageService,
+    // WAVE 2 §2.2 — the single authorization layer (global leaf module).
+    private readonly authz: AuthorizationService,
   ) {}
 
   // --- Employees -----------------------------------------------------------
@@ -95,17 +98,45 @@ export class EmployeesService {
     return toEmployeeDto(employee);
   }
 
-  async list(companyId: string, limitRaw?: unknown): Promise<AiEmployeeDto[]> {
+  async list(
+    companyId: string,
+    limitRaw?: unknown,
+    actorUserId?: string,
+  ): Promise<AiEmployeeDto[]> {
     const employees = await this.prisma.aiEmployee.findMany({
       where: { companyId },
       orderBy: { createdAt: 'desc' },
       take: clampLimit(limitRaw),
     });
-    return employees.map(toEmployeeDto);
+
+    // WAVE 2 §2.1 — an AI Employee's department axis is its `role` (HR,
+    // MARKETING, …), the same axis knowledge is already scoped by. Filtering the
+    // list matters as much as guarding the detail read: the roster itself tells
+    // a Marketing admin what HR automation exists.
+    const actor = await this.authz.actorById(companyId, actorUserId);
+    const visible = actor
+      ? await this.authz.filter(actor, 'employee:read', employees, (e) => ({
+          type: 'employee' as const,
+          companyId,
+          id: e.id,
+          scope: e.role,
+        }))
+      : employees;
+    return visible.map(toEmployeeDto);
   }
 
-  async get(companyId: string, id: string): Promise<AiEmployeeDto> {
+  async get(
+    companyId: string,
+    id: string,
+    actorUserId?: string,
+  ): Promise<AiEmployeeDto> {
     const employee = await this.findOwnedEmployee(companyId, id);
+    await this.assertEmployeeScope(
+      companyId,
+      actorUserId,
+      employee,
+      'employee:read',
+    );
     const monthToDateCostUsd =
       employee.budgetLimit != null
         ? await this.usage.totalCostForEmployee(
@@ -260,6 +291,28 @@ export class EmployeesService {
       throw new NotFoundException('Employee not found');
     }
     return employee;
+  }
+
+  /**
+   * Department-scope a loaded employee (WAVE 2 §2.1).
+   *
+   * `actorUserId` absent means a machine caller (the workflow engine acting as
+   * an employee, an onboarding installer) authorized at its own entry point.
+   */
+  private async assertEmployeeScope(
+    companyId: string,
+    actorUserId: string | undefined,
+    employee: AiEmployee,
+    action: 'employee:read' | 'employee:manage',
+  ): Promise<void> {
+    const actor = await this.authz.actorById(companyId, actorUserId);
+    if (!actor) return;
+    await this.authz.assert(actor, action, {
+      type: 'employee',
+      companyId,
+      id: employee.id,
+      scope: employee.role,
+    });
   }
 
   private async findOwnedConversation(

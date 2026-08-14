@@ -10,6 +10,7 @@ import {
   LaunchIllustration,
   SkylineIllustration,
 } from '@/components/onboarding/illustrations';
+import { useSubscription } from '@/features/billing/hooks';
 import { COMPANY_SIZES, INDUSTRIES } from '../labels';
 import {
   useCompleteOnboarding,
@@ -41,10 +42,13 @@ const primaryBtn =
  * Minimal 3-step onboarding: Company → Choose AI Employee(s) → Business goals.
  * Every step persists server-side (PATCH /onboarding/*), so it resumes exactly
  * after a refresh / logout / device change. Finishing provisions the selected
- * AI Employees and hands off to the AI Assistant.
+ * AI Employees and hands off to AI Assist — or to the dashboard when the plan
+ * does not include Assist (see `finish`).
  */
 export function OnboardingWizard() {
   const router = useRouter();
+  // Read the plan so the final step can route somewhere the user can actually use.
+  const { data: subscription } = useSubscription();
   const { data: status } = useOnboardingStatus();
   const saveCompany = useSaveOnboardingCompany();
   const saveRoles = useSaveOnboardingAiEmployees();
@@ -86,6 +90,17 @@ export function OnboardingWizard() {
     setGoals(next.goals); // server may have pruned goals to the new role set
     setStep(3);
   };
+  // Route by ENTITLEMENT, not by hope.
+  //
+  // `/assist` requires BUSINESS or ENTERPRISE (`@RequirePlan` on the assist
+  // controller) and a newly registered company defaults to STARTER — so the
+  // wizard's own final button used to land every new customer on a screen that
+  // 403s on its first two requests. A broken first-run experience for literally
+  // every signup, invisible to API tests because none of them walk the
+  // onboarding CTA into the next page. Found by driving the real browser.
+  const canUseAssist =
+    subscription?.plan === 'BUSINESS' || subscription?.plan === 'ENTERPRISE';
+
   const finish = async () => {
     await saveGoals.mutateAsync(goals);
     await complete.mutateAsync({
@@ -93,7 +108,7 @@ export function OnboardingWizard() {
       departments: [],
       employees: roles.map((role) => ({ role: role as never })),
     });
-    router.replace('/assist');
+    router.replace(canUseAssist ? '/assist' : '/dashboard');
   };
 
   // ── Step 1 — Company ──────────────────────────────────────────────────────
@@ -187,8 +202,14 @@ export function OnboardingWizard() {
         </div>
         <div className="flex items-center justify-between pt-3">
           <button type="button" className={backBtn} onClick={() => setStep(2)}>Back</button>
+          {/* The label names where the click actually goes. "Open assistant" on a
+              STARTER plan promises a screen the customer is not entitled to. */}
           <button type="button" className={primaryBtn} disabled={busy} onClick={finish}>
-            {busy ? 'Finishing…' : 'Finish & open assistant'}
+            {busy
+              ? 'Finishing…'
+              : canUseAssist
+                ? 'Finish & open assistant'
+                : 'Finish & go to dashboard'}
           </button>
         </div>
       </div>

@@ -69,6 +69,13 @@ export class AgentRuntimeService {
       forceApprovalForTools?: boolean;
       disableTools?: boolean;
       forceApprovalForExternalActions?: boolean;
+      /**
+       * Cancels the model calls this turn makes. Supplied by the workflow
+       * AI_EMPLOYEE_STEP node, whose per-node timeout would otherwise abandon a
+       * hung completion rather than stop it — the request would keep running
+       * against the provider's own, longer timeout and keep spending.
+       */
+      signal?: AbortSignal;
     },
   ): Promise<RunResultDto> {
     // Guard: only ACTIVE employees accept new work.
@@ -104,7 +111,12 @@ export class AgentRuntimeService {
     });
 
     // PLAN → RETRIEVE (knowledge) → load MEMORY.
-    const plan = await this.planner.plan(employee.role, employee.name, userText);
+    const plan = await this.planner.plan(
+      employee.role,
+      employee.name,
+      userText,
+      options?.signal,
+    );
     const sources = await this.retrieval.retrieve(
       companyId,
       userText,
@@ -165,7 +177,15 @@ export class AgentRuntimeService {
       }
       const draft = await this.router
         .forTask('act')
-        .complete({ system, messages: working, temperature: 0.2 }, tools);
+        .complete(
+          {
+            system,
+            messages: working,
+            temperature: 0.2,
+            ...(options?.signal ? { signal: options.signal } : {}),
+          },
+          tools,
+        );
       await this.recordUsage(companyId, employee.id, draft.usage);
 
       if (draft.toolCall && tools.length > 0) {
@@ -212,7 +232,12 @@ export class AgentRuntimeService {
       await this.assertUnderBudget(employee);
       const draft = await this.router
         .forTask('act')
-        .complete({ system, messages: working, temperature: 0.2 });
+        .complete({
+          system,
+          messages: working,
+          temperature: 0.2,
+          ...(options?.signal ? { signal: options.signal } : {}),
+        });
       await this.recordUsage(companyId, employee.id, draft.usage);
       answer = (draft.content ?? '').trim();
     }

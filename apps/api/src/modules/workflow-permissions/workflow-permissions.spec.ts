@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import type { PrismaService } from '../../common/prisma/prisma.service';
+import type { AuditLogService } from '../audit/audit-log.service';
 import { WorkflowPermissionService } from './workflow-permissions.service';
 
 /** Unit tests for the enqueue-time `workflow:run` authorization (P3-06 §9.C.3). */
@@ -10,7 +11,11 @@ describe('WorkflowPermissionService.assertCanRun', () => {
     workflowPermission: { findMany: grantsFindMany },
     user: { findFirst: userFindFirst },
   } as unknown as PrismaService;
-  const svc = new WorkflowPermissionService(prisma);
+  // These tests only exercise `assertCanRun`, which never audits — a stub is
+  // enough, and a real AuditLogService would drag Prisma writes into a pure
+  // unit test.
+  const auditLog = { record: jest.fn() } as unknown as AuditLogService;
+  const svc = new WorkflowPermissionService(prisma, auditLog);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -45,6 +50,34 @@ describe('WorkflowPermissionService.assertCanRun', () => {
     grantsFindMany.mockResolvedValueOnce([{ subjectType: 'DEPARTMENT', subjectId: 'd1' }]);
     subject({ id: 'u1', role: 'MEMBER', departmentId: 'd1' });
     await expect(svc.assertCanRun('c1', 'w1', 'u1')).resolves.toBeUndefined();
+  });
+
+  // The TEAM subject is the ONE team-shaped control that exists. General
+  // team-level isolation (the department-style "hide other teams' things")
+  // does not — see docs/status/cto-gap-closure-wave9.md B2. This branch had no
+  // test at all, so the little that does work was unproven.
+  it('a MEMBER matched by a TEAM grant may run it', async () => {
+    grantsFindMany.mockResolvedValueOnce([{ subjectType: 'TEAM', subjectId: 't1' }]);
+    subject({ id: 'u1', role: 'MEMBER', teamId: 't1' });
+    await expect(svc.assertCanRun('c1', 'w1', 'u1')).resolves.toBeUndefined();
+  });
+
+  it('a MEMBER in a DIFFERENT team is denied by a TEAM grant', async () => {
+    grantsFindMany.mockResolvedValueOnce([{ subjectType: 'TEAM', subjectId: 't1' }]);
+    subject({ id: 'u1', role: 'MEMBER', teamId: 't2' });
+    await expect(svc.assertCanRun('c1', 'w1', 'u1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('a MEMBER with NO team is denied by a TEAM grant', async () => {
+    // `null === null` would be a silent grant-to-everyone, which is exactly the
+    // shape of bug that makes a permission layer worse than none.
+    grantsFindMany.mockResolvedValueOnce([{ subjectType: 'TEAM', subjectId: 't1' }]);
+    subject({ id: 'u1', role: 'MEMBER', teamId: null });
+    await expect(svc.assertCanRun('c1', 'w1', 'u1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 
   it('a non-matching MEMBER is denied (403)', async () => {

@@ -11,6 +11,7 @@ import {
   EVENT_NORMALIZE_QUEUE,
   GMAIL_INBOUND_QUEUE,
 } from './events.constants';
+import { CanonicalIngestModule } from './ingestion/canonical-ingest.module';
 import { EventNormalizeProcessor } from './ingestion/event-normalize.processor';
 import { ConnectorReconcileService } from './reconciliation/connector-reconcile.service';
 import { ConnectorReconcileProcessor } from './reconciliation/connector-reconcile.processor';
@@ -38,6 +39,7 @@ import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
     BullModule.registerQueue({ name: GMAIL_INBOUND_QUEUE }),
     SkillsModule,
     WorkflowsModule,
+    CanonicalIngestModule,
   ],
   controllers: [
     ConnectorWebhookController,
@@ -53,6 +55,11 @@ import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
       ? [EventNormalizeProcessor, ConnectorReconcileProcessor, GmailInboundProcessor]
       : []),
   ],
-  exports: [EventsService, ConnectorReconcileService, GmailInboundService],
+  exports: [
+    EventsService,
+    CanonicalIngestModule,
+    ConnectorReconcileService,
+    GmailInboundService,
+  ],
 })
 export class EventsModule {}

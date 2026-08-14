@@ -12,6 +12,7 @@ import {
 import { mapRawEvent } from '../normalization/event-mapper';
 import { toQueueError } from '../../../common/resilience/queue-retry';
 import { DEFAULT_QUEUE_CONCURRENCY } from '../../../common/resilience/queue-concurrency.constants';
+import { runInJobContext } from '../../../common/observability/job-context';
 
 /** Prisma Json helper: JS null → the DB JSON-null sentinel. */
 function toJson(value: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
@@ -44,6 +45,12 @@ export class EventNormalizeProcessor extends WorkerHost {
   }
 
   async process(job: Job<NormalizeJobData>): Promise<void> {
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job<NormalizeJobData>): Promise<void> {
     if (job.name !== EVENT_NORMALIZE_JOB) {
       return;
     }

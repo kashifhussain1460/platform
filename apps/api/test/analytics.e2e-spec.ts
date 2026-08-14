@@ -26,14 +26,43 @@ describeIfDb('Analytics e2e (read-only KPI aggregation over existing data)', () 
 
   const auth = () => ({ Authorization: `Bearer ${accessToken}` });
 
-  /** Send a message that triggers the slack tool (no approval rules → executes). */
+  /**
+   * Send a message that drives the slack tool.
+   *
+   * `slack:send_message` is an EXTERNAL_ACTION_TOOL, so the autonomous chat loop
+   * deliberately does NOT execute it — it opens an ApprovalRequest instead
+   * (`tool-approval-policy.ts`: untrusted content, e.g. a pasted email, must not
+   * be able to drive an unapproved external send). This helper therefore
+   * approves the gate, which is what actually runs the tool and writes the
+   * `SkillExecution` rows these KPI assertions measure.
+   *
+   * The test used to assume the tool ran unattended. That assumption became
+   * wrong when the external-action gate shipped, and the suite has been red ever
+   * since — asserting behaviour the platform intentionally removed.
+   */
   const sendMessage = async (text: string) => {
     const res = await request(app.getHttpServer())
       .post(`/conversations/${conversationId}/messages`)
       .set(auth())
       .send({ content: text })
       .expect(201);
+    await approveAllPending();
     return res.body;
+  };
+
+  /** Approve every PENDING request, executing the gated tool for real. */
+  const approveAllPending = async () => {
+    const pending = await request(app.getHttpServer())
+      .get('/approvals?status=PENDING')
+      .set(auth())
+      .expect(200);
+    for (const req of pending.body as { id: string; status: string }[]) {
+      if (req.status !== 'PENDING') continue;
+      await request(app.getHttpServer())
+        .post(`/approvals/${req.id}/approve`)
+        .set(auth())
+        .send({});
+    }
   };
 
   beforeAll(async () => {

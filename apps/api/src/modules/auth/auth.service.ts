@@ -19,6 +19,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { BillingService } from '../billing/billing.service';
 import { MailService } from '../mail/mail.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { SecurityPolicyService } from '../authorization/security-policy.service';
 import {
   AUTH_PROVIDER,
   type AuthProvider,
@@ -76,6 +77,8 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly audit: AuditLogService,
     private readonly config: ConfigService,
+    // WAVE 2 §2.4 — makes the stored SecurityPolicy executable on auth paths.
+    private readonly securityPolicy: SecurityPolicyService,
   ) {}
 
   /** Register creates the Company + owner User atomically, then issues tokens. */
@@ -155,8 +158,16 @@ export class AuthService {
     return outcome;
   }
 
-  /** Generate an OTP, store it hashed with a TTL, and send it. */
-  private async issueVerification(userId: string, email: string): Promise<void> {
+  /**
+   * Generate an OTP, store it hashed with a TTL, and send it.
+   *
+   * Public because an INVITED user needs one too: `UsersService.create` used to
+   * create the account without ever issuing a code, so the person landed on
+   * `/verify-email` reading "We've sent a 6-digit code to …" when nothing had
+   * been sent, and the only way through was to guess at "Resend". Found by
+   * signing in as an invited admin in a real browser (WAVE 7).
+   */
+  async issueVerification(userId: string, email: string): Promise<void> {
     const code = this.mail.generateOtp();
     const verificationCodeHash = await this.auth.hash(code);
     await this.prisma.user.update({
@@ -346,6 +357,18 @@ export class AuthService {
     if (!row || row.usedAt || row.expiresAt.getTime() < Date.now()) {
       throw new BadRequestException('This reset link is invalid or has expired.');
     }
+    // WAVE 2 §2.4 — the company's passwordMinLength applies HERE too. It was
+    // previously enforced only when an admin invited a user, so any user could
+    // reset their way to a 1-character password and the policy screen would
+    // still report the minimum as enforced.
+    const owner = await this.prisma.user.findUniqueOrThrow({
+      where: { id: row.userId },
+      select: { companyId: true },
+    });
+    await this.securityPolicy.assertPasswordMeetsPolicy(
+      owner.companyId,
+      password,
+    );
     const passwordHash = await this.auth.hash(password);
     await this.prisma.$transaction([
       this.prisma.user.update({
@@ -408,6 +431,20 @@ export class AuthService {
     }
     if (!matched) {
       this.logger.warn(`login: password mismatch email="${email}"`);
+      // WAVE 4 §4.3 — a FAILED authentication is the single most important
+      // security event to audit: a burst of them against one account is what a
+      // credential-stuffing attempt looks like, and it is invisible if only
+      // successes are recorded. Attributed to the first candidate's company so
+      // the tenant can see attempts against its own users; the email is
+      // recorded because that IS the subject of the attempt.
+      await this.audit.record({
+        companyId: candidates[0].companyId,
+        actorType: 'SYSTEM',
+        action: 'auth.login_failed',
+        entityType: 'User',
+        entityId: candidates[0].id,
+        metadata: { email, reason: 'password_mismatch' },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
     this.logger.log(`login: password verified userId=${matched.id}`);
@@ -419,6 +456,14 @@ export class AuthService {
       where: { id: matched.companyId },
     });
     const outcome = await this.buildOutcome(matched, company);
+    await this.audit.record({
+      companyId: matched.companyId,
+      actorUserId: matched.id,
+      action: 'auth.login',
+      entityType: 'User',
+      entityId: matched.id,
+      metadata: { email },
+    });
     this.logger.log(`login: complete userId=${matched.id}`);
     return outcome;
   }
@@ -460,6 +505,15 @@ export class AuthService {
       this.logger.warn(`refresh: token revoked/expired/unknown userId=${user.id}`);
       throw new UnauthorizedException('Invalid refresh token');
     }
+
+    // WAVE 2 §2.4 — sessionTimeoutMinutes, finally enforced. Measured from this
+    // token's createdAt, and refresh ROTATES the token, so it is a true
+    // inactivity timeout rather than a hard cap that signs a user out mid-task.
+    // 0 (the default) disables it, so this is inert until a company sets it.
+    await this.securityPolicy.assertSessionWithinTimeout(
+      user.companyId,
+      stored.createdAt,
+    );
 
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: user.companyId },
@@ -541,10 +595,29 @@ export class AuthService {
   /** Revoke a single presented refresh token (logout). Idempotent. */
   async revokeRefreshToken(token: string | undefined): Promise<void> {
     if (!token) return;
-    await this.prisma.refreshToken.updateMany({
+    // Resolve the owner BEFORE revoking, so the audit entry can name them —
+    // after the update the row is still there, but reading first keeps this
+    // correct if revoked rows are ever pruned.
+    const row = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: sha256(token) },
+      select: { userId: true, user: { select: { companyId: true } } },
+    });
+    const revoked = await this.prisma.refreshToken.updateMany({
       where: { tokenHash: sha256(token), revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    // WAVE 4 §4.3 — only audit a logout that actually ended a live session.
+    // A repeated call is idempotent and must not litter the trail with events
+    // that did nothing.
+    if (revoked.count > 0 && row?.user) {
+      await this.audit.record({
+        companyId: row.user.companyId,
+        actorUserId: row.userId,
+        action: 'auth.logout',
+        entityType: 'User',
+        entityId: row.userId,
+      });
+    }
   }
 
   private async revokeAllRefreshTokens(userId: string): Promise<void> {

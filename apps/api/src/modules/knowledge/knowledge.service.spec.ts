@@ -41,6 +41,8 @@ describe('KnowledgeService category scoping', () => {
       fakeStorage() as never,
       fakeEmbeddings() as never,
       fakeQueue() as never,
+      { record: jest.fn() } as never,
+      { actorById: jest.fn().mockResolvedValue(null) } as never,
     );
 
     await service.list('co_1');
@@ -59,6 +61,8 @@ describe('KnowledgeService category scoping', () => {
       fakeStorage() as never,
       fakeEmbeddings() as never,
       fakeQueue() as never,
+      { record: jest.fn() } as never,
+      { actorById: jest.fn().mockResolvedValue(null) } as never,
     );
 
     await service.list('co_1', 'SALES');
@@ -77,6 +81,8 @@ describe('KnowledgeService category scoping', () => {
       fakeStorage() as never,
       fakeEmbeddings() as never,
       fakeQueue() as never,
+      { record: jest.fn() } as never,
+      { actorById: jest.fn().mockResolvedValue(null) } as never,
     );
 
     await service.search('co_1', { query: 'refund policy' });
@@ -92,6 +98,8 @@ describe('KnowledgeService category scoping', () => {
       fakeStorage() as never,
       fakeEmbeddings() as never,
       fakeQueue() as never,
+      { record: jest.fn() } as never,
+      { actorById: jest.fn().mockResolvedValue(null) } as never,
     );
 
     await service.search('co_1', { query: 'refund policy', category: 'SALES' });
@@ -123,6 +131,8 @@ describe('KnowledgeService category scoping', () => {
       fakeStorage() as never,
       fakeEmbeddings() as never,
       fakeQueue() as never,
+      { record: jest.fn() } as never,
+      { actorById: jest.fn().mockResolvedValue(null) } as never,
     );
 
     const result = await service.updateCategory('co_1', 'doc_1', 'HR');
@@ -161,6 +171,8 @@ describe('KnowledgeService category scoping', () => {
       fakeStorage() as never,
       fakeEmbeddings() as never,
       fakeQueue() as never,
+      { record: jest.fn() } as never,
+      { actorById: jest.fn().mockResolvedValue(null) } as never,
     );
 
     const result = await service.updateCategory('co_1', 'doc_1', null);

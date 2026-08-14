@@ -28,4 +28,15 @@ export class UpdateUserDto implements IUpdateUserDto {
   @IsOptional()
   @IsIn(USER_STATUSES)
   status?: UserStatus;
+
+  /** WAVE 2 — place the user in a department (null clears it). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  departmentId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  teamId?: string | null;
 }

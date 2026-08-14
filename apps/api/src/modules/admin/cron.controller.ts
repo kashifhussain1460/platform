@@ -14,7 +14,10 @@ import { ApprovalSlaService } from '../approvals/sla/approval-sla.service';
 import { GmailInboundService } from '../events/inbound/gmail-inbound.service';
 import { ConnectorReconcileService } from '../events/reconciliation/connector-reconcile.service';
 import { MarketingSyncService } from '../engines/marketing/marketing-sync.service';
+import { AuditRetentionService } from '../audit/audit-retention.service';
 import { HrRetentionService } from '../hr/hr-retention.service';
+import { DataRetentionService } from '../retention/data-retention.service';
+import { AlertDispatchService } from './alert-dispatch.service';
 import { WorkflowsService } from '../workflows/workflows.service';
 
 /**
@@ -49,6 +52,9 @@ export class CronController {
     private readonly gmailInbound: GmailInboundService,
     private readonly reconcile: ConnectorReconcileService,
     private readonly marketingSync: MarketingSyncService,
+    private readonly auditRetention: AuditRetentionService,
+    private readonly dataRetention: DataRetentionService,
+    private readonly alerts: AlertDispatchService,
   ) {}
 
   /**
@@ -80,6 +86,24 @@ export class CronController {
         return { ...(await this.sla.sweep()) };
       case 'hr-retention':
         return { ...(await this.retention.runRetention(new Date())) };
+      case 'audit-retention':
+        // WAVE 4 §4.5. Separate from `hr-retention` on purpose: audit has its
+        // own floor and its own legal-hold rule, and must not be swept by a job
+        // whose schedule and policy belong to operational data.
+        return { ...(await this.auditRetention.sweep()) };
+      case 'alerts':
+        // WAVE 9 — the rules already evaluated correctly at `GET /admin/alerts`
+        // and NOTHING EVER CALLED IT. Evaluating an alert nobody receives is a
+        // log line with ambition; this is the half that notifies someone.
+        // Reports `delivered:false` with a reason when it could not.
+        return { ...(await this.alerts.sweep()) };
+      case 'data-retention':
+        // WAVE 8 §8.3 — workflow runs, step attempts, outbox, provider
+        // snapshots, knowledge, memory, conversations and attachments. A third
+        // sweep rather than an extension of the other two because each has a
+        // genuinely different rule: audit has a floor it will not go below, HR
+        // never touches the roster, and this one never touches an in-flight run.
+        return { ...(await this.dataRetention.sweep()) };
       case 'gmail-poll':
         // P1-4: inbound Gmail polling is otherwise a worker-only repeatable, so
         // on a serverless deploy (QUEUE_WORKERS_ENABLED=false) no email ever
@@ -94,7 +118,7 @@ export class CronController {
         return { ...(await this.marketingSync.sweep()) };
       default:
         throw new BadRequestException(
-          `Unknown cron job "${job}". Known: workflow-schedules, workflow-watchdog, approval-sla, hr-retention, gmail-poll, connector-reconcile, marketing-sync.`,
+          `Unknown cron job "${job}". Known: workflow-schedules, workflow-watchdog, approval-sla, hr-retention, audit-retention, data-retention, alerts, gmail-poll, connector-reconcile, marketing-sync.`,
         );
     }
   }

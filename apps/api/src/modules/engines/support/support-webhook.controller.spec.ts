@@ -44,12 +44,22 @@ describe('SupportWebhookController', () => {
       { get: () => undefined } as any,
       crypto,
     );
+    // WAVE 3 §3.4 — the canonical pipeline stands between verification and the
+    // local write. Default: not a duplicate, so existing behaviour is unchanged.
+    const ingest = {
+      ingestVerified: jest
+        .fn()
+        .mockResolvedValue({ deduped: false, rawEventId: 'raw-1' }),
+    };
+    const audit = { record: jest.fn().mockResolvedValue(undefined) };
     const controller = new SupportWebhookController(
       prisma as any,
       chatwootClient,
       crypto,
+      ingest as any,
+      audit as any,
     );
-    return { controller, prisma, crypto };
+    return { controller, prisma, crypto, ingest, audit };
   }
 
   function sign(body: string, ts: string, withSecret = secret): string {
@@ -165,5 +175,66 @@ describe('SupportWebhookController', () => {
     await expect(
       controller.receive({ rawBody: undefined } as any, 'sha256=whatever', '123'),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  // ── WAVE 3 §3.4 — the canonical pipeline + dedup guard ──────────────────────
+
+  it('routes a verified delivery into the canonical pipeline before writing locally', async () => {
+    const { controller, ingest, audit } = buildController();
+    const body = JSON.stringify({
+      account: { id: 42 },
+      conversation: { id: 7 },
+      message_type: 'incoming',
+      content: 'hello',
+      id: 1001,
+    });
+    const ts = String(Math.floor(Date.now() / 1000));
+
+    await controller.receive(fakeReq(body), sign(body, ts), ts);
+
+    expect(ingest.ingestVerified).toHaveBeenCalledTimes(1);
+    const arg = ingest.ingestVerified.mock.calls[0][0];
+    expect(arg.provider).toBe('chatwoot');
+    expect(arg.companyId).toBe('company-1');
+    // The mapper is pure and has no database, so the controller resolves the
+    // one fact it cannot: first message (NEW_TICKET) vs reply (TICKET_REPLIED).
+    expect(arg.payload.__isFirstMessage).toBe(true);
+    expect(arg.payload.__conversationId).toBe('7');
+    expect(audit.record).toHaveBeenCalled();
+  });
+
+  it('a DUPLICATE delivery writes no second SupportMessage', async () => {
+    // Every webhook provider redelivers on timeout. Before WAVE 3 this appended
+    // the same customer message again, every time, for ever.
+    const { controller, prisma, ingest } = buildController();
+    ingest.ingestVerified.mockResolvedValueOnce({
+      deduped: true,
+      rawEventId: 'raw-1',
+    });
+    const body = JSON.stringify({
+      account: { id: 42 },
+      conversation: { id: 7 },
+      message_type: 'incoming',
+      content: 'hello',
+      id: 1001,
+    });
+    const ts = String(Math.floor(Date.now() / 1000));
+
+    const res = await controller.receive(fakeReq(body), sign(body, ts), ts);
+
+    // 200 so the provider stops retrying, and nothing else happens.
+    expect(res).toEqual({ ok: true });
+    expect(prisma.supportConversation.create).not.toHaveBeenCalled();
+    expect(prisma.supportMessage.create).not.toHaveBeenCalled();
+  });
+
+  it('does not ingest anything when the signature fails', async () => {
+    const { controller, ingest } = buildController();
+    const body = JSON.stringify({ account: { id: 42 }, conversation: { id: 7 } });
+    const ts = String(Math.floor(Date.now() / 1000));
+    await expect(
+      controller.receive(fakeReq(body), sign(body, ts, 'wrong'), ts),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(ingest.ingestVerified).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import type { TriggerType, WorkflowDto } from '@vaep/types';
+import type { TriggerConfig, TriggerType, WorkflowDto } from '@vaep/types';
 import { useUpdateWorkflow } from '../../../hooks';
+import { toTriggerConfig } from '../../../schedule';
+import { DEFAULT_SCHEDULE, ScheduleFields } from '../ScheduleFields';
+import { useCurrentCompany } from '@/features/tenant/hooks';
 import { useInstalledSkills } from '@/features/skills/hooks';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -12,7 +15,7 @@ const inputCls =
 
 const TRIGGERS: { value: TriggerType; label: string; hint: string }[] = [
   { value: 'MANUAL', label: 'Manual', hint: 'Run on demand from the Run button.' },
-  { value: 'SCHEDULE', label: 'Schedule', hint: 'Run automatically on a fixed interval.' },
+  { value: 'SCHEDULE', label: 'Schedule', hint: 'Run automatically at a set time.' },
   { value: 'WEBHOOK', label: 'Webhook', hint: 'Run when an external system POSTs to a secret URL.' },
   { value: 'EVENT', label: 'Event', hint: 'Run when a matching platform event fires.' },
 ];
@@ -31,14 +34,19 @@ export function TriggerInspector({
   readOnly?: boolean;
 }) {
   const [triggerType, setTriggerType] = useState<TriggerType>(workflow.triggerType);
-  const [minutes, setMinutes] = useState<number>(() => {
-    const ms = workflow.triggerConfig?.everyMs;
-    return typeof ms === 'number' && ms > 0 ? Math.max(1, Math.round(ms / 60_000)) : 5;
-  });
+  // Seeded COMPLETE, never blank: the API rejects a SCHEDULE trigger with no
+  // time (400), so an empty starting state would make Save fail rather than
+  // simply be incomplete.
+  const [schedule, setSchedule] = useState<TriggerConfig>(() =>
+    workflow.triggerConfig?.cron || workflow.triggerConfig?.everyMs
+      ? workflow.triggerConfig
+      : toTriggerConfig(DEFAULT_SCHEDULE),
+  );
   const [eventType, setEventType] = useState<string>(workflow.triggerConfig?.eventType ?? '');
   const [connectorId, setConnectorId] = useState<string>(workflow.triggerConfig?.connectorId ?? '');
 
   const { data: skills } = useInstalledSkills();
+  const { data: company } = useCurrentCompany();
   const mailboxes = (skills ?? []).filter(
     (s) => s.skillKey === 'gmail' && s.connectionStatus === 'CONNECTED',
   );
@@ -50,7 +58,7 @@ export function TriggerInspector({
   const save = () => {
     let triggerConfig: Record<string, unknown> | undefined;
     if (triggerType === 'SCHEDULE') {
-      triggerConfig = { everyMs: Math.max(1, minutes) * 60_000 };
+      triggerConfig = { ...schedule };
     } else if (triggerType === 'EVENT') {
       triggerConfig = {
         eventType: eventType.trim(),
@@ -85,17 +93,12 @@ export function TriggerInspector({
       </label>
 
       {triggerType === 'SCHEDULE' && (
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-wf-ink-2">Run every (minutes)</span>
-          <input
-            type="number"
-            min={1}
-            className={inputCls}
-            value={minutes}
-            disabled={readOnly}
-            onChange={(e) => setMinutes(Number(e.target.value))}
-          />
-        </label>
+        <ScheduleFields
+          value={schedule}
+          onChange={setSchedule}
+          timeZone={company?.timezone ?? undefined}
+          disabled={readOnly}
+        />
       )}
 
       {triggerType === 'EVENT' && (

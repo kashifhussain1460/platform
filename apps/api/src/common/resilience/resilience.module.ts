@@ -30,7 +30,10 @@ import { createResilienceRedis, RESILIENCE_REDIS } from './redis.provider';
     RateLimiter,
     DlqService,
   ],
-  exports: [CircuitBreakerRegistry, RateLimiter, DlqService],
+  // RESILIENCE_REDIS is exported so the realtime fan-out can publish on it.
+  // It is @Optional() at every injection site, so a deployment without Redis
+  // degrades rather than failing to boot.
+  exports: [CircuitBreakerRegistry, RateLimiter, DlqService, RESILIENCE_REDIS],
 })
 export class ResilienceModule implements OnModuleDestroy {
   constructor(

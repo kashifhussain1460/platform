@@ -40,7 +40,14 @@ describe('OAuth signed state (HMAC via CryptoService)', () => {
   } as unknown as ConfigService;
   const crypto = new CryptoService(config);
   // SkillsService is never reached in these paths (state parse fails / no code).
-  const oauth = new OAuthService(config, crypto, {} as SkillsService);
+  // Prisma likewise: WAVE 2's one-time-state lookup happens only AFTER the state
+  // parses and a code is present, and every case here fails before that.
+  const oauth = new OAuthService(
+    config,
+    crypto,
+    {} as SkillsService,
+    {} as PrismaService,
+  );
 
   const makeState = (iat: number): string => {
     const body = Buffer.from(

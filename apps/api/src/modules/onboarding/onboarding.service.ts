@@ -45,6 +45,7 @@ function toDepartmentDto(row: DepartmentRow): DepartmentDto {
     companyId: row.companyId,
     name: row.name,
     description: row.description,
+    scopes: row.scopes,
     createdAt: row.createdAt.toISOString(),
   };
 }

@@ -17,6 +17,8 @@ export class PlannerService {
     role: EmployeeRole,
     name: string,
     userText: string,
+    /** Cancels the planning call when the caller's budget expires. */
+    signal?: AbortSignal,
   ): Promise<string[]> {
     const system =
       `${PLAN_PROMPT_MARKER}\n` +
@@ -32,7 +34,12 @@ export class PlannerService {
 
     const { content } = await this.router
       .forTask('plan')
-      .complete({ system, messages: [{ role: 'user', content: userText }], temperature: 0 });
+      .complete({
+        system,
+        messages: [{ role: 'user', content: userText }],
+        temperature: 0,
+        ...(signal ? { signal } : {}),
+      });
 
     const steps = (content ?? '')
       .split('\n')

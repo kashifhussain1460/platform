@@ -27,6 +27,7 @@ import type {
   WorkflowRunDto,
 } from '@vaep/types';
 import { useAutosaveWorkflow, useNodeDefinitions, workflowKeys } from '../../../hooks';
+import { AutosaveStatus, type AutosaveState } from '../AutosaveStatus';
 import { useEmployees } from '@/features/employees/hooks';
 import { useInstalledSkills } from '@/features/skills/hooks';
 import { defaultConfig } from '../../../labels';
@@ -70,7 +71,7 @@ const MINIMAP_COLOR: Record<string, string> = {
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
-type SaveState = 'idle' | 'unsaved' | 'saving' | 'saved' | 'error' | 'conflict';
+type SaveState = AutosaveState;
 
 function newNodeId(type: NodeType): string {
   const rand =
@@ -112,6 +113,31 @@ export interface WorkflowCanvasProps {
    */
   locked?: boolean;
   lockedReason?: string;
+  /**
+   * The server's own view of the workflow after every successful autosave.
+   *
+   * The canvas deliberately does NOT write this back into the shared workflow
+   * cache: the page re-seeds the canvas from that cache, so a write landing
+   * while the user has newer unsaved edits would overwrite them. But things
+   * OUTSIDE the canvas need the current graph — Run/Activate gate on it, and
+   * `warnings` (unreachable steps) is computed server-side — and without this
+   * they keep reading the workflow as it was when the page loaded. So you could
+   * build a workflow, publish it, and still find Run greyed out until you
+   * refreshed.
+   */
+  onSaved?: (saved: WorkflowDto) => void;
+  /**
+   * Report the live autosave state (and how to retry a failed save) so the page
+   * chrome can show ONE truthful indicator instead of a second one computed
+   * from the cached workflow, which goes stale the moment the canvas saves
+   * without a refetch (UX plan §11).
+   */
+  onSaveStateChange?: (state: AutosaveState, retry: () => void) => void;
+  /**
+   * Select and reveal this node. Lets an issue in Review & Publish say "open
+   * this step" and actually land on it.
+   */
+  selectNodeId?: string | null;
 }
 
 function CanvasInner({
@@ -121,6 +147,9 @@ function CanvasInner({
   run,
   locked = false,
   lockedReason,
+  onSaved,
+  onSaveStateChange,
+  selectNodeId,
 }: WorkflowCanvasProps) {
   const watchMode = mode === 'watch';
   const editable = mode === 'edit' && !locked;
@@ -240,12 +269,13 @@ function CanvasInner({
             expectedRef.current = updated.updatedAt;
             dirtyRef.current = false;
             setSaveState('saved');
+            onSaved?.(updated);
           },
           onError: (e) => setSaveState(e.status === 409 ? 'conflict' : 'error'),
         },
       );
     },
-    [autosave, pushCheckpoint],
+    [autosave, pushCheckpoint, onSaved],
   );
 
   const doSave = useCallback(() => {
@@ -636,6 +666,26 @@ function CanvasInner({
     onToggleDisabled,
   ]);
 
+  // Publish the save state upward. Effect (not inline) so the parent's setState
+  // never runs during this component's render.
+  //
+  // `doSave` is deliberately NOT a dependency. It is rebuilt on every render
+  // (it closes over the react-query mutation object, whose identity changes
+  // each render), so depending on it re-fired this effect every render — the
+  // parent set state, which re-rendered the canvas, which fired it again:
+  // "Maximum update depth exceeded". Caught in a browser, not by tsc.
+  const doSaveRef = useRef(doSave); // latest-value ref, read only inside callbacks
+  doSaveRef.current = doSave;
+  useEffect(() => {
+    onSaveStateChange?.(saveState, () => doSaveRef.current());
+  }, [saveState, onSaveStateChange]);
+
+  // External "open this step" requests (from the Review & Publish issue list).
+  useEffect(() => {
+    if (!selectNodeId) return;
+    setSelectedId(selectNodeId);
+  }, [selectNodeId]);
+
   const reloadFromServer = useCallback(() => {
     dirtyRef.current = false;
     setSaveState('idle');
@@ -727,18 +777,7 @@ function CanvasInner({
             </>
           ) : null}
         </div>
-        {editable ? (
-          <span className="text-wf-ink-3" aria-live="polite">
-            {saveState === 'saving' && 'Saving…'}
-            {saveState === 'saved' && 'All changes saved'}
-            {saveState === 'unsaved' && 'Unsaved changes…'}
-            {saveState === 'error' && (
-              <button type="button" onClick={doSave} className="text-status-failed hover:underline">
-                Couldn&apos;t save — retry
-              </button>
-            )}
-          </span>
-        ) : null}
+        {editable ? <AutosaveStatus state={saveState} onRetry={doSave} /> : null}
       </div>
 
       <div className="flex gap-3">

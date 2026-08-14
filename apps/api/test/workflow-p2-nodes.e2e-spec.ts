@@ -396,8 +396,14 @@ describeIfDb('P2 nodes', () => {
     expect(start2).toBeLessThan(end1);
   });
 
-  it('rejects an unbounded LOOP at save time', async () => {
-    const res = await request(app.getHttpServer())
+  it('SAVES an unbounded LOOP but refuses to RUN it', async () => {
+    // WAVE 7 moved readiness checks off the save path. The builder autosaves
+    // after every canvas change, so a graph that is still being drawn — a loop
+    // whose maxIterations has not been filled in yet — has to be storable, or
+    // the customer loses their work the moment they drop the node.
+    //
+    // The protection did not go away, it moved: the graph cannot EXECUTE.
+    const created = await request(app.getHttpServer())
       .post('/workflows')
       .set(auth())
       .send({
@@ -411,14 +417,22 @@ describeIfDb('P2 nodes', () => {
           edges: [{ from: 't', to: 'l' }],
         },
       })
+      .expect(201);
+
+    const run = await request(app.getHttpServer())
+      .post(`/workflows/${created.body.id}/run`)
+      .set(auth())
+      .send({})
       .expect(400);
-    expect(String(res.body.message)).toMatch(/maxIterations/);
+    expect(String(run.body.message)).toMatch(/maxIterations/);
   });
 
-  it('rejects a cyclic graph at save time', async () => {
-    // Previously this saved cleanly and only died at runtime with a confusing
-    // "exceeded max node count".
-    const res = await request(app.getHttpServer())
+  it('SAVES a cyclic graph but refuses to RUN it', async () => {
+    // A cycle is reachable mid-wiring (connect A→B, then B→A before deleting
+    // the first edge), so it must be storable. It must never execute: without
+    // the check the run only stops at the visit cap, surfacing as a confusing
+    // "exceeded max node count" long after the actual mistake.
+    const created = await request(app.getHttpServer())
       .post('/workflows')
       .set(auth())
       .send({
@@ -436,8 +450,14 @@ describeIfDb('P2 nodes', () => {
           ],
         },
       })
+      .expect(201);
+
+    const run = await request(app.getHttpServer())
+      .post(`/workflows/${created.body.id}/run`)
+      .set(auth())
+      .send({})
       .expect(400);
-    expect(String(res.body.message)).toMatch(/Cycle detected/);
+    expect(String(run.body.message)).toMatch(/Cycle detected/);
   });
 
   it('a WORKFLOW-scope variable persists and is readable by the NEXT run', async () => {
@@ -501,8 +521,8 @@ describeIfDb('P2 nodes', () => {
     expect(String(res.body.message)).toMatch(/inline secret/i);
   });
 
-  it('rejects SET_VARIABLE writing a read-only scope at save time', async () => {
-    const res = await request(app.getHttpServer())
+  it('SAVES a SET_VARIABLE writing a read-only scope but refuses to RUN it', async () => {
+    const created = await request(app.getHttpServer())
       .post('/workflows')
       .set(auth())
       .send({
@@ -515,7 +535,13 @@ describeIfDb('P2 nodes', () => {
           edges: [{ from: 't', to: 'v' }],
         },
       })
+      .expect(201);
+
+    const run = await request(app.getHttpServer())
+      .post(`/workflows/${created.body.id}/run`)
+      .set(auth())
+      .send({})
       .expect(400);
-    expect(String(res.body.message)).toMatch(/read-only/);
+    expect(String(run.body.message)).toMatch(/read-only/);
   });
 });

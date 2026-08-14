@@ -9,7 +9,9 @@ import type {
   UpdateWorkflowDto,
   WorkflowDefinition,
   WorkflowDto,
+  WorkflowReadinessDto,
   WorkflowRunDto,
+  WorkflowRunStatus,
   WorkflowTemplateSummaryDto,
   WorkflowVersionDto,
 } from '@vaep/types';
@@ -129,14 +131,36 @@ export async function saveWorkflowDraft(vars: {
   return data;
 }
 
-/** Freeze the draft as a PUBLISHED version and make it the active one. */
+/**
+ * Freeze the draft as a PUBLISHED version and make it the active one.
+ *
+ * `activate: true` also arms the trigger in the same request — the single
+ * "Publish & Activate" action of the simplified UX. The server still runs both
+ * operations with their own guards and audit entries; a validation failure
+ * throws before anything is activated.
+ */
 export async function publishWorkflow(vars: {
   id: string;
   changeNote?: string;
+  activate?: boolean;
 }): Promise<PublishWorkflowResultDto> {
   const { data } = await apiClient.post<PublishWorkflowResultDto>(
     `/workflows/${vars.id}/publish`,
-    { changeNote: vars.changeNote },
+    { changeNote: vars.changeNote, activate: vars.activate },
+  );
+  return data;
+}
+
+/**
+ * The publish preflight: every check publish + activate would run, without
+ * changing anything. Backs the Review & Publish surface, which is why there is
+ * no separate "Validate" button in the builder.
+ */
+export async function getWorkflowReadiness(
+  id: string,
+): Promise<WorkflowReadinessDto> {
+  const { data } = await apiClient.get<WorkflowReadinessDto>(
+    `/workflows/${id}/readiness`,
   );
   return data;
 }
@@ -167,6 +191,30 @@ export async function listWorkflowRuns(id: string): Promise<WorkflowRunDto[]> {
   const { data } = await apiClient.get<WorkflowRunDto[]>(
     `/workflows/${id}/runs`,
   );
+  return data;
+}
+
+/** Filters for the cross-workflow operations list. */
+export interface RunFilters {
+  status?: WorkflowRunStatus;
+  workflowId?: string;
+  limit?: number;
+}
+
+/**
+ * Every run in the company, newest first — the `/runs` operations surface. Each
+ * row carries `workflowName`, so the table needs no per-row lookup.
+ */
+export async function listAllRuns(
+  filters: RunFilters = {},
+): Promise<WorkflowRunDto[]> {
+  const { data } = await apiClient.get<WorkflowRunDto[]>('/workflows/runs', {
+    params: {
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.workflowId ? { workflowId: filters.workflowId } : {}),
+      ...(filters.limit ? { limit: filters.limit } : {}),
+    },
+  });
   return data;
 }
 

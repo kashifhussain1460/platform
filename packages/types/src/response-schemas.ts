@@ -277,6 +277,7 @@ export const workflowRunDtoSchema = z.object({
   id: z.string(),
   companyId: z.string(),
   workflowId: z.string(),
+  workflowName: z.string().optional(),
   status: z.enum([
     'PENDING',
     'RUNNING',

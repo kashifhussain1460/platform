@@ -134,7 +134,22 @@ export class ToolActionNodeHandler implements NodeHandler {
       liveArgs,
     );
     if (!call.ok) {
-      throw new Error(`Tool ${skillKey}/${tool} did not succeed`);
+      // Carry the PROVIDER's error through. The previous message was
+      // `Tool x/y did not succeed` and nothing else, which erased the cause of
+      // every tool failure: a timeout, a 500 and a rate limit all produced the
+      // same string, so `RetryPolicyService` — which classifies by reading the
+      // message — filed every one of them as a generic `NODE_ERROR`.
+      //
+      // The cost was not cosmetic. Backoff, the retry decision, the failure
+      // metrics and the DLQ all key off that class, and an operator looking at
+      // a failed run could not tell a provider outage from a bad argument.
+      // Proven by the chaos suite: a timeout was recorded as NODE_ERROR until
+      // this line changed.
+      const detail =
+        typeof call.error === 'string' && call.error.trim()
+          ? `: ${call.error.trim()}`
+          : '';
+      throw new Error(`Tool ${skillKey}/${tool} did not succeed${detail}`);
     }
 
     // Mask any credential the provider echoed back before it reaches step output

@@ -39,11 +39,18 @@ type ContentBlock = {
 
 interface AnthropicClient {
   messages: {
-    create(args: Record<string, unknown>): Promise<{
+    // Second argument = RequestOptions (`signal`), not payload.
+    create(
+      args: Record<string, unknown>,
+      options?: { signal?: AbortSignal },
+    ): Promise<{
       content: ContentBlock[];
       usage?: { input_tokens: number; output_tokens: number };
     }>;
-    stream(args: Record<string, unknown>): AsyncIterable<AnthropicStreamEvent> & {
+    stream(
+      args: Record<string, unknown>,
+      options?: { signal?: AbortSignal },
+    ): AsyncIterable<AnthropicStreamEvent> & {
       finalMessage(): Promise<{
         content: ContentBlock[];
         usage?: { input_tokens: number; output_tokens: number };
@@ -69,7 +76,10 @@ export class AnthropicLlmProvider implements LlmProvider {
     tools?: ToolDefinitionDto[],
   ): Promise<LlmCompletionResult> {
     const client = await this.getClient();
-    const res = await client.messages.create(this.buildRequest(input, tools));
+    const res = await client.messages.create(
+      this.buildRequest(input, tools),
+      this.requestOptions(input),
+    );
 
     const usage = res.usage
       ? {
@@ -100,7 +110,10 @@ export class AnthropicLlmProvider implements LlmProvider {
     tools?: ToolDefinitionDto[],
   ): AsyncIterable<LlmStreamChunk> {
     const client = await this.getClient();
-    const stream = client.messages.stream(this.buildRequest(input, tools));
+    const stream = client.messages.stream(
+      this.buildRequest(input, tools),
+      this.requestOptions(input),
+    );
 
     for await (const event of stream) {
       if (
@@ -160,8 +173,20 @@ export class AnthropicLlmProvider implements LlmProvider {
           }
         : {}),
       messages: toAnthropicMessages(input.messages),
-      ...(input.signal ? { signal: input.signal } : {}),
     };
+  }
+
+      // NOT in the body. Both SDKs take `signal` in their REQUEST OPTIONS
+      // (the second argument); putting it in the payload sends it to the
+      // provider as an unknown parameter, and OpenAI answers
+      // `400 Unrecognized request argument supplied: signal`.
+      //
+      // This sat here unexercised until the workflow node timeout started
+      // supplying a signal for the first time — the classic shape of a
+      // never-called branch: it type-checked, it read correctly, and it had
+      // never once run.
+  private requestOptions(input: LlmCompletionInput): { signal?: AbortSignal } {
+    return input.signal ? { signal: input.signal } : {};
   }
 
   /** Per-request LLM timeout in ms (default 60s), config `LLM_REQUEST_TIMEOUT_MS`. */

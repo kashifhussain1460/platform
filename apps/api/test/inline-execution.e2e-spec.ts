@@ -258,7 +258,7 @@ describeIfDb('Inline workflow execution (no worker — G40)', () => {
     });
 
     it('rejects a wrong secret', async () => {
-      process.env.CRON_SECRET = 'right-secret';
+      process.env.CRON_SECRET = 'e2e-cron-secret';
       await request(app.getHttpServer())
         .post('/admin/cron/workflow-watchdog')
         .set({ 'x-cron-secret': 'wrong-secret' })
@@ -267,12 +267,12 @@ describeIfDb('Inline workflow execution (no worker — G40)', () => {
     });
 
     it('runs the sweep for a correct secret, over GET as well as POST', async () => {
-      process.env.CRON_SECRET = 'right-secret';
+      process.env.CRON_SECRET = 'e2e-cron-secret';
 
       // POST — a human or a generic scheduler.
       const posted = await request(app.getHttpServer())
         .post('/admin/cron/workflow-watchdog')
-        .set({ 'x-cron-secret': 'right-secret' })
+        .set({ 'x-cron-secret': 'e2e-cron-secret' })
         // 200, not 201: `@All` uses Nest's default status, unlike `@Post`.
         .expect(200);
       expect(posted.body).toHaveProperty('swept');
@@ -282,7 +282,7 @@ describeIfDb('Inline workflow execution (no worker — G40)', () => {
       // the guard against the schedule quietly doing nothing.
       const got = await request(app.getHttpServer())
         .get('/admin/cron/workflow-watchdog')
-        .set({ authorization: 'Bearer right-secret' })
+        .set({ authorization: 'Bearer e2e-cron-secret' })
         .expect(200);
       expect(got.body).toHaveProperty('swept');
 
@@ -290,38 +290,38 @@ describeIfDb('Inline workflow execution (no worker — G40)', () => {
     });
 
     it('drives gmail-poll and connector-reconcile sweeps (P1-4 serverless)', async () => {
-      process.env.CRON_SECRET = 'right-secret';
+      process.env.CRON_SECRET = 'e2e-cron-secret';
       const gmail = await request(app.getHttpServer())
         .post('/admin/cron/gmail-poll')
-        .set({ 'x-cron-secret': 'right-secret' })
+        .set({ 'x-cron-secret': 'e2e-cron-secret' })
         .expect(200);
       expect(gmail.body).toHaveProperty('polled');
       const rec = await request(app.getHttpServer())
         .get('/admin/cron/connector-reconcile')
-        .set({ authorization: 'Bearer right-secret' })
+        .set({ authorization: 'Bearer e2e-cron-secret' })
         .expect(200);
       expect(rec.body).toHaveProperty('reconciled');
       // Postiz reconciliation must also be cron-drivable on serverless.
       const mkt = await request(app.getHttpServer())
         .post('/admin/cron/marketing-sync')
-        .set({ 'x-cron-secret': 'right-secret' })
+        .set({ 'x-cron-secret': 'e2e-cron-secret' })
         .expect(200);
       expect(mkt.body).toHaveProperty('reconciled');
       delete process.env.CRON_SECRET;
     });
 
     it('reports an unknown job rather than silently doing nothing', async () => {
-      process.env.CRON_SECRET = 'right-secret';
+      process.env.CRON_SECRET = 'e2e-cron-secret';
       const res = await request(app.getHttpServer())
         .post('/admin/cron/not-a-real-job')
-        .set({ 'x-cron-secret': 'right-secret' })
+        .set({ 'x-cron-secret': 'e2e-cron-secret' })
         .expect(400);
       expect(String(res.body.message)).toContain('workflow-watchdog');
       delete process.env.CRON_SECRET;
     });
 
     it('fires a due scheduled workflow — the path that is dead without a worker', async () => {
-      process.env.CRON_SECRET = 'right-secret';
+      process.env.CRON_SECRET = 'e2e-cron-secret';
 
       const created = await request(app.getHttpServer())
         .post('/workflows')
@@ -354,7 +354,7 @@ describeIfDb('Inline workflow execution (no worker — G40)', () => {
 
       await request(app.getHttpServer())
         .post('/admin/cron/workflow-schedules')
-        .set({ 'x-cron-secret': 'right-secret' })
+        .set({ 'x-cron-secret': 'e2e-cron-secret' })
         .expect(200);
 
       // Assert on THIS workflow, not the sweep's global counter: the sweep is
@@ -373,7 +373,7 @@ describeIfDb('Inline workflow execution (no worker — G40)', () => {
       // must be skipped rather than fired a second time.
       await request(app.getHttpServer())
         .post('/admin/cron/workflow-schedules')
-        .set({ 'x-cron-secret': 'right-secret' })
+        .set({ 'x-cron-secret': 'e2e-cron-secret' })
         .expect(200);
       const after = await request(app.getHttpServer())
         .get(`/workflows/${created.body.id}/runs`)

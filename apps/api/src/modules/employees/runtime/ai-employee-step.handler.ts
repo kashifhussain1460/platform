@@ -55,6 +55,7 @@ export class AiEmployeeStepNodeHandler implements NodeHandler, OnModuleInit {
     node,
     context,
     dryRun,
+    signal,
   }: NodeExecContext): Promise<NodeResult> {
     const cfg = node.config ?? {};
     const employeeId = resolveTemplate(cfg.employeeId, context).trim();
@@ -114,6 +115,11 @@ export class AiEmployeeStepNodeHandler implements NodeHandler, OnModuleInit {
     // the run, orphaning it WAITING — offering no tools avoids that entirely.)
     const result = await this.runtime.run(employee, conversation, instruction, {
       disableTools: true,
+      // The node's timeout. An AI_EMPLOYEE_STEP is the longest-running node
+      // type and the one most exposed to a third party's latency, so it is the
+      // one that most needs its model calls actually cancelled — not merely
+      // abandoned — when the step gives up.
+      ...(signal ? { signal } : {}),
     });
 
     const maxToolCalls = this.maxToolCalls(cfg);

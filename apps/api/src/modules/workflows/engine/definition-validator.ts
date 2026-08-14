@@ -2,10 +2,50 @@ import { BadRequestException } from '@nestjs/common';
 import { NODE_TYPES, type WorkflowDefinition } from '@vaep/types';
 import { MAX_WORKFLOW_NODES } from '../workflows.constants';
 
+/**
+ * How badly an issue blocks.
+ *
+ * `INTEGRITY` — the graph cannot be stored safely or read back faithfully
+ * (a duplicate id loses a node, an unknown type is a node the engine cannot
+ * run, an inline secret gets persisted verbatim into version history).
+ *
+ * `READINESS` — the graph stores and reloads perfectly well but would not RUN
+ * correctly: a step missing its instruction, a LOOP with no body, a dangling
+ * SWITCH branch.
+ *
+ * The distinction exists because a builder autosaves: a half-configured node is
+ * the NORMAL state of a workflow someone is still drawing. Enforcing readiness
+ * at save time meant every dropped node made the draft unsaveable until it was
+ * fully filled in — so the canvas showed "Couldn't save" and any work after that
+ * point was lost on refresh. Readiness belongs at publish, where the graph is
+ * about to become something that executes.
+ */
+export type IssueSeverity = 'INTEGRITY' | 'READINESS';
+
 export interface ValidationIssue {
   nodeId: string | null;
   code: string;
   message: string;
+  severity: IssueSeverity;
+}
+
+/** Codes that make a definition unsafe or lossy to PERSIST. Everything else is readiness. */
+const INTEGRITY_CODES = new Set([
+  'DUPLICATE_NODE_ID',
+  'UNKNOWN_NODE_TYPE',
+  'UNKNOWN_EDGE_SOURCE',
+  'UNKNOWN_EDGE_TARGET',
+  'GRAPH_TOO_LARGE',
+  'INLINE_SECRET_FORBIDDEN',
+]);
+
+/**
+ * Severity is derived from the code, not passed in at each call site — with ~25
+ * `push()` calls, a per-site argument is a rule someone eventually forgets, and
+ * forgetting it in the permissive direction silently un-blocks a real check.
+ */
+function severityOf(code: string): IssueSeverity {
+  return INTEGRITY_CODES.has(code) ? 'INTEGRITY' : 'READINESS';
 }
 
 /** Secret-ish words, matched as a whole trailing segment of the key. */
@@ -48,7 +88,7 @@ export function collectDefinitionIssues(
   const edges = Array.isArray(definition?.edges) ? definition.edges : [];
 
   const push = (nodeId: string | null, code: string, message: string) =>
-    issues.push({ nodeId, code, message });
+    issues.push({ nodeId, code, message, severity: severityOf(code) });
 
   // Unique ids (pre-existing rule — message text preserved for callers/tests).
   const ids = new Set<string>();
@@ -352,7 +392,86 @@ export function collectDefinitionIssues(
     );
   }
 
+  // A node the trigger can never reach is dead code, and the engine does not
+  // complain: it walks the reachable part and marks the run COMPLETED. A
+  // workflow published with its approval gate left unconnected therefore
+  // reports success while having approved nothing — the run log says "1/3
+  // steps" and nothing anywhere says why. READINESS, not integrity: an orphan
+  // node is the normal state of a graph someone is still wiring up, so this
+  // blocks publish/activate/run and never blocks a save.
+  if (nodes.length > 0) {
+    const reachable = reachableNodeIds(definition);
+    for (const node of nodes) {
+      if (!reachable.has(node.id)) {
+        push(
+          node.id,
+          'UNREACHABLE_NODE',
+          `Step "${node.name || node.id}" (${node.type}) can't be reached from the trigger, so it would never run. Connect it, or remove it.`,
+        );
+      }
+    }
+  }
+
   return issues;
+}
+
+/**
+ * Every node the engine can actually reach from the entry node.
+ *
+ * Follows edges PLUS every place a graph is wired through CONFIG instead of an
+ * edge. There are exactly four, all in `logic.handlers.ts`: a PARALLEL names its
+ * lane starts and its join; a LOOP names its body and its `done` continuation.
+ * Reachability from edges alone would call all of them unreachable — a rule
+ * that punishes correct graphs is worse than no rule, and it did: omitting
+ * `done` alone made every loop-with-a-continuation unrunnable.
+ *
+ * If a new node type ever routes through config, it must be added here or its
+ * target will be reported as dead code.
+ *
+ * Entry node matches the engine: the TRIGGER if there is one, otherwise the
+ * first node.
+ */
+export function reachableNodeIds(definition: WorkflowDefinition): Set<string> {
+  const nodes = Array.isArray(definition?.nodes) ? definition.nodes : [];
+  const edges = Array.isArray(definition?.edges) ? definition.edges : [];
+  if (nodes.length === 0) return new Set();
+
+  const adjacency = new Map<string, string[]>();
+  const link = (from: string, to: string) => {
+    const list = adjacency.get(from);
+    if (list) list.push(to);
+    else adjacency.set(from, [to]);
+  };
+  for (const edge of edges) link(edge.from, edge.to);
+  for (const node of nodes) {
+    const cfg = node.config ?? {};
+    if (node.type === 'PARALLEL') {
+      const lanes = Array.isArray(cfg.lanes) ? cfg.lanes : [];
+      for (const lane of lanes) {
+        if (typeof lane === 'string' && lane) link(node.id, lane);
+      }
+      if (typeof cfg.joinNodeId === 'string' && cfg.joinNodeId) {
+        link(node.id, cfg.joinNodeId);
+      }
+    }
+    if (node.type === 'LOOP') {
+      if (typeof cfg.body === 'string' && cfg.body) link(node.id, cfg.body);
+      // Where the loop goes when it finishes. Missing this made `end` look
+      // unreachable in every loop that has a continuation.
+      if (typeof cfg.done === 'string' && cfg.done) link(node.id, cfg.done);
+    }
+  }
+
+  const entry = nodes.find((n) => n.type === 'TRIGGER') ?? nodes[0];
+  const seen = new Set<string>();
+  const queue = [entry.id];
+  while (queue.length > 0) {
+    const id = queue.pop() as string;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const next of adjacency.get(id) ?? []) queue.push(next);
+  }
+  return seen;
 }
 
 /** Node ids reachable from `startId` without traversing back through `stopId`. */
@@ -427,13 +546,7 @@ function findCycles(
   return cycles;
 }
 
-/**
- * Throwing wrapper. Signature unchanged so every existing caller keeps working.
- */
-export function validateDefinitionStructure(
-  definition: WorkflowDefinition,
-): void {
-  const issues = collectDefinitionIssues(definition);
+function throwIfAny(issues: ValidationIssue[]): void {
   if (issues.length === 0) return;
 
   // ONE message listing every problem — a 30-node graph fixed one error per
@@ -447,5 +560,34 @@ export function validateDefinitionStructure(
     .join('\n');
   throw new BadRequestException(
     `Workflow definition has ${issues.length} problems:\n${detail}`,
+  );
+}
+
+/**
+ * FULL validation — use wherever the graph is about to become executable:
+ * publish, activate, run, template install, AI generation.
+ *
+ * Signature unchanged so every existing caller keeps working.
+ */
+export function validateDefinitionStructure(
+  definition: WorkflowDefinition,
+): void {
+  throwIfAny(collectDefinitionIssues(definition));
+}
+
+/**
+ * SAVE-time validation — integrity only.
+ *
+ * Use for draft writes (create, PATCH, saveDraft). A workflow being edited is
+ * incomplete by definition; refusing to store it does not prevent a bad workflow
+ * from running (publish does that) — it just loses the customer's work.
+ */
+export function validateStorableDefinition(
+  definition: WorkflowDefinition,
+): void {
+  throwIfAny(
+    collectDefinitionIssues(definition).filter(
+      (i) => i.severity === 'INTEGRITY',
+    ),
   );
 }

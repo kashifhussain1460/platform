@@ -86,6 +86,19 @@ export interface ResolvedOAuthProvider {
   clientSecret: string;
   redirectUri: string;
   extraAuthParams: Record<string, string>;
+  /**
+   * WAVE 2 §2.5 — send a PKCE challenge (S256) and the verifier at exchange.
+   *
+   * ON by default: every provider wired here (Google, Slack, Atlassian, HubSpot)
+   * supports PKCE, and a provider that does not simply ignores an unknown
+   * `code_challenge`. The escape hatch exists because "ignores it" is not
+   * guaranteed — a strict provider can reject an unexpected token-endpoint
+   * parameter, and that would break connecting for a whole integration. Turning
+   * PKCE off for one provider must not require a deploy:
+   *
+   *   OAUTH_PKCE_DISABLED_PROVIDERS=hubspot,slack
+   */
+  pkce: boolean;
 }
 
 /** The provider key backing an oauth skill (for clear error messages). */
@@ -126,5 +139,16 @@ export function resolveOAuthProvider(
     clientSecret,
     redirectUri: `${redirectBase.replace(/\/$/, '')}/skills/oauth/callback`,
     extraAuthParams: endpoints.extraAuthParams ?? {},
+    pkce: !pkceDisabledFor(map.provider, config),
   };
+}
+
+/** Per-provider PKCE kill switch, so a misbehaving provider needs no deploy. */
+function pkceDisabledFor(provider: string, config: ConfigService): boolean {
+  const raw = config.get<string>('OAUTH_PKCE_DISABLED_PROVIDERS') ?? '';
+  return raw
+    .split(',')
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(provider.toLowerCase());
 }

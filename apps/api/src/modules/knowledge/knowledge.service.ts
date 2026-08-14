@@ -26,6 +26,8 @@ import {
 } from './knowledge.constants';
 import { SearchDto } from './dto/search.dto';
 import { toVectorLiteral } from './knowledge.util';
+import { AuditLogService } from '../audit/audit-log.service';
+import { AuthorizationService } from '../authorization/authorization.service';
 
 /** Minimal shape of the Multer memory-storage file we consume on upload. */
 export interface UploadedDocFile {
@@ -43,6 +45,12 @@ export class KnowledgeService {
     @Inject(EMBEDDING_PROVIDER) private readonly embeddings: EmbeddingProvider,
     @InjectQueue(KNOWLEDGE_INGEST_QUEUE)
     private readonly queue: Queue<IngestJobData>,
+    // WAVE 4 §4.3 — knowledge changes are on the plan's critical-audit list:
+    // an uploaded document becomes retrievable context for every AI Employee
+    // with that role, so who added or removed one is a security question.
+    private readonly auditLog: AuditLogService,
+    // WAVE 2 §2.1 — department scoping on KnowledgeDocument.category.
+    private readonly authz: AuthorizationService,
   ) {}
 
   /** Store the bytes, create a PENDING doc, and enqueue async ingestion. */
@@ -74,6 +82,18 @@ export class KnowledgeService {
       { documentId: doc.id, companyId },
       { removeOnComplete: true, removeOnFail: 100 },
     );
+
+    await this.auditLog.record({
+      companyId,
+      action: 'knowledge.uploaded',
+      entityType: 'KnowledgeDocument',
+      entityId: doc.id,
+      metadata: {
+        filename: file.originalname,
+        sizeBytes: file.size,
+        category: category ?? null,
+      },
+    });
 
     return toDocumentDto(doc);
   }
@@ -108,11 +128,48 @@ export class KnowledgeService {
     return { buffer, mimeType: doc.mimeType, filename: doc.filename };
   }
 
-  async remove(companyId: string, id: string): Promise<void> {
+  async remove(
+    companyId: string,
+    id: string,
+    actorUserId?: string,
+  ): Promise<void> {
     const doc = await this.findOwned(companyId, id);
+    await this.assertDocScope(companyId, actorUserId, doc, 'knowledge:manage');
     // Best-effort blob delete; the row (and cascaded chunks) go regardless.
     await this.storage.delete(doc.storageKey).catch(() => undefined);
     await this.prisma.knowledgeDocument.delete({ where: { id: doc.id } });
+    await this.auditLog.record({
+      companyId,
+      actorUserId,
+      action: 'knowledge.deleted',
+      entityType: 'KnowledgeDocument',
+      entityId: id,
+      metadata: { filename: doc.filename, category: doc.category },
+    });
+  }
+
+  /**
+   * WAVE 2 §2.1 — department-scope a loaded document.
+   *
+   * `KnowledgeDocument.category` already carries the right axis (the same
+   * `EmployeeRole` an AI Employee is scoped by), so this is adoption of the
+   * existing authorization layer, not new design. A `null` category means
+   * company-wide/Shared and stays visible to everyone.
+   */
+  private async assertDocScope(
+    companyId: string,
+    actorUserId: string | undefined,
+    doc: { id: string; category: string | null },
+    action: 'knowledge:read' | 'knowledge:manage',
+  ): Promise<void> {
+    const actor = await this.authz.actorById(companyId, actorUserId);
+    if (!actor) return;
+    await this.authz.assert(actor, action, {
+      type: 'knowledge',
+      companyId,
+      id: doc.id,
+      scope: doc.category,
+    });
   }
 
   /**
@@ -150,18 +207,35 @@ export class KnowledgeService {
     query: string,
     k = 5,
     category?: EmployeeRole,
+    /**
+     * Restrict to SHARED documents only (`category IS NULL`).
+     *
+     * Needed by the workflow RETRIEVE node (§44): a workflow whose category has
+     * no `EmployeeRole` equivalent — FINANCE-as-OPERATIONS, IT, COMPLIANCE —
+     * cannot name a role to scope by, and no document can be tagged with one
+     * either. Falling back to company-wide there would let an IT workflow read
+     * HR's documents, which is the leak being closed; shared-only is the tight
+     * and truthful answer.
+     */
+    sharedOnly = false,
   ): Promise<SearchResultDto[]> {
-    return this.search(companyId, { query, k, category });
+    return this.search(companyId, { query, k, category }, sharedOnly);
   }
 
   /** Embed the query and return the top-k nearest chunks for this tenant. */
-  async search(companyId: string, dto: SearchDto): Promise<SearchResultDto[]> {
+  async search(
+    companyId: string,
+    dto: SearchDto,
+    sharedOnly = false,
+  ): Promise<SearchResultDto[]> {
     const k = dto.k ?? 5;
     const [vector] = await this.embeddings.embed([dto.query]);
     const literal = toVectorLiteral(vector);
-    const categoryFilter = dto.category
-      ? Prisma.sql`AND ("category" = ${dto.category}::"EmployeeRole" OR "category" IS NULL)`
-      : Prisma.empty;
+    const categoryFilter = sharedOnly
+      ? Prisma.sql`AND "category" IS NULL`
+      : dto.category
+        ? Prisma.sql`AND ("category" = ${dto.category}::"EmployeeRole" OR "category" IS NULL)`
+        : Prisma.empty;
 
     const rows = await this.prisma.$queryRaw<
       Array<{ id: string; documentId: string; content: string; score: number }>

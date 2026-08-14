@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import {
+  METRIC,
+  MetricsRegistry,
+} from '../../common/observability/metrics.registry';
 import { estimateCostUsd } from './usage-rates';
 
 export interface RecordUsageParams {
@@ -36,7 +40,10 @@ export function startOfCurrentMonthUtc(): Date {
 export class UsageService {
   private readonly logger = new Logger(UsageService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly metrics: MetricsRegistry,
+  ) {}
 
   /**
    * Record one completion's usage. Never throws -- a metering write failing
@@ -44,6 +51,30 @@ export class UsageService {
    * best-effort contract as AuditLogService.record).
    */
   async record(params: RecordUsageParams): Promise<void> {
+    // WAVE 5 §5.3 — emitted BEFORE the write and outside the try, so a metering
+    // failure still leaves the operational signal intact. The DB row is for
+    // billing (must be exact); the metric is for watching spend in real time
+    // (must simply exist), and they should not fail together.
+    const cost = estimateCostUsd(params.promptTokens, params.completionTokens);
+    this.metrics.counter(
+      METRIC.llmTokensTotal,
+      'LLM tokens consumed',
+      { source: params.source, kind: 'prompt' },
+      params.promptTokens,
+    );
+    this.metrics.counter(
+      METRIC.llmTokensTotal,
+      'LLM tokens consumed',
+      { source: params.source, kind: 'completion' },
+      params.completionTokens,
+    );
+    this.metrics.counter(
+      METRIC.llmCostTotal,
+      'Estimated LLM spend in USD',
+      { source: params.source },
+      cost,
+    );
+
     try {
       await this.prisma.usageEvent.create({
         data: {
@@ -52,10 +83,7 @@ export class UsageService {
           source: params.source,
           promptTokens: params.promptTokens,
           completionTokens: params.completionTokens,
-          estimatedCostUsd: estimateCostUsd(
-            params.promptTokens,
-            params.completionTokens,
-          ),
+          estimatedCostUsd: cost,
         },
       });
     } catch (err) {

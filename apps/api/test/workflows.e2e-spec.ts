@@ -22,6 +22,33 @@ const describeIfDb = hasDb ? describe : describe.skip;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Wait for a run to settle, whichever engine is executing it.
+ *
+ * `WorkflowEngine.execute()` walks the graph inline on the legacy engine but
+ * merely ENQUEUES an advance on the durable one, so a test that asserted
+ * `COMPLETED` on the next line passed under `legacy_walk` and failed under
+ * `state_machine` — while the product was behaving correctly on both. Waiting
+ * for a terminal status is the contract every real client already follows.
+ */
+async function settle(
+  prisma: PrismaService,
+  runId: string,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const run = await prisma.workflowRun.findUnique({
+      where: { id: runId },
+      select: { status: true },
+    });
+    if (run && ['COMPLETED', 'FAILED', 'CANCELLED', 'WAITING'].includes(run.status)) {
+      return;
+    }
+    await sleep(150);
+  }
+}
+
 const DOC_TEXT = [
   'Our refund policy lets customers request a full refund within 30 days of',
   'purchase. Refunds are processed to the original payment method within five',
@@ -421,6 +448,7 @@ describeIfDb('Workflows e2e (create -> run -> poll linear chain)', () => {
 
     const engine = app.get(WorkflowEngine);
     await Promise.all([engine.execute(run.id), engine.execute(run.id)]);
+    await settle(prisma, run.id);
 
     const finished = await request(app.getHttpServer())
       .get(`/workflows/runs/${run.id}`)
@@ -600,6 +628,9 @@ describeIfDb('Workflows e2e (create -> run -> poll linear chain)', () => {
       });
       const runId = createdRun.id;
       await priorityEngine.execute(runId);
+      // On the durable engine `execute()` only enqueues, so the run finishes on
+      // this app's own worker a moment later rather than inline.
+      await settle(priorityPrisma, runId);
 
       const res = await request(server)
         .get(`/workflows/runs/${runId}`)

@@ -14,7 +14,10 @@ import type {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { SkillRequirementsService } from '../skills/skill-requirements.service';
-import { validateDefinitionStructure } from './engine/definition-validator';
+import {
+  validateDefinitionStructure,
+  validateStorableDefinition,
+} from './engine/definition-validator';
 
 /** Prisma → DTO. Dates are ISO strings across the API boundary. */
 export function toWorkflowVersionDto(row: WorkflowVersion): WorkflowVersionDto {
@@ -112,7 +115,7 @@ export class WorkflowVersionService {
   ): Promise<WorkflowVersionDto> {
     const workflow = await this.findOwnedWorkflow(companyId, workflowId);
     this.assertEditable(workflow);
-    this.validate(definition);
+    this.validateDraft(definition);
 
     const existingDraft = workflow.draftVersionId
       ? await this.prisma.workflowVersion.findFirst({
@@ -201,7 +204,13 @@ export class WorkflowVersionService {
         this.logger.log(
           `workflow.version.publish_unchanged workflow=${workflowId} company=${companyId} version=${active.version}`,
         );
-        return { version: toWorkflowVersionDto(active), unchanged: true };
+        return {
+          version: toWorkflowVersionDto(active),
+          unchanged: true,
+          activated: false,
+          workflow: null,
+          activationError: null,
+        };
       }
     }
 
@@ -247,7 +256,13 @@ export class WorkflowVersionService {
     this.logger.log(
       `workflow.version.published workflow=${workflowId} company=${companyId} version=${published.version} actor=${actorUserId ?? 'unknown'}`,
     );
-    return { version: toWorkflowVersionDto(published), unchanged: false };
+    return {
+      version: toWorkflowVersionDto(published),
+      unchanged: false,
+      activated: false,
+      workflow: null,
+      activationError: null,
+    };
   }
 
   /**
@@ -373,6 +388,15 @@ export class WorkflowVersionService {
   /** Throws BadRequestException itself — structural rules live in one place. */
   private validate(definition: WorkflowDefinition): void {
     validateDefinitionStructure(definition);
+  }
+
+  /**
+   * Draft writes check integrity only — a draft is a scratchpad and is expected
+   * to be incomplete. `publish()` still runs the full check, so nothing
+   * unfinished becomes executable.
+   */
+  private validateDraft(definition: WorkflowDefinition): void {
+    validateStorableDefinition(definition);
   }
 
   private async findOwnedWorkflow(

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Role } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 
@@ -145,6 +146,121 @@ export class NotificationsService {
         );
       }
     });
+  }
+
+  /**
+   * The workflow NOTIFY capability (hardening plan §30).
+   *
+   * The plan calls this a P0 and it was: the NOTIFY node returned
+   * `{ notified: true }` while sending precisely nothing. Not merely log-only —
+   * a run record that ASSERTS someone was told when nobody was. An operator
+   * reading "notified: true" beside a missed escalation has been actively
+   * misled, which is worse than an obviously inert node.
+   *
+   * Three deliberate boundaries:
+   *
+   * 1. **Recipients are resolved INSIDE the company** — by user id, by role, or
+   *    by department. NOTIFY cannot address an arbitrary email. Turning it into
+   *    a general outbound channel would hand every workflow an unapproved way to
+   *    message the outside world, which is exactly what the high-risk TOOL_ACTION
+   *    gate exists to prevent (doc 27 §0.4).
+   * 2. **No recipients configured → nothing is sent**, and the result says so.
+   *    Existing graphs carry a bare `message`, and quietly turning those into
+   *    email the next time they run is a blast radius nobody asked for.
+   * 3. **The result is returned, not swallowed.** Every other method here is
+   *    fire-and-forget void because a failed invite email must not fail a
+   *    request. A NOTIFY node's whole output is the claim "this was delivered",
+   *    so it has to be the truth.
+   */
+  async workflowNotify(
+    companyId: string,
+    input: {
+      message: string;
+      userIds?: readonly string[];
+      roles?: readonly Role[];
+      departmentId?: string;
+    },
+  ): Promise<{
+    delivered: boolean;
+    recipientCount: number;
+    /** Why nothing was sent. Never silently false. */
+    reason?: string;
+  }> {
+    const message = input.message.trim();
+    if (!message) {
+      return { delivered: false, recipientCount: 0, reason: 'empty message' };
+    }
+
+    const hasTarget =
+      (input.userIds?.length ?? 0) > 0 ||
+      (input.roles?.length ?? 0) > 0 ||
+      Boolean(input.departmentId);
+    if (!hasTarget) {
+      return {
+        delivered: false,
+        recipientCount: 0,
+        reason:
+          'no recipients configured — set notifyUserIds, notifyRoles or notifyDepartmentId to actually send',
+      };
+    }
+
+    if (!this.mail.enabled()) {
+      // Honest rather than optimistic. Mail is off in dev and in every test, and
+      // reporting delivery there is how a broken production notifier survives to
+      // production.
+      return {
+        delivered: false,
+        recipientCount: 0,
+        reason: 'mail is disabled (MAIL_ENABLED)',
+      };
+    }
+
+    const recipients = await this.prisma.user.findMany({
+      // ACTIVE only, and companyId first: a NOTIFY is authored by a tenant and
+      // must never be able to reach a user outside it, whatever ids it names.
+      where: {
+        companyId,
+        status: 'ACTIVE',
+        ...(input.userIds?.length ? { id: { in: [...input.userIds] } } : {}),
+        ...(input.roles?.length ? { role: { in: [...input.roles] } } : {}),
+        ...(input.departmentId ? { departmentId: input.departmentId } : {}),
+      },
+      select: { email: true, name: true },
+      // A workflow must not be able to fan one node out to an unbounded mailing.
+      take: 50,
+    });
+
+    if (recipients.length === 0) {
+      return {
+        delivered: false,
+        recipientCount: 0,
+        reason: 'no matching active users in this company',
+      };
+    }
+
+    const companyName = await this.companyName(companyId);
+    let sent = 0;
+    for (const to of recipients) {
+      try {
+        await this.mail.send(
+          to.email,
+          `${companyName}: workflow notification`,
+          `Hi ${to.name},\n\n${message}\n\n— Orlixa`,
+        );
+        sent += 1;
+      } catch (err) {
+        // Per-recipient, so one bad address does not silently cancel the rest.
+        this.logger.warn(
+          `workflowNotify: send to ${to.email} failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return {
+      delivered: sent > 0,
+      recipientCount: sent,
+      ...(sent === 0 ? { reason: 'every send failed' } : {}),
+    };
   }
 
   // --- internals ------------------------------------------------------------

@@ -1,4 +1,6 @@
+import { ChatwootEngineAdapter } from './chatwoot-engine.adapter';
 import { Module } from '@nestjs/common';
+import { CanonicalIngestModule } from '../../events/ingestion/canonical-ingest.module';
 import { ChatwootClientService } from './chatwoot-client.service';
 import { SupportWebhookController } from './support-webhook.controller';
 
@@ -15,8 +17,12 @@ import { SupportWebhookController } from './support-webhook.controller';
  * one — see the task-5 report for the full reasoning).
  */
 @Module({
+  // WAVE 3 §3.4 — the canonical pipeline. The LEAF ingest module, not
+  // EventsModule: Events imports Skills, and Skills imports THIS module for the
+  // shared Chatwoot client, so importing Events here would close a cycle.
+  imports: [CanonicalIngestModule],
   controllers: [SupportWebhookController],
-  providers: [ChatwootClientService],
+  providers: [ChatwootEngineAdapter, ChatwootClientService],
   exports: [ChatwootClientService],
 })
 export class SupportModule {}

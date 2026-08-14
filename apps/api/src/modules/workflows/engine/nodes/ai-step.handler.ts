@@ -37,6 +37,7 @@ export class AiStepNodeHandler implements NodeHandler {
     companyId,
     node,
     context,
+    signal,
   }: NodeExecContext): Promise<NodeResult> {
     const cfg = node.config ?? {};
     const prompt = resolveTemplate(cfg.prompt, context);
@@ -79,10 +80,14 @@ export class AiStepNodeHandler implements NodeHandler {
     );
 
     // Reuse the shared LlmProvider singleton (no tools → plain completion).
+    // `signal` is the node's timeout: when the step's budget expires the model
+    // request is cancelled, rather than left running to spend tokens on an
+    // answer this step has already stopped waiting for.
     const result = await this.llm.complete({
       system: systemLines.join('\n'),
       messages: [{ role: 'user', content: prompt || 'Proceed.' }],
       temperature: 0.2,
+      ...(signal ? { signal } : {}),
     });
     if (result.usage) {
       await this.usage.record({

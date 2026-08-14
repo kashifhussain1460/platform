@@ -97,7 +97,22 @@ describeIfDb('Knowledge e2e (upload -> ingest -> search)', () => {
     const top = res.body[0];
     expect(top.documentId).toBe(documentId);
     expect(top.content.toLowerCase()).toContain('employee');
-    expect(top.score).toBeGreaterThan(0);
+
+    // RANKING, not the score's sign.
+    //
+    // `expect(score > 0)` was asserting a property of the EMBEDDING PROVIDER, not
+    // of search. The default test provider is `hash` — deterministic random
+    // projections, offline — where the cosine between any two texts sits around
+    // zero with either sign; this exact query scored -0.0212, every run. It only
+    // ever passed when a real semantic provider was in play, which is to say the
+    // suite was quietly making live API calls.
+    //
+    // What search actually promises is that the best match comes FIRST, and that
+    // is what is checked now — a stronger assertion, and one that holds for every
+    // provider rather than for whichever one happened to be configured.
+    const scores = (res.body as { score: number }[]).map((r) => r.score);
+    expect(scores.every((s) => Number.isFinite(s))).toBe(true);
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
   });
 
   it('rejects knowledge routes without a token', async () => {

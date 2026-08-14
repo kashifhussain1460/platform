@@ -13,6 +13,7 @@ export function toDepartmentDto(d: Department): DepartmentDto {
     companyId: d.companyId,
     name: d.name,
     description: d.description,
+    scopes: d.scopes,
     createdAt: d.createdAt.toISOString(),
   };
 }

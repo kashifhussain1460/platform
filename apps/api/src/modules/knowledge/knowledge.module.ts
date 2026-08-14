@@ -46,7 +46,13 @@ function embeddingFactory(config: ConfigService): EmbeddingProvider {
 }
 
 /** Pick the storage backend from STORAGE_PROVIDER (default: local). */
-function storageFactory(config: ConfigService): StorageProvider {
+/**
+ * Exported so other modules (audit archiving) can stand up the SAME configured
+ * provider without importing this heavy module or re-deriving the choice. The
+ * providers are stateless HTTP/fs wrappers, so a second instance costs nothing
+ * — the same trade PmModule makes with PlaneClientService.
+ */
+export function storageFactory(config: ConfigService): StorageProvider {
   const kind = (config.get<string>('STORAGE_PROVIDER') ?? 'local').toLowerCase();
   if (kind === 's3') {
     return new S3StorageProvider(config);

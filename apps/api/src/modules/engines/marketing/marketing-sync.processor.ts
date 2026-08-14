@@ -9,6 +9,7 @@ import {
   MARKETING_SYNC_SCHEDULER,
 } from './marketing.constants';
 import { DEFAULT_QUEUE_CONCURRENCY } from '../../../common/resilience/queue-concurrency.constants';
+import { runInJobContext } from '../../../common/observability/job-context';
 
 /**
  * Reconciliation backstop for the Postiz webhook (docs/architecture/engines/
@@ -43,6 +44,12 @@ export class MarketingSyncProcessor extends WorkerHost implements OnModuleInit {
   }
 
   async process(job: Job): Promise<void> {
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job): Promise<void> {
     if (job.name !== MARKETING_SYNC_JOB) return;
     // Reconciliation logic lives in MarketingSyncService so the Vercel cron route
     // can drive the identical sweep on serverless (where no worker exists).

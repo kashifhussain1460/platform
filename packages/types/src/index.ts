@@ -193,6 +193,17 @@ export const updateUserSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   role: z.enum(['OWNER', 'ADMIN', 'MEMBER']).optional(),
   status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+  /**
+   * WAVE 2 department isolation, finally reachable.
+   *
+   * The scoping rules shipped with no way to PLACE a user in a department — the
+   * column existed, the policy read it, and no API could set it, so the whole
+   * feature was unreachable through the product. Found by the browser journey,
+   * which could not do through the UI what the API-level test had done by
+   * writing the column directly. `null` removes the placement.
+   */
+  departmentId: z.string().min(1).max(60).nullable().optional(),
+  teamId: z.string().min(1).max(60).nullable().optional(),
 });
 
 export type CreateUserDto = z.infer<typeof createUserSchema>;
@@ -1017,6 +1028,19 @@ export interface ToolCallDto {
    */
   pendingApproval?: boolean;
   approvalId?: string;
+  /**
+   * Why the call failed, when `ok` is false.
+   *
+   * The `SkillExecution` row always recorded this; the DTO dropped it, so every
+   * caller saw only "it failed". That erased the cause at the boundary: a
+   * workflow step could report nothing better than `Tool x/y did not succeed`,
+   * and `RetryPolicyService` — which classifies by reading the message — filed a
+   * provider TIMEOUT as a generic NODE_ERROR, which then drove the wrong backoff
+   * and the wrong metric.
+   *
+   * Already secret-masked by `SkillsService` before it reaches here.
+   */
+  error?: string;
 }
 
 /** Terminal status of a logged skill execution. */
@@ -1183,6 +1207,95 @@ export interface PublishWorkflowResultDto {
    * not produce v2 and v3 with the same graph.
    */
   unchanged: boolean;
+  /**
+   * True when the same request also activated the workflow (`activate: true`).
+   * The UX plan collapses Publish and Activate into one customer-facing action,
+   * but the two remain separate server-side operations with separate audit
+   * entries — this only reports whether the second one ran.
+   */
+  activated: boolean;
+  /** The workflow AFTER activation; null when `activate` was not requested. */
+  workflow: WorkflowDto | null;
+  /**
+   * Why activation was refused, when `activate` was requested but did not
+   * happen. Null otherwise.
+   *
+   * Publish and activate enforce DIFFERENT rules — publish checks the graph is
+   * valid and its skills connected, activate additionally requires a runnable
+   * step and a complete trigger. So the second half can legitimately fail after
+   * the first half committed. Reporting that as a bare HTTP error would tell the
+   * caller "it failed" while a new immutable version had in fact been published:
+   * the client would show the wrong state and the user would republish. This
+   * field exists so the response can say exactly what happened instead.
+   */
+  activationError: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Publish readiness preflight (UX plan §12/§13) — a NON-MUTATING dry run of the
+// checks publish + activate would perform, so the Review & Publish surface can
+// show what is wrong BEFORE the user commits, instead of making them press a
+// separate [Validate] button and read a thrown error.
+// ---------------------------------------------------------------------------
+
+/** How badly a readiness issue blocks. Only BLOCKER prevents publishing. */
+export type WorkflowReadinessSeverity = 'BLOCKER' | 'WARNING';
+
+/** What the UI should offer to fix an issue with, when there is a direct action. */
+export interface WorkflowReadinessFix {
+  kind: 'CONNECT_SKILL' | 'OPEN_NODE' | 'OPEN_TRIGGER';
+  /** Skill key for CONNECT_SKILL, node id for OPEN_NODE; absent for OPEN_TRIGGER. */
+  target?: string;
+}
+
+export interface WorkflowReadinessIssueDto {
+  /** Stable machine code (e.g. SKILL_NOT_CONNECTED); the UI keys behaviour off this. */
+  code: string;
+  severity: WorkflowReadinessSeverity;
+  /** Plain-language, actionable. Shown verbatim to a non-technical operator. */
+  message: string;
+  nodeId: string | null;
+  fix: WorkflowReadinessFix | null;
+}
+
+/** One line of the review checklist (UX plan §13). */
+export interface WorkflowReadinessCheckDto {
+  key:
+    | 'STRUCTURE'
+    | 'TRIGGER'
+    | 'NODE_CONFIG'
+    | 'AI_EMPLOYEE'
+    | 'SKILLS'
+    | 'APPROVAL'
+    | 'SCHEDULE';
+  label: string;
+  status: 'PASS' | 'FAIL' | 'WARN';
+}
+
+/** The human-readable summary of what is about to be published. */
+export interface WorkflowReadinessSummaryDto {
+  name: string;
+  /** e.g. "Every Monday · 09:00" or "Manual — you start it". */
+  triggerSummary: string;
+  /** Employee ids referenced by AI_EMPLOYEE_STEP / TOOL_ACTION nodes. */
+  employeeIds: string[];
+  skillKeys: string[];
+  /** Number of APPROVAL nodes; 0 when the workflow needs no sign-off. */
+  approvalCount: number;
+  /** Steps excluding the trigger. */
+  stepCount: number;
+  /** True when any node can perform a real external action (UX plan §57). */
+  hasExternalActions: boolean;
+}
+
+/** Result of `GET /workflows/:id/readiness`. */
+export interface WorkflowReadinessDto {
+  workflowId: string;
+  /** False when any issue is a BLOCKER. */
+  ready: boolean;
+  checks: WorkflowReadinessCheckDto[];
+  issues: WorkflowReadinessIssueDto[];
+  summary: WorkflowReadinessSummaryDto;
 }
 
 /**
@@ -1684,6 +1797,12 @@ export const createWorkflowSchema = z.object({
   name: z.string().min(1, 'Name is required').max(160),
   description: z.string().max(2000).optional(),
   definition: workflowDefinitionSchema.optional(),
+  /**
+   * WAVE 2 §2.1 — the department axis. Until now `category` could only be set by
+   * a template install, which meant department isolation had nothing to isolate
+   * on for hand-authored workflows.
+   */
+  category: z.enum(WORKFLOW_CATEGORIES as unknown as [string, ...string[]]).optional(),
 });
 
 /**
@@ -1701,6 +1820,11 @@ export const updateWorkflowSchema = z.object({
   triggerType: z.enum(['MANUAL', 'SCHEDULE', 'WEBHOOK', 'EVENT']).optional(),
   triggerConfig: triggerConfigSchema.optional(),
   expectedUpdatedAt: z.string().optional(),
+  /** WAVE 2 §2.1 — recategorise; `null` makes the workflow company-wide again. */
+  category: z
+    .enum(WORKFLOW_CATEGORIES as unknown as [string, ...string[]])
+    .nullable()
+    .optional(),
 });
 
 /** POST /workflows/:id/run body (optional trigger payload). */
@@ -1820,6 +1944,12 @@ export interface WorkflowRunDto {
   id: string;
   companyId: string;
   workflowId: string;
+  /**
+   * The parent workflow's name, joined in by the cross-workflow runs list
+   * (`GET /workflows/runs`) so the operations table doesn't need one request per
+   * row. Absent on the per-workflow endpoints, where the name is already known.
+   */
+  workflowName?: string;
   status: WorkflowRunStatus;
   /** How the run was triggered: MANUAL | SCHEDULE | WEBHOOK | EVENT. */
   source: string;
@@ -2245,6 +2375,12 @@ export interface DepartmentDto {
   companyId: string;
   name: string;
   description: string | null;
+  /**
+   * WAVE 2 §2.1 — the resource scopes this department may act on
+   * (WorkflowCategory / EmployeeRole / knowledge-category names).
+   * EMPTY = unrestricted, which is the default for every department.
+   */
+  scopes: string[];
   createdAt: string;
 }
 
@@ -2281,12 +2417,16 @@ export interface SecurityPolicyDto {
 export const createDepartmentSchema = z.object({
   name: z.string().min(1, 'Name is required').max(120),
   description: z.string().max(2000).optional(),
+  /** WAVE 2 §2.1 — omit or leave empty for an unrestricted department. */
+  scopes: z.array(z.string().min(1).max(60)).max(50).optional(),
 });
 
 /** PATCH /departments/:id body. */
 export const updateDepartmentSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   description: z.string().max(2000).nullable().optional(),
+  /** Replaces the whole list; `[]` turns department isolation OFF again. */
+  scopes: z.array(z.string().min(1).max(60)).max(50).optional(),
 });
 
 /** POST /teams body (optional departmentId). */
@@ -2345,6 +2485,16 @@ export type CanonicalEventType =
   | 'NEW_GITHUB_PR'
   | 'NEW_GITHUB_ISSUE'
   | 'NEW_TICKET'
+  | 'TICKET_REPLIED'
+  | 'NEW_PROJECT_ISSUE'
+  | 'PROJECT_ISSUE_UPDATED'
+  // Plan §16/§17 — the two lifecycle changes BOTH the Chatwoot and Plane
+  // sections list as required, and which previously fell to UNKNOWN so no
+  // workflow could trigger on them. Provider-neutral on purpose: "someone was
+  // assigned" and "the state moved" mean the same thing to an automation
+  // whether the record is a support conversation or a project issue.
+  | 'ASSIGNMENT_CHANGED'
+  | 'STATUS_CHANGED'
   | 'NEW_DOCUMENT'
   | 'NEW_CANDIDATE'
   | 'UNKNOWN';
@@ -2361,6 +2511,15 @@ export const CANONICAL_EVENT_TYPES: readonly CanonicalEventType[] = [
   'NEW_GITHUB_PR',
   'NEW_GITHUB_ISSUE',
   'NEW_TICKET',
+  // WAVE 3 §3.4 — a customer replied on an existing support conversation.
+  'TICKET_REPLIED',
+  'ASSIGNMENT_CHANGED',
+  'STATUS_CHANGED',
+  // WAVE 3 §3.5 — Plane project-tracker issues. Deliberately NOT reusing the
+  // Jira types: a workflow that triggers on "a Jira issue was created" must not
+  // start firing for Plane the day Plane is connected.
+  'NEW_PROJECT_ISSUE',
+  'PROJECT_ISSUE_UPDATED',
   'NEW_DOCUMENT',
   'NEW_CANDIDATE',
   'UNKNOWN',

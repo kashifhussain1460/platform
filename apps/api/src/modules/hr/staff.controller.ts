@@ -32,16 +32,21 @@ export class StaffController {
   constructor(private readonly staff: StaffService) {}
 
   @Get()
-  list(@CurrentTenant() companyId: string): Promise<StaffMemberDto[]> {
-    return this.staff.list(companyId);
+  list(
+    @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<StaffMemberDto[]> {
+    // The caller is passed so the roster is department-scoped (WAVE 2 §2.1).
+    return this.staff.list(companyId, user.userId);
   }
 
   @Get(':id')
   get(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<StaffMemberDto> {
-    return this.staff.get(companyId, id);
+    return this.staff.get(companyId, id, user.userId);
   }
 
   @Post()

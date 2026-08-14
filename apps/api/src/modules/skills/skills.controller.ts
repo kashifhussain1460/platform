@@ -19,9 +19,9 @@ import type {
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.provider';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
+import { AuthorizationGuard } from '../authorization/authorization.guard';
+import { RequirePermission } from '../authorization/require-permission.decorator';
 import { InstallSkillDto } from './dto/install-skill.dto';
 import { UpdateInstalledSkillDto } from './dto/update-installed-skill.dto';
 import { ExecuteToolDto } from './dto/execute-tool.dto';
@@ -33,10 +33,12 @@ import { SkillRequirementsService } from './skill-requirements.service';
 /**
  * All routes are tenant-scoped by companyId from the JWT and JWT-guarded.
  * Managing skills (install/update/uninstall/config/connect/disconnect) is
- * @Roles('OWNER','ADMIN'); the read-only catalog + installed list stay open.
+ * gated by the `skill:connect` capability (floor ADMIN — the same answer the
+ * `@Roles('OWNER','ADMIN')` it replaces gave); the read-only catalog + installed
+ * list stay open.
  */
 @Controller('skills')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, AuthorizationGuard)
 export class SkillsController {
   constructor(
     private readonly skills: SkillsService,
@@ -69,7 +71,7 @@ export class SkillsController {
   }
 
   @Post('install')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('skill:connect')
   install(
     @CurrentTenant() companyId: string,
     @CurrentUser() user: AuthenticatedUser,
@@ -87,7 +89,7 @@ export class SkillsController {
   }
 
   @Patch('installed/:id')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('skill:connect')
   updateInstalled(
     @CurrentTenant() companyId: string,
     @Param('id') id: string,
@@ -97,7 +99,7 @@ export class SkillsController {
   }
 
   @Delete('installed/:id')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('skill:connect')
   @HttpCode(204)
   uninstall(
     @CurrentTenant() companyId: string,
@@ -108,7 +110,7 @@ export class SkillsController {
 
   /** Set company-specific configuration (validated against the skill's schema). */
   @Patch('installed/:id/config')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('skill:connect')
   configure(
     @CurrentTenant() companyId: string,
     @Param('id') id: string,
@@ -119,7 +121,7 @@ export class SkillsController {
 
   /** Connect the skill (store API key / OAuth token stub → CONNECTED). */
   @Post('installed/:id/connect')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('skill:connect')
   connect(
     @CurrentTenant() companyId: string,
     @Param('id') id: string,
@@ -130,7 +132,7 @@ export class SkillsController {
 
   /** Disconnect the skill (clear credentials → NOT_CONNECTED). */
   @Post('installed/:id/disconnect')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('skill:connect')
   disconnect(
     @CurrentTenant() companyId: string,
     @Param('id') id: string,

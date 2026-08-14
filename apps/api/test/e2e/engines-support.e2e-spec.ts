@@ -230,6 +230,25 @@ describeIfDb('Support engine — full tool-calling loop', () => {
       ),
     ).toBe(true);
 
+    // `chatwoot:reply_to_conversation` is an EXTERNAL_ACTION_TOOL, so the
+    // autonomous chat loop opens an ApprovalRequest instead of executing it
+    // (`tool-approval-policy.ts` — a support conversation is untrusted content,
+    // and it must not be able to drive an unapproved reply to a customer).
+    // Approving is what runs the tool and writes the SkillExecution row. The
+    // test predates that gate and asserted the old ungated behaviour, which is
+    // why it has been red since the gate shipped.
+    const pending = await request(app.getHttpServer())
+      .get('/approvals?status=PENDING')
+      .set(auth)
+      .expect(200);
+    for (const req of pending.body as { id: string; status: string }[]) {
+      if (req.status !== 'PENDING') continue;
+      await request(app.getHttpServer())
+        .post(`/approvals/${req.id}/approve`)
+        .set(auth)
+        .send({});
+    }
+
     // Prove the specific short-circuit, not just "some tool call happened":
     // ToolCallDto (the API response shape) deliberately drops `error` — the
     // real error text only lives on the persisted SkillExecution audit row

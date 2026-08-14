@@ -20,6 +20,11 @@ import { clampLimit } from '../../common/pagination';
 import { AuditLogService } from '../audit/audit-log.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { redactSecrets } from '../../common/crypto/redact-secrets';
+import { enrichContext } from '../../common/observability/execution-context';
+import {
+  METRIC,
+  MetricsRegistry,
+} from '../../common/observability/metrics.registry';
 import { CircuitBreakerRegistry } from '../../common/resilience/circuit-breaker.registry';
 import { CircuitOpenError } from '../../common/resilience/circuit-breaker';
 import { RateLimiter } from '../../common/resilience/rate-limiter';
@@ -43,6 +48,8 @@ import {
   type SkillExecutor,
 } from './executors/skill-executor';
 import { toEmployeeSkillDto, toInstalledSkillDto } from './skills.mapper';
+import { SuppressionService } from '../engines/marketing/suppression.service';
+import { extractRecipients } from './recipient-extraction';
 
 /**
  * Tenant-scoped skills: install/uninstall built-in skills, assign them to
@@ -63,6 +70,10 @@ export class SkillsService {
     private readonly rateLimiter: RateLimiter,
     @Inject(SKILL_EXECUTOR_TOKEN) private readonly executor: SkillExecutor,
     private readonly auditLog: AuditLogService,
+    // WAVE 5 §5.3 — provider latency + skill failure, at the one choke point.
+    private readonly metrics: MetricsRegistry,
+    // WAVE 3 §3.6 — "may we contact this person?", enforced for every tool.
+    private readonly suppression: SuppressionService,
   ) {}
 
   // --- Catalog -------------------------------------------------------------
@@ -284,6 +295,22 @@ export class SkillsService {
         tokenExpiresAt: this.parseExpiry(mergedCreds),
       },
     });
+    // WAVE 9 §Audit — connector lifecycle. Connecting a skill grants an AI
+    // Employee the ability to act on a real outside account, so it belongs in
+    // the trail next to role changes. Credentials are NEVER included: the
+    // metadata records that a connection happened, not what it authenticates
+    // with.
+    await this.auditLog.record({
+      companyId,
+      action: 'connector.connected',
+      entityType: 'InstalledSkill',
+      entityId: row.id,
+      metadata: {
+        skillKey: installed.skillKey,
+        connectionType: def.connection.type,
+        employeeId: installed.employeeId ?? null,
+      },
+    });
     return toInstalledSkillDto(row);
   }
 
@@ -292,7 +319,7 @@ export class SkillsService {
     companyId: string,
     id: string,
   ): Promise<InstalledSkillDto> {
-    await this.findOwnedInstalled(companyId, id);
+    const installed = await this.findOwnedInstalled(companyId, id);
     const row = await this.prisma.installedSkill.update({
       where: { id },
       data: {
@@ -302,6 +329,16 @@ export class SkillsService {
         lastHealthError: null,
         disabledReason: null,
         tokenExpiresAt: null,
+      },
+    });
+    await this.auditLog.record({
+      companyId,
+      action: 'connector.disconnected',
+      entityType: 'InstalledSkill',
+      entityId: row.id,
+      metadata: {
+        skillKey: installed.skillKey,
+        employeeId: installed.employeeId ?? null,
       },
     });
     return toInstalledSkillDto(row);
@@ -387,6 +424,43 @@ export class SkillsService {
   }
 
   /**
+   * Suppressed recipients for this call, or null when it addresses nobody.
+   *
+   * Fails OPEN on an infrastructure error, deliberately and narrowly: if the
+   * suppression table cannot be read, blocking every outbound message across the
+   * platform turns a database blip into a total communications outage. The
+   * trade is stated rather than hidden — it is the one place here that prefers
+   * availability, and it is logged at error level so it cannot pass unnoticed.
+   */
+  private async findSuppressedRecipients(
+    companyId: string,
+    skillKey: string,
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<{ channel: string; addresses: string[] } | null> {
+    const recipients = extractRecipients(skillKey, tool, args);
+    if (!recipients) return null;
+    try {
+      const addresses = await this.suppression.findSuppressed(
+        companyId,
+        recipients.channel,
+        recipients.addresses,
+      );
+      return addresses.length > 0
+        ? { channel: recipients.channel, addresses }
+        : null;
+    } catch (err) {
+      this.logger.error(
+        `suppression check FAILED for ${skillKey}.${tool} (company=${companyId}) — ` +
+          `allowing the send; investigate immediately: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+      );
+      return null;
+    }
+  }
+
+  /**
    * Least-privilege gate (doc 09 §9.D). A call attributed to a specific AI
    * employee may only run tools from a skill that employee was actually granted
    * (an ENABLED EmployeeSkill row). A call with NO employeeId (company-wide
@@ -421,13 +495,46 @@ export class SkillsService {
     args: Record<string, unknown>,
   ): Promise<ToolCallDto> {
     const safeArgs = (args ?? {}) as Record<string, unknown>;
+    // WAVE 5 §5.3 — provider latency covers the WHOLE tool call, including
+    // credential resolution and the circuit breaker, because that is what the
+    // caller actually waits for. Timing only the fetch would understate it.
+    const startedAt = Date.now();
 
     // Taint set for redaction (P1-8): {{secret.X}} values a node resolved, plus
     // the connector's own decrypted credential values (appended once resolved).
     const secretMaskValues: string[] = [...(ctx.secretValues ?? [])];
 
+    // WAVE 3 §3.6 — suppression, checked BEFORE the provider call.
+    //
+    // Placed at this choke point rather than inside each executor so it covers
+    // every path that can reach a person: the chat ACT loop, a workflow
+    // TOOL_ACTION, a template, and any executor added later. A rule enforced in
+    // one executor is a rule the next executor forgets.
+    //
+    // A hard block, not a warning: once the message is sent, "we'll review it
+    // later" has no meaning — that single send IS the breach.
+    const suppressed = await this.findSuppressedRecipients(
+      ctx.companyId,
+      skillKey,
+      tool,
+      safeArgs,
+    );
+
     let outcome: SkillExecutionResult;
-    if (!SkillCatalog.getTool(skillKey, tool)) {
+    if (suppressed) {
+      outcome = {
+        ok: false,
+        error:
+          `Blocked: ${suppressed.addresses.length} recipient(s) are on the ` +
+          `${suppressed.channel} suppression list (unsubscribed, bounced or ` +
+          `complained). Remove the suppression deliberately if this is wrong.`,
+      };
+      this.metrics.counter(
+        METRIC.skillFailureTotal,
+        'Tool calls that failed',
+        { skill: skillKey, tool, reason: 'suppressed' },
+      );
+    } else if (!SkillCatalog.getTool(skillKey, tool)) {
       outcome = { ok: false, error: `Unknown skill/tool: ${skillKey}/${tool}` };
     } else if (!(await this.employeeMayUseSkill(ctx, skillKey))) {
       // Doc 09 §9.D — least privilege enforced at EXECUTION, not just when
@@ -498,7 +605,25 @@ export class SkillsService {
       unknown
     >;
 
-    await this.prisma.skillExecution.create({
+    // WAVE 5 §5.3 — the two metrics the plan names for external calls. Emitted
+    // here rather than inside each executor: this is the single choke point
+    // every tool call passes through, so one site covers mock, real and every
+    // future executor.
+    this.metrics.observe(
+      METRIC.providerLatencyMs,
+      'End-to-end latency of one tool call',
+      Date.now() - startedAt,
+      { skill: skillKey, ok: String(outcome.ok) },
+    );
+    if (!outcome.ok) {
+      this.metrics.counter(
+        METRIC.skillFailureTotal,
+        'Tool calls that failed',
+        { skill: skillKey, tool },
+      );
+    }
+
+    const execution = await this.prisma.skillExecution.create({
       data: {
         companyId: ctx.companyId,
         employeeId: ctx.employeeId ?? null,
@@ -515,12 +640,24 @@ export class SkillsService {
       },
     });
 
+    // Correlation (WAVE 3 §12 / WAVE 5 §5.1): every log line and audit entry
+    // emitted after this call can now name the exact SkillExecution row, which
+    // is the join key between "the workflow did something" and "the provider
+    // was called".
+    enrichContext({ skillExecutionId: execution.id });
+
     return {
       skillKey,
       tool,
       args: maskedArgs,
       result: safeResult ?? null,
       ok: outcome.ok,
+      // Only on failure, and only the masked form — the same string the
+      // SkillExecution row stores. A success carrying an `error` key would be a
+      // confusing shape for every consumer.
+      ...(outcome.ok || typeof safeError !== 'string'
+        ? {}
+        : { error: safeError }),
     };
   }
 

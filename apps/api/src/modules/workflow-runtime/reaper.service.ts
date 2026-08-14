@@ -7,6 +7,7 @@ import {
   WF_ADVANCE_JOB,
   WF_RUN_ADVANCE_QUEUE,
   WF_STUCK_RUN_AFTER_MS,
+  wfJobId,
   type AdvanceJobData,
 } from './workflow-runtime.constants';
 
@@ -177,7 +178,7 @@ export class ReaperService {
       { runId, companyId },
       {
         // Deduplicate: a run already queued for advance must not queue twice.
-        jobId: `advance:${runId}:${Date.now()}`,
+        jobId: wfJobId('advance', runId, Date.now()),
         removeOnComplete: true,
         removeOnFail: 100,
       },

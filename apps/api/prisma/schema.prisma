@@ -277,6 +277,9 @@ model Company {
   securityPolicy              SecurityPolicy?
   interviewSlots              InterviewSlot[]
   auditLogs                   AuditLog[]
+  legalHolds                  LegalHold[]
+  marketingSuppressions       MarketingSuppression[]
+  marketingConsents           MarketingConsent[]
   usageEvents                 UsageEvent[]
   socialAccounts              SocialAccount[]
   campaigns                   Campaign[]
@@ -315,8 +318,79 @@ model AuditLog {
   metadata    Json?
   createdAt   DateTime @default(now())
 
+  // --- WAVE 4 §4.2 event shape ---------------------------------------------
+  /// Position in this COMPANY's chain, 1-based and gap-free. Assigned under an
+  /// advisory lock, which is what makes the hash chain linear: without a
+  /// serialised sequence, two concurrent writes could both chain off the same
+  /// predecessor and the "chain" would silently fork.
+  seq         BigInt   @default(0)
+  /// USER | AI_EMPLOYEE | SYSTEM. A null actorUserId is ambiguous on its own —
+  /// it could be a background sweep or an AI Employee acting autonomously, and
+  /// an audit trail that cannot distinguish those is not an audit trail.
+  actorType   String   @default("USER")
+  employeeId    String?
+  workflowId    String?
+  workflowRunId String?
+  /// Ties an audit entry to the request/run that produced it, and to the log
+  /// lines and canonical events carrying the same id.
+  correlationId String?
+  ip            String?
+  userAgent     String?
+
+  // --- WAVE 4 §4.4 tamper evidence -----------------------------------------
+  /// sha256 of the PRECEDING entry's eventHash. Null only for a company's first
+  /// entry (the genesis link).
+  previousHash String?
+  /// sha256 over this entry's canonical content AND previousHash. Recomputable,
+  /// so any edit, deletion or reordering of history is detectable.
+  eventHash    String?
+
+  /// The chain read: entries in order for one company.
+  @@unique([companyId, seq])
   @@index([companyId, createdAt])
   @@index([companyId, entityType, entityId])
+  @@index([companyId, action])
+  @@index([companyId, workflowRunId])
+}
+
+/// What a hold freezes. WAVE 8 §8.3 widened legal hold past audit: a hold
+/// placed for litigation that still lets the nightly sweep delete the workflow
+/// runs, knowledge documents and conversations under dispute is not a legal
+/// hold in any sense a lawyer would recognise.
+///
+/// `AUDIT` is kept so existing holds keep meaning exactly what they meant when
+/// they were placed — those rows are backfilled to it by the migration. New
+/// holds default to `ALL`.
+enum LegalHoldScope {
+  ALL
+  AUDIT
+}
+
+/// WAVE 4 §4.5, widened in WAVE 8 §8.3 — a legal hold.
+///
+/// While ANY hold is active for a company, retention must delete nothing in
+/// scope. The plan's rule is absolute — "never delete an event under legal
+/// hold" — so this is checked by the sweeps themselves rather than left to an
+/// operator to remember.
+///
+/// `@@map` keeps the original table name: the model was renamed when its
+/// meaning widened, and renaming a table containing evidence of what was held,
+/// and when, is not worth the risk for a nicer identifier.
+model LegalHold {
+  id         String         @id @default(cuid())
+  companyId  String
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  reason     String
+  scope      LegalHoldScope @default(ALL)
+  /// Who placed it. Kept even if the user is later deleted (no FK).
+  placedById String?
+  createdAt  DateTime       @default(now())
+  /// Null = still active. A released hold is kept, never deleted: the fact that
+  /// data WAS held, and for how long, is itself evidence.
+  releasedAt DateTime?
+
+  @@index([companyId, releasedAt])
+  @@map("AuditLegalHold")
 }
 
 // One row per completed LLM call (founder-market-readiness-audit.md §7: no
@@ -809,6 +883,13 @@ model WorkflowStepRun {
   attempt  Int                   @default(1)
   attempts WorkflowStepAttempt[]
 
+  /// WAVE 1 (gap W1-b): the outgoing edge label this node selected — 'true'/'false'
+  /// for a CONDITION, the case name for a SWITCH, null for a node that does not
+  /// branch. PERSISTED, not derived, because the durable advance worker may run
+  /// long after the step (reaper re-enqueue, redeploy, Redis flush) and must be
+  /// able to recompute routing from Postgres alone.
+  branch   String?
+
   @@index([companyId])
   // LIVE DEFECT FIX: WorkflowsService.getRun() polls this table via
   // `include: { steps }` (≈1 req/s per open run in the UI run log), emitting
@@ -926,6 +1007,20 @@ model Department {
   name        String
   description String?
   createdAt   DateTime @default(now())
+
+  /// WAVE 2 §2.1 — which resource scopes this department may act on.
+  ///
+  /// Values are the scope names resources already carry: `WorkflowCategory`
+  /// (HR, MARKETING…), `EmployeeRole` (HR, MARKETING, RECRUITER…) and
+  /// `KnowledgeDocument.category`. Stored as plain strings, not an enum, because
+  /// those are three different enums that merely share names — unifying them
+  /// would be a migration on every table for no behavioural gain.
+  ///
+  /// EMPTY = unrestricted, and that is the default ON PURPOSE. Every existing
+  /// tenant has no scopes configured, so department isolation ships inert and is
+  /// enabled per-tenant by one write. An authorization change that silently
+  /// starts denying real users reads as an outage, not as a security control.
+  scopes      String[] @default([])
 
   teams Team[]
   users User[] // P3-05 §8.1.5 mechanical inverse of User.department
@@ -1137,6 +1232,17 @@ model ScheduledPost {
   updatedAt         DateTime            @updatedAt
   publishedPost     PublishedPost?
 
+  /// WAVE 3 §3.6 — publish idempotency.
+  ///
+  /// `postiz.publish_now` previously wrote NO local row at all: it called Postiz
+  /// and returned the provider id. A retried TOOL_ACTION therefore published the
+  /// same post to the same social account a second time — a real, public,
+  /// irreversible duplicate. This key makes the retry a no-op.
+  idempotencyKey    String?
+
+  /// Partial by nature: NULL keys do not collide in Postgres, so scheduled posts
+  /// authored without one are unaffected.
+  @@unique([companyId, idempotencyKey])
   @@index([companyId])
   @@index([companyId, status])
 }
@@ -1772,4 +1878,90 @@ model AssistMessage {
 
   @@index([sessionId, createdAt])
   @@index([companyId])
+}
+
+/// WAVE 2 §2.5 — a pending OAuth authorization request.
+///
+/// The flow used to be entirely stateless: an HMAC-signed `state` and nothing on
+/// the server. That is replay-able by design — anyone who captures the callback
+/// URL can re-submit the same state until its TTL expires — and it leaves
+/// nowhere to keep a PKCE verifier. This row is what makes the state ONE-TIME
+/// and makes PKCE possible.
+model OAuthAuthorizationRequest {
+  id        String   @id @default(cuid())
+  /// The `nonce` carried in the signed state; the lookup key on callback.
+  nonce     String   @unique
+  companyId String
+  /// Who started the flow. A callback that completes is attributed to them.
+  userId    String?
+  installedSkillId String
+  skillKey         String
+  /// PKCE (RFC 7636) verifier. Never leaves the server; only its S256 hash is
+  /// sent to the provider, so a stolen authorization code is useless without it.
+  codeVerifier String
+  returnTo     String?
+  /// Set the instant the callback consumes it — the one-time-use guard.
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  /// The expiry sweep.
+  @@index([expiresAt])
+  @@index([companyId])
+}
+
+/// WAVE 3 §3.6 — a person we must NOT contact.
+///
+/// The suppression list is the operational half of consent: the definitive,
+/// fast answer to "may we send to this address right now?". It is deliberately
+/// separate from `MarketingConsent` because the two answer different questions
+/// and fail differently — consent is *evidence* (who opted in, when, how), while
+/// suppression is an *instruction* (never send here again). A bounce or a spam
+/// complaint creates a suppression with no consent record to revoke, and a
+/// withdrawn consent must create one.
+///
+/// Enforced at the tool-execution boundary, so it applies to every path that can
+/// reach a person — chat, workflow node or template — rather than only the one
+/// someone remembered.
+model MarketingSuppression {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// EMAIL | SMS | SOCIAL — the medium the address belongs to.
+  channel   String
+  /// Normalised (lowercased, trimmed) so "A@B.com" and "a@b.com " are one row.
+  address   String
+  /// UNSUBSCRIBED | BOUNCED | COMPLAINED | MANUAL | CONSENT_WITHDRAWN
+  reason    String
+  /// Free-text provenance: which webhook, import or admin action created this.
+  source    String?
+  createdAt DateTime @default(now())
+
+  /// The hot-path lookup, and what makes a duplicate suppression a no-op.
+  @@unique([companyId, channel, address])
+  @@index([companyId, createdAt])
+}
+
+/// WAVE 3 §3.6 — evidence that someone agreed to be contacted.
+///
+/// Kept as an append-only RECORD rather than a boolean on a contact: "do we have
+/// consent?" is not the interesting question in a dispute — "what exactly did
+/// they agree to, when, and how do you know?" is. A withdrawal is a new row, so
+/// the history of a subject's decisions survives.
+model MarketingConsent {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  channel   String
+  address   String
+  /// GRANTED | WITHDRAWN
+  status    String
+  /// How it was obtained: FORM | IMPORT | API | DOUBLE_OPT_IN | ADMIN
+  source    String
+  /// Anything that substantiates it — form url, ip, timestamp text, import file.
+  evidence  Json?
+  createdAt DateTime @default(now())
+
+  /// "The latest decision for this address", the only query that matters.
+  @@index([companyId, channel, address, createdAt])
 }

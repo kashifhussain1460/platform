@@ -55,7 +55,57 @@ services:
     depends_on:
       - postgres
 
+  # ── Observability ─────────────────────────────────────────────────────────
+  # WAVE 9 recorded two ❌: "no OpenTelemetry anywhere" and "endpoints exist,
+  # nothing scrapes them". Both were blocked on infrastructure rather than code,
+  # and that infrastructure is three containers. They are opt-in via a profile —
+  # someone running the app does not need a metrics stack:
+  #   docker compose -f infra/docker-compose.yml --profile observability up -d
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4318:4318"     # OTLP/HTTP — this is OTEL_EXPORTER_OTLP_ENDPOINT
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["observability"]
+    restart: unless-stopped
+    # host.docker.internal: the API runs on the HOST in dev, not in this network.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["observability"]
+    restart: unless-stopped
+    environment:
+      # Local only. Anonymous admin is fine for a throwaway container on
+      # localhost and is NOT a pattern to copy anywhere a network can reach.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - jaeger
+
 volumes:
   pgdata:
   redisdata:
   miniodata:
+  promdata:
+  grafanadata:

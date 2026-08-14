@@ -11,6 +11,10 @@ import { ConnectorHealthService } from './connector-health.service';
 import { TOKEN_REFRESH_SKEW_MS } from './connector.constants';
 import { credString, readCredentials, sealCredentials } from './credentials.util';
 import type { FetchResponseLike } from '../../../common/http/fetch-response';
+import {
+  METRIC,
+  MetricsRegistry,
+} from '../../../common/observability/metrics.registry';
 
 /** Minimal fetch signature (injectable so the refresh flow is unit-testable). */
 export type FetchLike = (
@@ -52,6 +56,7 @@ export class ConnectorTokenService {
     private readonly config: ConfigService,
     private readonly health: ConnectorHealthService,
     @Inject(CONNECTOR_FETCH) private readonly fetchImpl: FetchLike,
+    private readonly metrics: MetricsRegistry,
   ) {}
 
   /**
@@ -117,6 +122,15 @@ export class ConnectorTokenService {
 
     const result = await this.exchangeRefreshToken(provider, refreshToken);
     if (!result.ok) {
+      // WAVE 5 §5.3/§5.4 — a refresh-failure spike is the leading indicator of
+      // connectors about to disconnect en masse (a rotated client secret, a
+      // provider outage). `revoked` is labelled separately because a revoked
+      // grant needs a human to reconnect, while a transient failure resolves.
+      this.metrics.counter(
+        METRIC.oauthRefreshFailureTotal,
+        'OAuth token refreshes that failed',
+        { skill: connector.skillKey, revoked: String(Boolean(result.revoked)) },
+      );
       if (result.revoked) {
         await this.health.markDisconnected(
           connectorId,

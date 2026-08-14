@@ -48,7 +48,12 @@ type OpenAiToolCallDelta = {
 interface OpenAiClient {
   chat: {
     completions: {
-      create(args: Record<string, unknown>): Promise<unknown>;
+      // The SECOND argument is the SDK's RequestOptions — where `signal`
+      // belongs. Typing it here is what stops it drifting back into the body.
+      create(
+        args: Record<string, unknown>,
+        options?: { signal?: AbortSignal },
+      ): Promise<unknown>;
     };
   };
 }
@@ -68,6 +73,7 @@ export class OpenAiLlmProvider implements LlmProvider {
     const client = await this.getClient();
     const res = (await client.chat.completions.create(
       this.buildRequest(input, tools, false),
+      this.requestOptions(input),
     )) as {
       choices?: Array<{
         message?: {
@@ -111,6 +117,10 @@ export class OpenAiLlmProvider implements LlmProvider {
     const client = await this.getClient();
     const stream = (await client.chat.completions.create(
       this.buildRequest(input, tools, true),
+      // Streaming needs the abort signal MORE than a plain completion does: a
+      // stream that is never cancelled holds the connection open for as long as
+      // the provider keeps it.
+      this.requestOptions(input),
     )) as AsyncIterable<{
       choices?: Array<{
         delta?: { content?: string | null; tool_calls?: OpenAiToolCallDelta[] };
@@ -191,8 +201,20 @@ export class OpenAiLlmProvider implements LlmProvider {
       ...(stream
         ? { stream: true, stream_options: { include_usage: true } }
         : {}),
-      ...(input.signal ? { signal: input.signal } : {}),
     };
+  }
+
+      // NOT in the body. Both SDKs take `signal` in their REQUEST OPTIONS
+      // (the second argument); putting it in the payload sends it to the
+      // provider as an unknown parameter, and OpenAI answers
+      // `400 Unrecognized request argument supplied: signal`.
+      //
+      // This sat here unexercised until the workflow node timeout started
+      // supplying a signal for the first time — the classic shape of a
+      // never-called branch: it type-checked, it read correctly, and it had
+      // never once run.
+  private requestOptions(input: LlmCompletionInput): { signal?: AbortSignal } {
+    return input.signal ? { signal: input.signal } : {};
   }
 
   private toToolCall(

@@ -11,8 +11,11 @@ import {
 import type { Request } from 'express';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
+import { AuditLogService } from '../../audit/audit-log.service';
+import { CanonicalIngestService } from '../../events/ingestion/canonical-ingest.service';
 import { ChatwootClientService } from './chatwoot-client.service';
 import {
+  CHATWOOT_PROVIDER,
   CHATWOOT_SIGNATURE_HEADER,
   CHATWOOT_TIMESTAMP_HEADER,
 } from './support.constants';
@@ -52,6 +55,9 @@ export class SupportWebhookController {
     private readonly prisma: PrismaService,
     private readonly chatwootClient: ChatwootClientService,
     private readonly crypto: CryptoService,
+    // WAVE 3 §3.4 — RawEvent → dedup → CanonicalEvent → workflow trigger.
+    private readonly ingest: CanonicalIngestService,
+    private readonly audit: AuditLogService,
   ) {}
 
   @Post()
@@ -105,8 +111,79 @@ export class SupportWebhookController {
     }
 
     // ---- Signature verified. Only past this line may Support* tables be written. ----
+
+    // WAVE 3 §3.4 — the canonical pipeline, and the DEDUP GUARD that makes a
+    // redelivery safe. Chatwoot (like every webhook provider) retries on
+    // timeout; before this, each retry appended the same SupportMessage again
+    // and there was no RawEvent, no CanonicalEvent and no workflow trigger at
+    // all — nothing could ever react to a support conversation.
+    //
+    // Ingest happens BEFORE the local write, so the unique
+    // (connectorId, bodyHash) row is what arbitrates concurrent duplicates.
+    const ingest = await this.ingest.ingestVerified({
+      companyId: account.companyId,
+      // The engine's own account row stands in for a connector here; RawEvent
+      // has no FK on connectorId precisely so both kinds can share the log.
+      connectorId: account.id,
+      provider: CHATWOOT_PROVIDER,
+      rawBody: req.rawBody,
+      headers: {
+        [CHATWOOT_SIGNATURE_HEADER]: signature ?? null,
+        [CHATWOOT_TIMESTAMP_HEADER]: timestamp ?? null,
+      },
+      // Enrich the stored payload with the two facts the pure mapper cannot
+      // derive on its own: whether this is the conversation's first message
+      // (NEW_TICKET vs TICKET_REPLIED) and the resolved conversation id.
+      payload: await this.enrichForMapping(account.companyId, payload),
+    });
+
+    if (ingest.deduped) {
+      // Already accepted. Returning 200 stops the provider retrying, and doing
+      // nothing further is what keeps the side effects at-most-once.
+      this.logger.log(
+        `Duplicate Chatwoot delivery ignored (account=${chatwootAccountId})`,
+      );
+      return { ok: true };
+    }
+
     await this.applyPayload(account.companyId, account.id, payload);
+    await this.audit.record({
+      companyId: account.companyId,
+      action: 'support.webhook.received',
+      entityType: 'RawEvent',
+      entityId: ingest.rawEventId ?? undefined,
+      metadata: {
+        provider: CHATWOOT_PROVIDER,
+        conversationId: idToString(payload.conversation?.id) ?? null,
+        messageType: payload.message_type ?? null,
+      },
+    });
     return { ok: true };
+  }
+
+  /**
+   * Add the facts a PURE mapper cannot compute: the mapper has no database, so
+   * "is this the first message on this conversation?" — the difference between
+   * NEW_TICKET and TICKET_REPLIED — has to be resolved here.
+   */
+  private async enrichForMapping(
+    companyId: string,
+    payload: ChatwootWebhookPayload,
+  ): Promise<Record<string, unknown>> {
+    const conversationId = idToString(payload.conversation?.id);
+    let isFirstMessage = false;
+    if (conversationId) {
+      const existing = await this.prisma.supportConversation.findFirst({
+        where: { companyId, chatwootConversationId: conversationId },
+        select: { id: true },
+      });
+      isFirstMessage = !existing;
+    }
+    return {
+      ...(payload as unknown as Record<string, unknown>),
+      __conversationId: conversationId ?? null,
+      __isFirstMessage: isFirstMessage,
+    };
   }
 
   private async applyPayload(

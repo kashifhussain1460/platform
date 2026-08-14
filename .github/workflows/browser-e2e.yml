@@ -1,0 +1,121 @@
+# WAVE 7 — browser E2E, actually executed.
+#
+# The gate's rule for this wave is the reason this file exists: *"Record
+# evidence. Do not equate 'harness exists' with 'E2E passed'."* Until now
+# `e2e/tests/02-security-journey.spec.ts` had NEVER been run by the Playwright
+# runner — its assertions were checked by hand through MCP, which is a different
+# and weaker claim, and nothing re-checked them on a change.
+#
+# Runs against a real stack: real Next.js → real NestJS → real Postgres + Redis.
+# A browser journey that stubs the API proves nothing about the product.
+name: Browser E2E
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  # Browser journeys are slow; a manual trigger keeps them usable on a branch
+  # without waiting for a push to main.
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '8.15.0'
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    # Generous, because it boots two dev servers and drives a real browser. A
+    # tight limit here produces cancelled runs that get read as flakes.
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: vaep
+          POSTGRES_PASSWORD: vaep
+          POSTGRES_DB: vaep
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U vaep -d vaep"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://vaep:vaep@localhost:5433/vaep?schema=public
+      REDIS_URL: redis://127.0.0.1:6380
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      # Offline, deterministic providers. A browser journey must not depend on an
+      # LLM vendor being reachable or on a real card being charged — and
+      # MAIL_ENABLED=false is not optional: with real SMTP the verification code
+      # is random instead of the fixed dev `123456`, so no journey gets past
+      # /verify-email, AND the suite delivers real email to invented addresses.
+      LLM_PROVIDER: mock
+      SKILL_EXECUTOR: mock
+      BILLING_PROVIDER: mock
+      EMBEDDINGS_PROVIDER: hash
+      STORAGE_PROVIDER: local
+      MAIL_ENABLED: 'false'
+      # The durable engine is the default, so this is what customers get.
+      WORKFLOW_ENGINE_MODE: state_machine
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # @vaep/types is a built CommonJS package; both apps resolve it from dist.
+      - run: pnpm --filter @vaep/types build
+
+      - name: Prisma generate + migrate
+        working-directory: apps/api
+        run: |
+          pnpm exec prisma generate
+          pnpm exec prisma migrate deploy
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      # playwright.config.ts starts both dev servers itself (`webServer`), so
+      # there is nothing to launch here — and `reuseExistingServer` is disabled
+      # under CI, so it can never silently test a stale process.
+      # Via the workspace filter, so playwright runs with e2e/ as its working
+      # directory and finds its own config. Running `pnpm exec playwright test`
+      # from anywhere else resolves to the workspace ROOT, where there is no
+      # config — playwright then scans the whole repo and dies on apps/web's
+      # vitest files. `-c` does not save it; that path resolves from the root too.
+      - name: Run browser journeys
+        run: pnpm --filter @vaep/e2e run test
+
+      # The evidence half of the gate. Traces, screenshots and video are
+      # retain-on-failure, so a red run is diagnosable without reproducing it.
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/report
+          retention-days: 14
+      - name: Upload traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: e2e/test-results
+          retention-days: 14

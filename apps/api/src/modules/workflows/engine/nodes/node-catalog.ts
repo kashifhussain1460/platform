@@ -545,7 +545,7 @@ export const NODE_CATALOG: Record<NodeType, NodeDefinitionDto> = {
     category: 'COMMUNICATION',
     label: 'Notify',
     description:
-      'Record a templated message in the run log. Does not send anything — use a Tool action for real messages.',
+      'Email people INSIDE this company. Leave the recipient fields empty and it only records the message in the run log. To message someone outside the company, use a Tool action.',
     inputs: 1,
     outputs: NEXT,
     configSchema: [
@@ -555,10 +555,37 @@ export const NODE_CATALOG: Record<NodeType, NodeDefinitionDto> = {
         type: 'text',
         required: true,
         templatable: true,
-        help: 'The message to record in the run log.',
+        help: 'The message to send (and to record in the run log).',
+      },
+      {
+        key: 'notifyRoles',
+        label: 'Notify roles',
+        type: 'text',
+        required: false,
+        templatable: true,
+        help: 'Comma-separated: OWNER, ADMIN, MEMBER. Leave empty to send nothing.',
+      },
+      {
+        key: 'notifyUserIds',
+        label: 'Notify specific people',
+        type: 'text',
+        required: false,
+        templatable: true,
+        help: 'Comma-separated user ids in this company.',
+      },
+      {
+        key: 'notifyDepartmentId',
+        label: 'Notify a department',
+        type: 'text',
+        required: false,
+        templatable: true,
+        help: 'Everyone active in this department.',
       },
     ],
-    hasSideEffects: false,
+    // TRUE now, and the change matters: NOTIFY can send email, which cannot be
+    // unsent. A dry run must therefore skip it, and the builder must show it as
+    // a step that does something to the outside world.
+    hasSideEffects: true,
     canPauseForApproval: false,
   },
 

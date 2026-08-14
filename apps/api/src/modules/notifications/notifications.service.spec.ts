@@ -76,4 +76,92 @@ describe('NotificationsService', () => {
     expect(body).toContain('/login');
     expect(body.toLowerCase()).not.toContain('password:');
   });
+
+  // ── workflowNotify — hardening plan §30 ────────────────────────────────────
+  // The node's whole output is the claim "this was delivered", so these are
+  // about whether that claim can ever be wrong.
+
+  describe('workflowNotify', () => {
+    it('sends nothing, and says why, when no recipient is configured', async () => {
+      const { svc, send } = make({ enabled: true });
+
+      const result = await svc.workflowNotify('co_1', { message: 'hello' });
+
+      expect(send).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ delivered: false, recipientCount: 0 });
+      expect(result.reason).toMatch(/no recipients configured/);
+    });
+
+    it('does not claim delivery when mail is disabled', async () => {
+      // Mail is off in dev and in every test. Reporting success there is how a
+      // broken notifier reaches production unnoticed.
+      const { svc, send } = make({ enabled: false });
+
+      const result = await svc.workflowNotify('co_1', {
+        message: 'hello',
+        roles: ['ADMIN'],
+      });
+
+      expect(send).not.toHaveBeenCalled();
+      expect(result.delivered).toBe(false);
+      expect(result.reason).toMatch(/MAIL_ENABLED/);
+    });
+
+    it('scopes recipients to the company and to ACTIVE users, and caps the fan-out', async () => {
+      const { svc, prisma } = make({
+        enabled: true,
+        admins: [{ email: 'a@acme.co', name: 'A' }],
+      });
+
+      await svc.workflowNotify('co_1', {
+        message: 'hello',
+        userIds: ['u_from_another_tenant'],
+      });
+
+      const where = (
+        prisma as never as { user: { findMany: jest.Mock } }
+      ).user.findMany.mock.calls[0][0];
+      // companyId + ACTIVE are non-negotiable: a workflow naming any id at all
+      // must not be able to reach a user outside its own tenant.
+      expect(where.where.companyId).toBe('co_1');
+      expect(where.where.status).toBe('ACTIVE');
+      expect(where.take).toBe(50);
+    });
+
+    it('reports delivered:false when the filters match nobody', async () => {
+      const { svc, send } = make({ enabled: true, admins: [] });
+
+      const result = await svc.workflowNotify('co_1', {
+        message: 'hello',
+        roles: ['ADMIN'],
+      });
+
+      expect(send).not.toHaveBeenCalled();
+      expect(result.delivered).toBe(false);
+      expect(result.reason).toMatch(/no matching active users/);
+    });
+
+    it('one failed address does not cancel the rest, and the count is what ACTUALLY sent', async () => {
+      const send = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('550 mailbox unavailable'))
+        .mockResolvedValueOnce(undefined);
+      const { svc } = make({
+        enabled: true,
+        send,
+        admins: [
+          { email: 'bad@acme.co', name: 'Bad' },
+          { email: 'good@acme.co', name: 'Good' },
+        ],
+      });
+
+      const result = await svc.workflowNotify('co_1', {
+        message: 'hello',
+        roles: ['ADMIN'],
+      });
+
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ delivered: true, recipientCount: 1 });
+    });
+  });
 });

@@ -22,6 +22,7 @@ import type {
   NodeDefinitionDto,
   PublishWorkflowResultDto,
   WorkflowDto,
+  WorkflowReadinessDto,
   WorkflowRunDto,
   WorkflowSkillRequirementsDto,
   WorkflowVersionDto,
@@ -41,6 +42,7 @@ import { RunWorkflowDto } from './dto/run-workflow.dto';
 import { UpdateWorkflowDto } from './dto/update-workflow.dto';
 import { WorkflowGeneratorService } from './engine/workflow-generator.service';
 import { SkillRequirementsService } from '../skills/skill-requirements.service';
+import { WorkflowReadinessService } from './readiness/workflow-readiness.service';
 import { WorkflowsService } from './workflows.service';
 import { WorkflowVersionService } from './workflow-version.service';
 import { NodeRegistry } from './engine/node-registry.service';
@@ -64,6 +66,7 @@ export class WorkflowsController {
     private readonly registry: NodeRegistry,
     private readonly generator: WorkflowGeneratorService,
     private readonly skillRequirements: SkillRequirementsService,
+    private readonly readiness: WorkflowReadinessService,
   ) {}
 
   @Post()
@@ -79,9 +82,12 @@ export class WorkflowsController {
   @Get()
   list(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('limit') limit?: string,
   ): Promise<WorkflowDto[]> {
-    return this.workflows.list(companyId, limit);
+    // WAVE 2 — the caller is passed so the list is department-scoped by the
+    // same rule as the detail read (see WorkflowsService.list).
+    return this.workflows.list(companyId, limit, user.userId);
   }
 
   /**
@@ -96,6 +102,23 @@ export class WorkflowsController {
     @Body() dto: FireEventDto,
   ): Promise<FireEventResultDto> {
     return this.workflows.fireEvent(companyId, dto.eventType, dto.payload, dto.connectorId);
+  }
+
+  /**
+   * Every run in the tenant, newest first — the cross-workflow operations view
+   * (`/runs`). Declared before `runs/:runId` so the fixed segment wins, and
+   * before `:id` so `runs` is never read as a workflow id.
+   *
+   * A read open to any member, like the per-workflow list it generalises.
+   */
+  @Get('runs')
+  listAllRuns(
+    @CurrentTenant() companyId: string,
+    @Query('status') status?: string,
+    @Query('workflowId') workflowId?: string,
+    @Query('limit') limit?: string,
+  ): Promise<WorkflowRunDto[]> {
+    return this.workflows.listAllRuns(companyId, { status, workflowId, limit });
   }
 
   /**
@@ -180,9 +203,10 @@ export class WorkflowsController {
   @Get(':id')
   get(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ): Promise<WorkflowDto> {
-    return this.workflows.get(companyId, id);
+    return this.workflows.get(companyId, id, user.userId);
   }
 
   @Patch(':id')
@@ -284,17 +308,68 @@ export class WorkflowsController {
     return this.versions.saveDraft(companyId, id, dto.definition, user.userId);
   }
 
-  /** Freeze the draft as PUBLISHED and make it the active version. */
+  /**
+   * A NON-MUTATING dry run of everything publish + activate would check, so the
+   * Review & Publish surface can explain what's wrong before the user commits
+   * (UX plan §12 — there is no separate [Validate] step). A read: any member may
+   * call it; `canManageConnection` decides whether a missing connection is
+   * reported as "connect it" or "ask an admin".
+   */
+  @Get(':id/readiness')
+  getReadiness(
+    @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<WorkflowReadinessDto> {
+    return this.readiness.forWorkflow(companyId, id, {
+      canManageConnection: user.role === 'OWNER' || user.role === 'ADMIN',
+    });
+  }
+
+  /**
+   * Freeze the draft as PUBLISHED and make it the active version.
+   *
+   * With `activate: true` the workflow is activated in the same request (UX plan
+   * §14). That is sequencing, not a shortcut: `activate` runs its own guards
+   * (runnable steps, trigger validity, EVENT-conflict check) and writes its own
+   * audit entry, and it only runs when publish succeeded — a validation failure
+   * throws before anything is activated.
+   */
   @Post(':id/publish')
   @Roles('OWNER', 'ADMIN')
   @HttpCode(200)
-  publish(
+  async publish(
     @CurrentTenant() companyId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: PublishWorkflowDto,
   ): Promise<PublishWorkflowResultDto> {
-    return this.versions.publish(companyId, id, user.userId, dto.changeNote);
+    const result = await this.versions.publish(
+      companyId,
+      id,
+      user.userId,
+      dto.changeNote,
+    );
+    if (!dto.activate) {
+      return result;
+    }
+    // Publish has already committed an immutable version by this point. If
+    // activation is refused (no runnable step, incomplete trigger, a conflicting
+    // EVENT trigger), throwing would tell the client the whole thing failed
+    // while the version silently exists — so report both halves truthfully and
+    // let the UI say "published, but not live yet, because …".
+    try {
+      const workflow = await this.workflows.activate(companyId, id);
+      return { ...result, activated: true, workflow };
+    } catch (error) {
+      return {
+        ...result,
+        activated: false,
+        workflow: null,
+        activationError:
+          error instanceof Error ? error.message : 'Could not activate the workflow',
+      };
+    }
   }
 
   /** Create a run (PENDING) + enqueue async execution; returns the run. */

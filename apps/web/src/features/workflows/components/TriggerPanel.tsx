@@ -5,12 +5,16 @@ import { X } from 'lucide-react';
 import type {
   Condition,
   EventConditionOp,
+  TriggerConfig,
   TriggerType,
   WorkflowDto,
 } from '@vaep/types';
 import { EVENT_CONDITION_OPS } from '@vaep/types';
 import { Button } from '@/components/ui/Button';
+import { useCurrentCompany } from '@/features/tenant/hooks';
 import { useInstalledSkills } from '@/features/skills/hooks';
+import { toTriggerConfig } from '../schedule';
+import { DEFAULT_SCHEDULE, ScheduleFields } from './builder/ScheduleFields';
 import {
   useActivateWorkflow,
   useDeactivateWorkflow,
@@ -86,12 +90,14 @@ const TRIGGER_OPTIONS: { value: TriggerType; label: string; hint: string }[] = [
   },
 ];
 
-/** Minutes from a stored everyMs (default 5). */
-function initialMinutes(workflow: WorkflowDto): number {
-  const everyMs = workflow.triggerConfig?.everyMs;
-  return typeof everyMs === 'number' && everyMs > 0
-    ? Math.max(1, Math.round(everyMs / 60_000))
-    : 5;
+/**
+ * The stored schedule, or a complete default. Never blank — the API rejects a
+ * SCHEDULE trigger with no time, so an empty state would make Save fail.
+ */
+function initialSchedule(workflow: WorkflowDto): TriggerConfig {
+  return workflow.triggerConfig?.cron || workflow.triggerConfig?.everyMs
+    ? workflow.triggerConfig
+    : toTriggerConfig(DEFAULT_SCHEDULE);
 }
 
 /**
@@ -111,8 +117,8 @@ export function TriggerPanel({
   const [triggerType, setTriggerType] = useState<TriggerType>(
     workflow.triggerType,
   );
-  const [minutes, setMinutes] = useState<number>(() =>
-    initialMinutes(workflow),
+  const [schedule, setSchedule] = useState<TriggerConfig>(() =>
+    initialSchedule(workflow),
   );
   const [eventType, setEventType] = useState<string>(
     workflow.triggerConfig?.eventType ?? '',
@@ -126,6 +132,7 @@ export function TriggerPanel({
   const [copied, setCopied] = useState(false);
 
   const { data: installedSkills } = useInstalledSkills();
+  const { data: company } = useCurrentCompany();
   // Only Gmail connections can currently receive inbound events -- this list
   // grows the same way if/when other providers get an inbound driver.
   const connectableMailboxes = (installedSkills ?? []).filter(
@@ -144,7 +151,7 @@ export function TriggerPanel({
   const onSaveTrigger = () => {
     let triggerConfig;
     if (triggerType === 'SCHEDULE') {
-      triggerConfig = { everyMs: Math.max(1, minutes) * 60_000 };
+      triggerConfig = { ...schedule };
     } else if (triggerType === 'EVENT') {
       const built = buildConditions(conditions);
       triggerConfig = {
@@ -214,19 +221,12 @@ export function TriggerPanel({
       </p>
 
       {triggerType === 'SCHEDULE' && (
-        <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-zinc-400">
-            Run every (minutes)
-          </label>
-          <div className="w-32">
-            <input
-              type="number"
-              min={1}
-              className="field-modern text-sm"
-              value={minutes}
-              onChange={(e) => setMinutes(Number(e.target.value))}
-            />
-          </div>
+        <div className="mt-3 max-w-sm">
+          <ScheduleFields
+            value={schedule}
+            onChange={setSchedule}
+            timeZone={company?.timezone ?? undefined}
+          />
         </div>
       )}
 

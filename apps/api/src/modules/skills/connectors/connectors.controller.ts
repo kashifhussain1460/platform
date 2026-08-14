@@ -8,9 +8,9 @@ import {
 } from '@nestjs/common';
 import type { ConnectorHealthDto } from '@vaep/types';
 import { CurrentTenant } from '../../auth/decorators/current-tenant.decorator';
-import { Roles } from '../../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
-import { RolesGuard } from '../../auth/roles.guard';
+import { AuthorizationGuard } from '../../authorization/authorization.guard';
+import { RequirePermission } from '../../authorization/require-permission.decorator';
 import { ConnectorHealthService } from './connector-health.service';
 
 /**
@@ -21,7 +21,7 @@ import { ConnectorHealthService } from './connector-health.service';
  * `:id/health*` routes don't collide with `:connectorId/events|webhook`.
  */
 @Controller('connectors')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, AuthorizationGuard)
 export class ConnectorsController {
   constructor(private readonly health: ConnectorHealthService) {}
 
@@ -36,7 +36,7 @@ export class ConnectorsController {
 
   /** Run an active probe now and return the updated health (OWNER/ADMIN). */
   @Post(':id/health-check')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('skill:connect')
   @HttpCode(200)
   runHealthCheck(
     @CurrentTenant() companyId: string,

@@ -21,10 +21,12 @@ import { RetrieveNodeHandler } from './retrieve.handler';
 import {
   ApprovalNodeHandler,
   ConditionNodeHandler,
-  NotifyNodeHandler,
   TriggerNodeHandler,
   WaitNodeHandler,
 } from './simple.handlers';
+// Its own file, not simple.handlers.ts: NOTIFY now injects NotificationsService,
+// and that file's whole premise is handlers with no dependencies.
+import { NotifyNodeHandler } from './notify.handler';
 import { ToolActionNodeHandler } from './tool-action.handler';
 
 export * from './node-handler';
@@ -50,10 +52,10 @@ export { ToolActionNodeHandler } from './tool-action.handler';
 export {
   ApprovalNodeHandler,
   ConditionNodeHandler,
-  NotifyNodeHandler,
   TriggerNodeHandler,
   WaitNodeHandler,
 } from './simple.handlers';
+export { NotifyNodeHandler } from './notify.handler';
 
 /**
  * THE registration point for node handlers (P1-03).

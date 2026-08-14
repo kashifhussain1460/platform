@@ -1,0 +1,14 @@
+{
+  "name": "@vaep/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "WAVE 7 browser journeys (Playwright) against a real web + api + Postgres + Redis stack.",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

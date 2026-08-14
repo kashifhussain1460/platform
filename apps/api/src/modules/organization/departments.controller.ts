@@ -11,19 +11,21 @@ import {
 } from '@nestjs/common';
 import type { DepartmentDto } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
+import { AuthorizationGuard } from '../authorization/authorization.guard';
+import { RequirePermission } from '../authorization/require-permission.decorator';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { OrganizationService } from './organization.service';
 
 /**
  * Departments (P1 #7), tenant-scoped by companyId from the JWT. Reading is open
- * to any authenticated member; mutations are @Roles('OWNER','ADMIN').
+ * to any authenticated member; mutations require the `organization:manage`
+ * capability, whose floor (ADMIN) is exactly the `@Roles('OWNER','ADMIN')` it
+ * replaces — same answer, one place to change it (plan §16).
  */
 @Controller('departments')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, AuthorizationGuard)
 export class DepartmentsController {
   constructor(private readonly org: OrganizationService) {}
 
@@ -33,7 +35,7 @@ export class DepartmentsController {
   }
 
   @Post()
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('organization:manage')
   create(
     @CurrentTenant() companyId: string,
     @Body() dto: CreateDepartmentDto,
@@ -42,7 +44,7 @@ export class DepartmentsController {
   }
 
   @Patch(':id')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('organization:manage')
   update(
     @CurrentTenant() companyId: string,
     @Param('id') id: string,
@@ -52,7 +54,7 @@ export class DepartmentsController {
   }
 
   @Delete(':id')
-  @Roles('OWNER', 'ADMIN')
+  @RequirePermission('organization:manage')
   @HttpCode(204)
   remove(
     @CurrentTenant() companyId: string,

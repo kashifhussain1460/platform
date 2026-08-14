@@ -16,6 +16,8 @@ import {
   EVENT_CONDITION_OPS,
   TRIGGER_TYPES,
   SETTABLE_WORKFLOW_STATUSES,
+  WORKFLOW_CATEGORIES,
+  type WorkflowCategory,
   type Condition,
   type EventConditionOp,
   type TriggerConfig,
@@ -115,4 +117,9 @@ export class UpdateWorkflowDto implements IUpdateWorkflowDto {
   @IsOptional()
   @IsString()
   expectedUpdatedAt?: string;
+
+  /** WAVE 2 §2.1 — recategorise; `null` makes the workflow company-wide again. */
+  @IsOptional()
+  @IsIn(WORKFLOW_CATEGORIES as unknown as string[])
+  category?: WorkflowCategory | null;
 }

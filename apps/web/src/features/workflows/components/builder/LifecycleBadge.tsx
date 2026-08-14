@@ -15,9 +15,15 @@ interface BadgeLook {
 }
 
 /**
- * Resolve the workflow's lifecycle state — publish state (activeVersionId) is
- * distinct from run state (status), so a published-but-not-armed workflow reads
- * "Published", and only an armed one reads "Live".
+ * Resolve the workflow's lifecycle state.
+ *
+ * The wording is the four states the customer is meant to think in — Draft,
+ * Active, Paused, Archived (UX plan §15/§45) — with one addition that earns its
+ * place: a workflow whose version is published but whose trigger is not armed.
+ * That state is reachable on purpose ("Publish without turning it on") and is
+ * also where a refused activation leaves you, so calling it "Draft" would hide
+ * a real published version and calling it "Active" would be false. It is
+ * labelled in plain language rather than with the internal word "Published".
  */
 function look(workflow: WorkflowDto): BadgeLook {
   if (workflow.status === 'ARCHIVED') {
@@ -25,7 +31,7 @@ function look(workflow: WorkflowDto): BadgeLook {
   }
   if (workflow.status === 'ACTIVE') {
     return {
-      label: 'Live',
+      label: 'Active',
       icon: CircleDot,
       cls: 'border-status-succeeded/30 bg-status-succeeded/10 text-status-succeeded',
     };
@@ -40,7 +46,7 @@ function look(workflow: WorkflowDto): BadgeLook {
   // DRAFT status: published (has an active version) vs never-published.
   if (workflow.activeVersionId) {
     return {
-      label: 'Published',
+      label: 'Not turned on',
       icon: CheckCircle2,
       cls: 'border-violet-secondary/40 bg-violet/10 text-violet-secondary',
     };

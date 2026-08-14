@@ -1,0 +1,31 @@
+# Scrapes the API's hand-rolled Prometheus registry at /admin/metrics.
+#
+# WAVE 9 recorded "Monitoring ⚠️ — endpoints exist; nothing scrapes them". A
+# gauge nobody reads is not monitoring, and the 13 metrics were already there;
+# this file is the missing half.
+#
+# The endpoint is NOT public: it is behind the same shared secret as the cron
+# routes (the series names and label values describe the system's shape and its
+# tenants' activity). `authorization` sends it as a bearer token, which is one of
+# the two forms `MetricsController.assertAuthorized` accepts.
+#
+# Set CRON_SECRET below to the same value as apps/api/.env, or Prometheus will
+# scrape 403s and the target will show DOWN with an authorization error — which
+# is at least honest about being unauthorised rather than silently empty.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: orlixa-api
+    metrics_path: /admin/metrics
+    # The API runs on the HOST in dev (`pnpm dev`), not inside this network.
+    static_configs:
+      - targets: ["host.docker.internal:4000"]
+    authorization:
+      type: Bearer
+      credentials: "CHANGE_ME_TO_MATCH_CRON_SECRET"
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

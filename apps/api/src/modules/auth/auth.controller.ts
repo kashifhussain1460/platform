@@ -22,9 +22,30 @@ import { VerifyResetOtpDto } from './dto/verify-reset-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 
 const REFRESH_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
-// Tighter than the app-wide default (docs status audit §3): brute-force /
-// signup-spam protection on the two unauthenticated entry points.
-const AUTH_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
+
+/**
+ * Tighter than the app-wide default (docs status audit §3): brute-force /
+ * signup-spam protection on the unauthenticated entry points.
+ *
+ * The limit is 10/minute per IP and stays 10 unless `AUTH_THROTTLE_LIMIT` says
+ * otherwise. It became configurable for the browser E2E suite, and the reason is
+ * worth stating rather than hiding in a diff: those journeys sign up and log in
+ * a dozen times inside a minute from ONE address, so the hard-coded 10 put a
+ * ceiling on how much of the product a browser test could ever cover — the
+ * seventh journey failed with a 429 that had nothing to do with what it was
+ * testing. A control that silently caps your own test coverage gets discovered
+ * as a "flaky suite".
+ *
+ * Raising it is an explicit, per-environment act. Nothing in production reads
+ * this, no browser test asserts throttling, and the default is unchanged.
+ */
+function authThrottleLimit(): number {
+  const raw = Number(process.env.AUTH_THROTTLE_LIMIT);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10;
+}
+const AUTH_THROTTLE = {
+  default: { limit: authThrottleLimit(), ttl: 60_000 },
+};
 
 @Controller('auth')
 export class AuthController {

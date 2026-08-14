@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsOptional,
   IsString,
   MaxLength,
@@ -27,4 +28,15 @@ export class PublishWorkflowDto {
   @IsString()
   @MaxLength(500)
   changeNote?: string;
+
+  /**
+   * Activate the workflow in the same request (UX plan §14 — the customer sees
+   * one "Publish & Activate" action). Publish and activate remain two separate
+   * server operations with their own guards and audit entries; this flag only
+   * asks the controller to run the second one immediately after the first, and
+   * only if the first succeeded.
+   */
+  @IsOptional()
+  @IsBoolean()
+  activate?: boolean;
 }

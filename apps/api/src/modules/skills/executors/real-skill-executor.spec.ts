@@ -102,6 +102,12 @@ describe('RealSkillExecutor — postiz.*', () => {
             postizIntegrationId: 'int_1',
           }),
         },
+        // WAVE 3 §3.6 — publish_now now TRACKS the publish locally.
+        scheduledPost: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({ id: 'sp_now' }),
+          update: jest.fn().mockResolvedValue({ id: 'sp_now' }),
+        },
       };
       const executor = new RealSkillExecutor(
         configMock,
@@ -123,7 +129,71 @@ describe('RealSkillExecutor — postiz.*', () => {
       expect(postizClient.schedulePost).toHaveBeenCalledWith(
         expect.objectContaining({ postizIntegrationId: 'int_1', content: 'Go live', type: 'now' }),
       );
-      expect(result.result).toEqual({ postizPostId: 'p_456' });
+      expect(result.result).toEqual({
+        scheduledPostId: 'sp_now',
+        postizPostId: 'p_456',
+      });
+      // The intent is recorded BEFORE the call, then completed after it — so a
+      // crash mid-call leaves a visible non-PUBLISHED row rather than a post
+      // that exists at the provider and nowhere else.
+      expect(prisma.scheduledPost.create).toHaveBeenCalled();
+      expect(prisma.scheduledPost.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'PUBLISHED', postizPostId: 'p_456' }),
+        }),
+      );
+    });
+
+    it('does NOT publish twice for a retried identical publish', async () => {
+      // The bug this closes: publish_now wrote no local row, so a retried
+      // TOOL_ACTION posted the same content to the same account again —
+      // public and irreversible.
+      const postizClient = {
+        schedulePost: jest.fn().mockResolvedValue({ postizPostId: 'p_456' }),
+      };
+      const prisma = {
+        socialAccount: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'sa_1',
+            companyId: 'c_1',
+            postizIntegrationId: 'int_1',
+          }),
+        },
+        scheduledPost: {
+          // A prior publish of the same content, already at the provider.
+          findFirst: jest
+            .fn()
+            .mockResolvedValue({ id: 'sp_prev', postizPostId: 'p_456' }),
+          create: jest.fn(),
+          update: jest.fn(),
+        },
+      };
+      const executor = new RealSkillExecutor(
+        configMock,
+        fallbackMock,
+        schedulingMock,
+        postizClient as any,
+        prisma as any,
+        chatwootClientMock,
+        cryptoMock,
+        planeClientMock,
+      );
+      const result = await executor.execute(
+        'postiz',
+        'publish_now',
+        { socialAccountId: 'sa_1', content: 'Go live' },
+        ctx,
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.result).toEqual({
+        scheduledPostId: 'sp_prev',
+        postizPostId: 'p_456',
+        deduped: true,
+      });
+      // The whole point: the provider is never called a second time.
+      expect(postizClient.schedulePost).not.toHaveBeenCalled();
+      expect(prisma.scheduledPost.create).not.toHaveBeenCalled();
     });
   });
 

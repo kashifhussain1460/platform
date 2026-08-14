@@ -13,6 +13,9 @@
     { "path": "/admin/cron/workflow-watchdog", "schedule": "*/5 * * * *" },
     { "path": "/admin/cron/approval-sla", "schedule": "*/5 * * * *" },
     { "path": "/admin/cron/hr-retention", "schedule": "0 3 * * *" },
+    { "path": "/admin/cron/audit-retention", "schedule": "30 3 * * *" },
+    { "path": "/admin/cron/data-retention", "schedule": "0 4 * * *" },
+    { "path": "/admin/cron/alerts", "schedule": "*/15 * * * *" },
     { "path": "/admin/cron/gmail-poll", "schedule": "* * * * *" },
     { "path": "/admin/cron/connector-reconcile", "schedule": "*/5 * * * *" },
     { "path": "/admin/cron/marketing-sync", "schedule": "*/10 * * * *" }

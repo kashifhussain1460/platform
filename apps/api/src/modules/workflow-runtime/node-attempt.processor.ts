@@ -3,33 +3,59 @@ import { Logger } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { DEFAULT_QUEUE_CONCURRENCY } from '../../common/resilience/queue-concurrency.constants';
+import { ApprovalGateService } from '../workflows/engine/approval-gate.service';
+import type { NodeResult } from '../workflows/engine/nodes/node-handler';
 import { NodeRegistry } from '../workflows/engine/node-registry.service';
 import { AttemptLeaseService } from './attempt-lease.service';
+import { branchOf } from './graph';
 import { RetryPolicyService } from './retry-policy.service';
 import { RunStateWriter } from './run-state-writer.service';
 import { TraversalService } from './traversal.service';
 import {
-  DEFAULT_NODE_TIMEOUT_MS,
+  nodeTimeoutMs,
   WF_ADVANCE_JOB,
   WF_ATTEMPT_JOB,
   WF_NODE_ATTEMPT_QUEUE,
   WF_RUN_ADVANCE_QUEUE,
+  wfJobId,
   type AdvanceJobData,
   type NodeAttemptJobData,
 } from './workflow-runtime.constants';
 import type { WorkflowDefinition, WorkflowNode } from '@vaep/types';
+import { runInJobContext } from '../../common/observability/job-context';
 
-/** Reject a promise that outruns its budget, so a hung node frees its slot. */
-async function withTimeout<T>(p: Promise<T> | T, ms: number): Promise<T> {
+/**
+ * Bound a node's execution, and CANCEL it when the bound is hit.
+ *
+ * The cancellation half is the point. The previous version raced the handler
+ * against a timer and returned to the caller when the timer won — which freed
+ * the worker slot but left the underlying work running. For an
+ * `AI_EMPLOYEE_STEP` that meant the model request continued against the
+ * provider's own (longer) timeout: tokens were still spent, on a request whose
+ * result nobody would ever read, and whose usage row was therefore never
+ * written. Unmetered spend on an abandoned request is the worst version of a
+ * timeout.
+ *
+ * The signal is handed to the handler, which passes it to whatever it calls.
+ * A handler that ignores it degrades to the old behaviour rather than breaking,
+ * which is why it is optional on `NodeExecContext`.
+ */
+async function withTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T> | T,
+  ms: number,
+): Promise<T> {
+  const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([
-      Promise.resolve(p),
+      Promise.resolve(run(controller.signal)),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`Node timed out after ${ms}ms`)),
-          ms,
-        );
+        timer = setTimeout(() => {
+          // Abort BEFORE rejecting: by the time the caller sees the error the
+          // in-flight request is already being torn down, not merely orphaned.
+          controller.abort(new Error(`Node timed out after ${ms}ms`));
+          reject(new Error(`Node timed out after ${ms}ms`));
+        }, ms);
         timer.unref?.();
       }),
     ]);
@@ -68,6 +94,7 @@ export class NodeAttemptProcessor extends WorkerHost {
     private readonly retry: RetryPolicyService,
     private readonly registry: NodeRegistry,
     private readonly traversal: TraversalService,
+    private readonly approvals: ApprovalGateService,
     @InjectQueue(WF_RUN_ADVANCE_QUEUE)
     private readonly advanceQueue: Queue<AdvanceJobData>,
     @InjectQueue(WF_NODE_ATTEMPT_QUEUE)
@@ -77,6 +104,12 @@ export class NodeAttemptProcessor extends WorkerHost {
   }
 
   async process(job: Job<NodeAttemptJobData>): Promise<void> {
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job<NodeAttemptJobData>): Promise<void> {
     const data = job.data;
 
     // SECURITY (doc 16 §20): never trust the companyId in a job payload. Load
@@ -127,23 +160,73 @@ export class NodeAttemptProcessor extends WorkerHost {
 
       // ── The side effect. No transaction is open here, on purpose. ─────────
       const context = (run.context ?? {}) as Record<string, unknown>;
-      const result = await withTimeout(
-        this.registry.get(node.type).execute({
-          companyId: run.companyId,
-          workflowId: run.workflowId,
-          runId: run.id,
-          node,
-          context,
-          dryRun: run.dryRun,
-        }),
-        DEFAULT_NODE_TIMEOUT_MS,
-      );
+
+      // §1.10 — the approval gate is asked on EVERY attempt at the node, and
+      // answers purely from Postgres. That re-entrancy is what makes approval
+      // survive a restart: there is nothing in memory to lose.
+      const gate = await this.approvals.evaluate({
+        companyId: run.companyId,
+        runId: run.id,
+        node,
+        context,
+      });
+
+      const result: NodeResult =
+        gate.kind === 'PROCEED'
+          ? await withTimeout(
+              (signal) =>
+                this.registry.get(node.type).execute({
+                  companyId: run.companyId,
+                  workflowId: run.workflowId,
+                  runId: run.id,
+                  node,
+                  context,
+                  dryRun: run.dryRun,
+                  signal,
+                }),
+              nodeTimeoutMs(),
+            )
+          : gate.kind === 'PAUSE'
+            ? {
+                output: { awaitingApproval: true, approvalId: gate.approvalId },
+                pause: {
+                  reason: gate.reason,
+                  approvalId: gate.approvalId,
+                  resumeAtSelf: true as const,
+                },
+              }
+            : {
+                output: { approved: false, reason: gate.reason },
+                // A rejection is a SAFE failure, never a silent skip: the run
+                // ends and the reason is on the record.
+                terminate: { status: 'FAILED' as const, reason: gate.reason },
+              };
+
+      // The node's contribution to the run context, if it declares one.
+      // A handler-declared `contextKey` wins over the author's `outputKey` —
+      // see NodeResult.contextKey for why that distinction exists.
+      const outputKey =
+        result.contextKey?.trim() ||
+        (typeof node.config?.outputKey === 'string'
+          ? node.config.outputKey.trim()
+          : '');
+      const contextPatch: Record<string, unknown> =
+        outputKey && 'contextValue' in result
+          ? { [outputKey]: result.contextValue }
+          : {};
+
+      // A paused step has NOT done its work — it decided to wait. Marking it
+      // COMPLETED would make it terminal, and the resumed run could then never
+      // re-enter the node (COMPLETED → RUNNING is an illegal step transition),
+      // so the run would sit WAITING for ever after the approval was granted.
+      const pausing = Boolean(result.pause);
 
       // ── T2: record the outcome atomically with its outbox event ───────────
       await this.prisma.$transaction(async (tx) => {
         await tx.workflowStepAttempt.update({
           where: { id: data.attemptId },
           data: {
+            // The ATTEMPT did finish either way — it reached a decision.
             status: 'COMPLETED',
             output: (result.output ?? {}) as never,
             finishedAt: new Date(),
@@ -156,61 +239,73 @@ export class NodeAttemptProcessor extends WorkerHost {
             stepId: data.stepId,
             runId: run.id,
             companyId: run.companyId,
-            to: 'COMPLETED',
+            to: pausing ? 'WAITING' : 'COMPLETED',
             output: result.output,
-            event: 'step.completed',
+            // W1-b: the routing decision commits WITH the completion, so a crash
+            // can never leave a COMPLETED step whose branch was lost — which
+            // would silently route the resumed run down the default edge.
+            ...(pausing ? {} : { branch: branchOf(result) }),
+            event: pausing ? 'step.waiting' : 'step.completed',
           },
           tx,
         );
-        // Thread the node's contribution into the run context.
-        const outputKey = node.config?.outputKey;
-        if (typeof outputKey === 'string' && outputKey && 'contextValue' in result) {
-          await tx.workflowRun.update({
-            where: { id: run.id },
-            data: {
-              context: {
-                ...context,
-                [outputKey]: result.contextValue,
-              } as never,
-            },
-          });
-        }
+        // W1-c: a jsonb merge, NOT a read-modify-write. Two PARALLEL lanes are
+        // genuinely concurrent here, and spreading a context read at job start
+        // would let the second lane's write erase the first lane's output.
+        await this.state.mergeRunContext(run.id, contextPatch, tx);
       });
+
       // Control flow AFTER the bookkeeping commit (P2 traversal). Before T2 we
       // could enqueue lanes for a step whose own result never committed.
+      //
+      // W1-d: pass the POST-step context. Passing the context read at job start
+      // meant a pause or fan-out persisted a context missing the very step that
+      // triggered it — the resumed run then read a stale value.
       const outcome = await this.traversal.applyDirective({
         runId: run.id,
         companyId: run.companyId,
         node,
         definition,
-        context: (run.context ?? {}) as Record<string, unknown>,
+        context: { ...context, ...contextPatch },
         result,
       });
       if (outcome.kind !== 'CONTINUE') {
         directive = 'STOP';
       }
     } catch (error) {
-      await this.recordFailure(data, run.companyId, error);
+      const failure = await this.recordFailure(data, run.companyId, error);
+      // A scheduled retry OWNS the run from here: the delayed attempt job is
+      // what continues it. Enqueueing an advance as well would find the step
+      // still un-settled and queue a SECOND attempt of the same node — two
+      // concurrent executions of a side effect from one failure.
+      if (failure === 'RETRY_SCHEDULED') directive = 'STOP';
     } finally {
       stopHeartbeat();
     }
 
-    // AFTER the commit — never inside T2.
+    // AFTER the commit — never inside T2. `fromNodeId` makes the advance a single
+    // hop; it is only a hint, and the advance recomputes without it.
     if (directive === 'CONTINUE') {
       await this.advanceQueue.add(
         WF_ADVANCE_JOB,
-        { runId: run.id, companyId: run.companyId },
+        { runId: run.id, companyId: run.companyId, fromNodeId: data.nodeId },
         { removeOnComplete: true, removeOnFail: 100 },
       );
     }
   }
 
-  /** Classify, persist, and schedule a retry as a NEW delayed job if warranted. */
+  /**
+   * Classify, persist, and schedule a retry as a NEW delayed job if warranted.
+   *
+   * Returns who owns the run next: `RETRY_SCHEDULED` means the delayed attempt
+   * job does, `STEP_FAILED` means the advance worker does (it finalises the run
+   * as FAILED).
+   */
   private async recordFailure(
     data: NodeAttemptJobData,
     companyId: string,
     error: unknown,
-  ): Promise<void> {
+  ): Promise<'RETRY_SCHEDULED' | 'STEP_FAILED'> {
     const message = error instanceof Error ? error.message : String(error);
     const decision = this.retry.classify(error, data.attempt);
 
@@ -240,7 +335,7 @@ export class NodeAttemptProcessor extends WorkerHost {
         error: message,
         event: 'step.failed',
       });
-      return;
+      return 'STEP_FAILED';
     }
 
     // The runtime owns retry — BullMQ `attempts` stays 1 so the three retry
@@ -271,11 +366,12 @@ export class NodeAttemptProcessor extends WorkerHost {
       { ...data, attemptId: created.id, attempt: next },
       {
         delay: decision.delayMs,
-        jobId: `attempt:${created.id}`,
+        jobId: wfJobId('attempt', created.id),
         removeOnComplete: true,
         removeOnFail: 100,
       },
     );
+    return 'RETRY_SCHEDULED';
   }
 
   private parseDefinition(run: {

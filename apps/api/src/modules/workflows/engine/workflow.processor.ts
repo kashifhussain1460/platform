@@ -10,6 +10,7 @@ import {
 } from '../workflows.constants';
 import { DEFAULT_QUEUE_CONCURRENCY } from '../../../common/resilience/queue-concurrency.constants';
 import { WorkflowEngine } from './workflow-engine.service';
+import { runInJobContext } from '../../../common/observability/job-context';
 
 /**
  * In-process BullMQ worker that executes queued workflow jobs by delegating to
@@ -60,6 +61,12 @@ export class WorkflowProcessor extends WorkerHost implements OnModuleInit {
   }
 
   async process(job: Job<WorkflowRunJobData>): Promise<void> {
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job<WorkflowRunJobData>): Promise<void> {
     const data = job.data;
     if ('watchdog' in data && data.watchdog) {
       const { swept } = await this.engine.sweepStuckRuns();

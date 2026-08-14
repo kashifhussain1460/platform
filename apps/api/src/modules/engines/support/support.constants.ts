@@ -29,3 +29,4 @@ export const SUPPORT_SYNC_QUEUE = 'support-sync';
 export const SUPPORT_SYNC_JOB = 'support-sync-sweep';
 export const SUPPORT_SYNC_SCHEDULER = 'support-sync';
 export const SUPPORT_SYNC_EVERY_MS = 10 * 60_000;
+export const CHATWOOT_PROVIDER = 'chatwoot';

@@ -11,6 +11,7 @@ import type {
   UpdateWorkflowDto,
   WorkflowDefinition,
   WorkflowDto,
+  WorkflowReadinessDto,
   WorkflowRunDto,
   WorkflowTemplateSummaryDto,
   WorkflowVersionDto,
@@ -26,9 +27,11 @@ import {
   generateWorkflowDraft,
   getNodeDefinitions,
   getWorkflow,
+  getWorkflowReadiness,
   getWorkflowRun,
   getWorkflowTemplate,
   installWorkflowTemplate,
+  listAllRuns,
   listWorkflowRuns,
   listWorkflowTemplates,
   listWorkflowVersions,
@@ -38,14 +41,18 @@ import {
   runWorkflow,
   saveWorkflowDraft,
   updateWorkflow,
+  type RunFilters,
 } from './api';
+import { isRunInFlight } from './lifecycle';
 
 export const workflowKeys = {
   all: ['workflows'] as const,
   list: ['workflows', 'list'] as const,
   detail: (id: string) => ['workflows', 'detail', id] as const,
   runs: (id: string) => ['workflows', id, 'runs'] as const,
+  allRuns: (filters: RunFilters) => ['workflows', 'all-runs', filters] as const,
   run: (runId: string) => ['workflows', 'run', runId] as const,
+  readiness: (id: string) => ['workflows', id, 'readiness'] as const,
   nodeDefinitions: ['workflows', 'node-definitions'] as const,
   templates: ['workflows', 'templates'] as const,
   template: (id: string) => ['workflows', 'templates', id] as const,
@@ -245,6 +252,80 @@ export function usePublishWorkflow(id: string) {
   });
 }
 
+/**
+ * Publish AND activate in one action (UX plan §14).
+ *
+ * Same sequence as `usePublishWorkflow` — fresh read, save the draft version,
+ * publish — with `activate: true` so the server arms the trigger in the same
+ * request. It is not a shortcut past any check: activation runs its own guards
+ * server-side and only if publish succeeded.
+ */
+export function usePublishAndActivate(id: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    PublishWorkflowResultDto,
+    NormalizedApiError,
+    { changeNote?: string }
+  >({
+    mutationFn: async ({ changeNote }) => {
+      const fresh = await getWorkflow(id);
+      await saveWorkflowDraft({ id, definition: fresh.definition });
+      return publishWorkflow({ id, changeNote, activate: true });
+    },
+    onSuccess: (result) => {
+      // Patch in place rather than invalidating the detail: a refetch mid-edit
+      // resets the canvas (see useAutosaveWorkflow's note).
+      qc.setQueryData<WorkflowDto>(workflowKeys.detail(id), (old) =>
+        old
+          ? {
+              ...old,
+              activeVersionId: result.version.id,
+              draftVersionId: null,
+              status: result.workflow?.status ?? old.status,
+              activatedAt: result.workflow?.activatedAt ?? old.activatedAt,
+              webhookToken: result.workflow?.webhookToken ?? old.webhookToken,
+            }
+          : old,
+      );
+      void qc.invalidateQueries({ queryKey: workflowKeys.versions(id) });
+      void qc.invalidateQueries({ queryKey: workflowKeys.readiness(id) });
+      void qc.invalidateQueries({ queryKey: workflowKeys.list });
+    },
+  });
+}
+
+/**
+ * The publish preflight. Always refetched when the Review & Publish surface
+ * opens (`staleTime: 0`): reporting a stale "ready" would let someone publish a
+ * workflow whose Gmail connection expired a minute ago.
+ */
+export function useWorkflowReadiness(id: string, enabled = true) {
+  const accessToken = useSessionStore((s) => s.accessToken);
+  return useQuery<WorkflowReadinessDto, NormalizedApiError>({
+    queryKey: workflowKeys.readiness(id),
+    queryFn: () => getWorkflowReadiness(id),
+    enabled: Boolean(accessToken && id && enabled),
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+/**
+ * Every run in the company — the `/runs` operations table. Polls while any
+ * listed run is still in flight, then stops, so an idle operations page costs
+ * nothing.
+ */
+export function useAllRuns(filters: RunFilters = {}) {
+  const accessToken = useSessionStore((s) => s.accessToken);
+  return useQuery<WorkflowRunDto[], NormalizedApiError>({
+    queryKey: workflowKeys.allRuns(filters),
+    queryFn: () => listAllRuns(filters),
+    enabled: Boolean(accessToken),
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((r) => isRunInFlight(r.status)) ? 2000 : false,
+  });
+}
+
 /** The workflow's version history (newest first). */
 export function useWorkflowVersions(id: string) {
   const accessToken = useSessionStore((s) => s.accessToken);
@@ -286,8 +367,14 @@ export function useUpdateWorkflow() {
     onMutate: async ({ id, data }) => {
       await qc.cancelQueries({ queryKey: workflowKeys.list });
       const previous = qc.getQueryData<WorkflowDto[]>(workflowKeys.list);
+      // Drop keys the caller left undefined before merging. A PATCH body means
+      // "leave this alone", but spreading it would overwrite the cached value
+      // with `undefined` — the row would flicker blank until the refetch landed.
+      const patch = Object.fromEntries(
+        Object.entries(data).filter(([, v]) => v !== undefined),
+      ) as Partial<WorkflowDto>;
       qc.setQueryData<WorkflowDto[]>(workflowKeys.list, (old) =>
-        (old ?? []).map((w) => (w.id === id ? { ...w, ...data } : w)),
+        (old ?? []).map((w) => (w.id === id ? { ...w, ...patch } : w)),
       );
       return { previous };
     },

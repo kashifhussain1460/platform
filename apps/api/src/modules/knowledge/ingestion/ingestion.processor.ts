@@ -19,6 +19,7 @@ import {
 import { chunkText, extractText, toVectorLiteral } from '../knowledge.util';
 import { toQueueError } from '../../../common/resilience/queue-retry';
 import { DEFAULT_QUEUE_CONCURRENCY } from '../../../common/resilience/queue-concurrency.constants';
+import { runInJobContext } from '../../../common/observability/job-context';
 
 const EMBED_BATCH = 16;
 
@@ -41,6 +42,12 @@ export class IngestionProcessor extends WorkerHost {
   }
 
   async process(job: Job<IngestJobData>): Promise<void> {
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job<IngestJobData>): Promise<void> {
     if (job.name !== INGEST_JOB) {
       return;
     }

@@ -8,6 +8,7 @@ import { ArrowLeft, WandSparkles } from 'lucide-react';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
 import { WorkflowCanvas } from '@/features/workflows/components/builder/canvas/WorkflowCanvas';
+import { simplifiedWorkflowUX } from '@/lib/featureFlags';
 import { useSessionStore } from '@/stores/session.store';
 import { AssistChat } from '@/features/assist/components/AssistChat';
 import { AssistStageRail } from '@/features/assist/components/AssistStageRail';
@@ -68,6 +69,56 @@ export default function AssistSessionPage() {
     void stream.send('');
     router.replace(`/assist/${sessionId}`);
   }, [search, sessionId, stream, router]);
+
+  /**
+   * HAND THE DRAFT STRAIGHT TO THE EDITOR (UX plan §7).
+   *
+   * "Accept AI draft" is not a decision the customer needs to make — they
+   * already asked for the workflow. So when Orlixa finishes building a complete
+   * graph, the Workflow row is created and the editor opens. Creating the row is
+   * an implementation detail; reviewing the workflow happens in the builder,
+   * where it can actually be edited.
+   *
+   * Deliberately conservative about WHEN it fires. It requires a stream that
+   * actually ran in this page view (`streamedRef`), so reopening an old
+   * conversation never silently creates something; it requires the graph to be
+   * complete (no unresolved steps), so a half-built draft still gets the human
+   * checkpoint; and `accept` is NOT idempotent server-side, so `autoCreateRef`
+   * plus the `createdWorkflowId` check must hold even through React's double
+   * effect invocation in dev. On any failure it falls through to the manual bar
+   * rather than swallowing the error.
+   */
+  const streamedRef = useRef(false);
+  const autoCreateRef = useRef(false);
+  // Read inside the effect below, but must not re-trigger it when the agent
+  // renames the session mid-stream.
+  const sessionTitleRef = useRef('Untitled workflow');
+  if (stream.status === 'streaming') streamedRef.current = true;
+  if (session?.title) sessionTitleRef.current = session.title;
+
+  const streamGraph = stream.graph;
+  const createdWorkflowId = session?.createdWorkflowId ?? null;
+  useEffect(() => {
+    if (!simplifiedWorkflowUX) return;
+    if (autoCreateRef.current || !streamedRef.current) return;
+    if (stream.status !== 'idle') return;
+    if (!canAccept || createdWorkflowId) return;
+    const graphNodes = streamGraph?.definition?.nodes ?? [];
+    if (graphNodes.length < 2) return; // trigger only — nothing built yet
+    if ((streamGraph?.unresolved.length ?? 0) > 0) return;
+
+    autoCreateRef.current = true;
+    accept.mutate(
+      { name: sessionTitleRef.current },
+      {
+        onSuccess: (workflow: WorkflowDto) => router.push(`/workflows/${workflow.id}`),
+        // Let the manual bar take over — the error is already rendered there.
+        onError: () => {
+          autoCreateRef.current = false;
+        },
+      },
+    );
+  }, [stream.status, streamGraph, canAccept, createdWorkflowId, accept, router]);
 
   if (isLoading || !session) {
     return (
@@ -175,6 +226,17 @@ export default function AssistSessionPage() {
                     locked={stream.status === 'streaming'}
                   />
                 </div>
+                {/* The one case the automatic hand-off deliberately skips: the
+                    agent couldn't fill a step in, so a human decides before a
+                    workflow row exists. */}
+                {unresolvedCount > 0 ? (
+                  <p className="mt-3 shrink-0 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
+                    Orlixa couldn&apos;t finish{' '}
+                    {unresolvedCount === 1 ? '1 step' : `${unresolvedCount} steps`}.
+                    Create it anyway and finish those in the builder, or tell
+                    Orlixa what to use.
+                  </p>
+                ) : null}
                 <AcceptBar
                   defaultName={session.title}
                   nodeCount={nodeCount}

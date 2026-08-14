@@ -9,6 +9,7 @@ import {
   CONNECTOR_HEALTH_SCHEDULER,
 } from './connector.constants';
 import { DEFAULT_QUEUE_CONCURRENCY } from '../../../common/resilience/queue-concurrency.constants';
+import { runInJobContext } from '../../../common/observability/job-context';
 
 /**
  * In-process BullMQ worker for the scheduled active health sweep (docs §1.8),
@@ -54,6 +55,12 @@ export class ConnectorHealthProcessor
   }
 
   async process(job: Job): Promise<void> {
+    // Correlation: an AsyncLocalStorage store does not survive the queue
+    // hop, so it is re-established here from the job payload.
+    return runInJobContext(job, () => this.processJob(job));
+  }
+
+  private async processJob(job: Job): Promise<void> {
     if (job.name !== CONNECTOR_HEALTH_JOB) {
       return;
     }

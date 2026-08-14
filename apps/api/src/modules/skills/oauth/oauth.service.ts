@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { CryptoService } from '../../../common/crypto/crypto.service';
+import { PrismaService } from '../../../common/prisma/prisma.service';
 import { asFetchResponse } from '../../../common/http/fetch-response';
 import { SkillsService } from '../skills.service';
 import {
@@ -48,6 +49,8 @@ export class OAuthService {
     private readonly config: ConfigService,
     private readonly crypto: CryptoService,
     private readonly skills: SkillsService,
+    // WAVE 2 §2.5 — one-time state + PKCE need server-side storage.
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -66,11 +69,37 @@ export class OAuthService {
     const provider = this.resolveOrThrow(installed.skillKey);
 
     const returnTo = this.safeReturnPath(opts.returnTo);
+    const nonce = randomBytes(24).toString('hex');
+
+    // WAVE 2 §2.5 — PKCE (RFC 7636). The verifier stays on the server; only its
+    // S256 hash goes to the provider. An authorization code intercepted from the
+    // redirect is then useless on its own, which is the entire point: the code
+    // travels through the user's browser and the URL bar, the verifier does not.
+    const codeVerifier = randomBytes(32).toString('base64url');
+    const codeChallenge = createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
+
+    // The pending request is what makes the state ONE-TIME. The signed state is
+    // kept as well, so a forged nonce is rejected before it ever reaches the DB.
+    await this.prisma.oAuthAuthorizationRequest.create({
+      data: {
+        nonce,
+        companyId,
+        userId: opts.userId ?? null,
+        installedSkillId,
+        skillKey: installed.skillKey,
+        codeVerifier,
+        returnTo: returnTo ?? null,
+        expiresAt: new Date(Date.now() + STATE_TTL_MS),
+      },
+    });
+
     const state = this.signState({
       installedSkillId,
       companyId,
       skillKey: installed.skillKey,
-      nonce: randomBytes(12).toString('hex'),
+      nonce,
       iat: Date.now(),
       ...(returnTo ? { returnTo } : {}),
       ...(opts.userId ? { userId: opts.userId } : {}),
@@ -82,6 +111,9 @@ export class OAuthService {
       response_type: 'code',
       scope: provider.scopes.join(' '),
       state,
+      ...(provider.pkce
+        ? { code_challenge: codeChallenge, code_challenge_method: 'S256' }
+        : {}),
       ...provider.extraAuthParams,
     });
     return `${provider.authorizeUrl}?${params.toString()}`;
@@ -116,7 +148,16 @@ export class OAuthService {
         throw new Error('Missing authorization code');
       }
       const provider = this.resolveOrThrow(state.skillKey);
-      const tokens = await this.exchangeCode(provider, code);
+      // WAVE 2 §2.5 — consume the pending request EXACTLY once. The guarded
+      // updateMany is the whole mechanism: two concurrent callbacks with the
+      // same state race on one row and only the first sees count === 1, so a
+      // replayed callback cannot mint a second set of tokens.
+      const pending = await this.consumeAuthorizationRequest(state);
+      const tokens = await this.exchangeCode(
+        provider,
+        code,
+        pending.codeVerifier,
+      );
       await this.skills.connectOAuth(
         state.companyId,
         state.installedSkillId,
@@ -161,6 +202,7 @@ export class OAuthService {
   private async exchangeCode(
     provider: ResolvedOAuthProvider,
     code: string,
+    codeVerifier: string,
   ): Promise<Record<string, unknown>> {
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -168,6 +210,7 @@ export class OAuthService {
       client_id: provider.clientId,
       client_secret: provider.clientSecret,
       redirect_uri: provider.redirectUri,
+      ...(provider.pkce ? { code_verifier: codeVerifier } : {}),
     });
     const res = asFetchResponse(
       await fetch(provider.tokenUrl, {
@@ -205,6 +248,52 @@ export class OAuthService {
         ? new Date(Date.now() + expiresIn * 1000).toISOString()
         : undefined,
     };
+  }
+
+  /**
+   * Claim the pending authorization request named by the state, or throw.
+   *
+   * Every failure mode here is a real attack or a real mistake, and each gets a
+   * distinct message so an operator can tell a replay from an expiry:
+   *  - unknown nonce      → forged or already-swept state
+   *  - already used       → REPLAY
+   *  - expired            → the user sat on the consent screen too long
+   *  - tenant/skill drift → the signed state and the stored row disagree
+   */
+  private async consumeAuthorizationRequest(
+    state: OAuthState,
+  ): Promise<{ codeVerifier: string }> {
+    const row = await this.prisma.oAuthAuthorizationRequest.findUnique({
+      where: { nonce: state.nonce },
+    });
+    if (!row) {
+      throw new Error('invalid_state');
+    }
+    if (row.usedAt) {
+      throw new Error('state_already_used');
+    }
+    if (row.expiresAt.getTime() < Date.now()) {
+      throw new Error('state_expired');
+    }
+    // The signed state and the stored row must agree. They are produced
+    // together, so any disagreement means one of them was tampered with.
+    if (
+      row.companyId !== state.companyId ||
+      row.installedSkillId !== state.installedSkillId ||
+      row.skillKey !== state.skillKey
+    ) {
+      throw new Error('invalid_state');
+    }
+
+    const claimed = await this.prisma.oAuthAuthorizationRequest.updateMany({
+      where: { id: row.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (claimed.count === 0) {
+      // Lost the race with a concurrent callback carrying the same state.
+      throw new Error('state_already_used');
+    }
+    return { codeVerifier: row.codeVerifier };
   }
 
   // --- Signed state (stateless HMAC) ----------------------------------------

@@ -1,4 +1,5 @@
 import { SkillsService } from './skills.service';
+import { MetricsRegistry } from '../../common/observability/metrics.registry';
 
 /**
  * P1-1 (doc 09 §9.D): runTool must refuse a tool for an employee that was not
@@ -24,6 +25,9 @@ describe('SkillsService.runTool least-privilege gate', () => {
     {} as never,
     executor,
     { record: jest.fn() } as never,
+    new MetricsRegistry(),
+    // Nothing suppressed: these tests assert least-privilege, not consent.
+    { findSuppressed: jest.fn().mockResolvedValue([]) } as never,
   );
 
   beforeEach(() => jest.clearAllMocks());

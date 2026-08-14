@@ -77,7 +77,16 @@ describe('workflow node catalog', () => {
       .filter((d) => d.hasSideEffects)
       .map((d) => d.type)
       .sort();
-    expect(effectful).toEqual(['AI_EMPLOYEE_STEP', 'MEMORY_WRITE', 'TOOL_ACTION']);
+    // NOTIFY joined this list when the §30 contract was fixed: it now sends real
+    // email, and email cannot be unsent. The assertion is exhaustive on purpose —
+    // a node that quietly gains a side effect without appearing here would be
+    // executed by dry runs, which must be provably harmless.
+    expect(effectful).toEqual([
+      'AI_EMPLOYEE_STEP',
+      'MEMORY_WRITE',
+      'NOTIFY',
+      'TOOL_ACTION',
+    ]);
   });
 
   it('allows an approval pause for exactly the gate-capable node types', () => {

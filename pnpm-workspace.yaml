@@ -1,3 +1,9 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+  # The browser journeys are their own package so `playwright test` runs with
+  # e2e/ as its working directory. Without a package.json here, `pnpm exec`
+  # resolves to the workspace ROOT: playwright then finds no config, falls back
+  # to scanning the whole repo, and fails on apps/web's vitest files. Passing
+  # `-c` does not help — the path is resolved from the root too.
+  - 'e2e'

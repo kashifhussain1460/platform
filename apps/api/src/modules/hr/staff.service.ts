@@ -23,6 +23,7 @@ import {
   toOnboardingTaskDto,
   toStaffMemberDto,
 } from './hr.mapper';
+import { AuthorizationService } from '../authorization/authorization.service';
 
 /**
  * Staff roster (StaffMember) plus its operational satellites AttendanceRecord and
@@ -38,6 +39,8 @@ export class StaffService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly auditLog: AuditLogService,
+    // WAVE 2 §2.1 — department scoping over special-category PII.
+    private readonly authz: AuthorizationService,
   ) {}
 
   private toDto(row: StaffMember): StaffMemberDto {
@@ -46,16 +49,47 @@ export class StaffService {
 
   // --- StaffMember ---------------------------------------------------------
 
-  async list(companyId: string): Promise<StaffMemberDto[]> {
+  async list(
+    companyId: string,
+    actorUserId?: string,
+  ): Promise<StaffMemberDto[]> {
     const rows = await this.prisma.staffMember.findMany({
       where: { companyId },
       orderBy: { createdAt: 'desc' },
     });
-    return rows.map((r) => this.toDto(r));
+
+    // WAVE 2 §2.1 — HR is special-category PII, so the roster is filtered by
+    // the SAME rule as the detail read. The whole domain is already
+    // OWNER/ADMIN-only; this narrows an admin further to their own department
+    // when they have one. Inert for an unplaced admin, as everywhere else.
+    const actor = await this.authz.actorById(companyId, actorUserId);
+    const visible = actor
+      ? await this.authz.filter(actor, 'hr:read', rows, (r) => ({
+          type: 'hr' as const,
+          companyId,
+          id: r.id,
+          departmentId: r.departmentId,
+        }))
+      : rows;
+    return visible.map((r) => this.toDto(r));
   }
 
-  async get(companyId: string, id: string): Promise<StaffMemberDto> {
-    return this.toDto(await this.findOwned(companyId, id));
+  async get(
+    companyId: string,
+    id: string,
+    actorUserId?: string,
+  ): Promise<StaffMemberDto> {
+    const staff = await this.findOwned(companyId, id);
+    const actor = await this.authz.actorById(companyId, actorUserId);
+    if (actor) {
+      await this.authz.assert(actor, 'hr:read', {
+        type: 'hr',
+        companyId,
+        id: staff.id,
+        departmentId: staff.departmentId,
+      });
+    }
+    return this.toDto(staff);
   }
 
   async create(

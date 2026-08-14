@@ -54,6 +54,28 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # BOTH workflow engines, every run — but only ONE of them can fail the build.
+    #
+    # Decision (2026-08-14): the durable state machine is the engine we maintain.
+    # `legacy_walk` is a deprecated escape hatch on its way out (plan §36: "do not
+    # maintain two permanent execution architectures"), and it CANNOT be deleted
+    # yet because `WORKFLOW_EXECUTION_MODE=inline` — the current serverless
+    # deployment — forces it by construction. Delete it today and the deployed app
+    # executes nothing at all.
+    #
+    # So: durable is required to be green; legacy still RUNS, so its rot stays
+    # visible, but it does not block the build. It is currently red on approval
+    # RESUME (two APPROVAL step rows, one WAITING and one RUNNING — the two
+    # engines' step-state conventions colliding), and that is knowingly accepted
+    # rather than quietly ignored. See §63 of the hardening plan.
+    #
+    # Running BOTH is still worth it: on 2026-08-13 five gaps were hiding in the
+    # durable engine — including high-risk TOOL_ACTION executing with NO approval
+    # gate — and every one of them passed under `legacy_walk`.
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [state_machine, legacy_walk]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -93,6 +115,7 @@ jobs:
       # that suite "flaky" locally. CI pins it explicitly.
       OAUTH_GOOGLE_CLIENT_ID: ''
       OAUTH_GOOGLE_CLIENT_SECRET: ''
+      WORKFLOW_ENGINE_MODE: ${{ matrix.engine }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -108,9 +131,15 @@ jobs:
         run: |
           pnpm exec prisma generate
           pnpm exec prisma migrate deploy
+      # Unit tests are engine-agnostic — running them twice would only slow the
+      # matrix down without testing anything new.
       - name: API unit tests
+        if: matrix.engine == 'state_machine'
         working-directory: apps/api
         run: pnpm run test:unit
-      - name: API e2e tests
+      - name: API e2e tests (${{ matrix.engine }})
+        # Deprecated engine: report, do not block. Removing the leg entirely would
+        # let it rot invisibly, which is exactly how it got here.
+        continue-on-error: ${{ matrix.engine == 'legacy_walk' }}
         working-directory: apps/api
         run: pnpm run test

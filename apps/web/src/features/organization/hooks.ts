@@ -76,6 +76,7 @@ export function useCreateDepartment() {
         companyId: '',
         name: payload.name,
         description: payload.description ?? null,
+        scopes: payload.scopes ?? [],
         createdAt: new Date().toISOString(),
       };
       qc.setQueryData<DepartmentDto[]>(orgKeys.departments, (old) => [
