@@ -143,6 +143,32 @@ function mapGeneric(raw: RawEventInput): CanonicalMapping {
  * dedupeKey = `gmail:msg:<messageId>` (idempotent per Gmail message id).
  */
 function mapGmail(raw: RawEventInput): CanonicalMapping {
+  return mapInboundEmail(raw, 'gmail');
+}
+
+/**
+ * IMAP mapper — a mailbox connected over SMTP/IMAP rather than Gmail's API
+ * (the `email` skill). Fed by ImapInboundService.
+ *
+ * It produces the IDENTICAL canonical shape as Gmail, deliberately: a workflow
+ * triggered on NEW_EMAIL reads `{{trigger.subject}}` / `{{trigger.body}}` /
+ * `{{trigger.from}}` and must not care which transport the mail arrived over.
+ * That is what lets a company move from a Gmail OAuth connector to their own
+ * mail server (or run both) without touching a single workflow.
+ *
+ * Only the dedupeKey namespace differs (`imap:msg:` vs `gmail:msg:`), so the
+ * same message seen through two different connectors is not collapsed into one
+ * event — they are genuinely two deliveries to two mailboxes.
+ */
+function mapImap(raw: RawEventInput): CanonicalMapping {
+  return mapInboundEmail(raw, 'imap');
+}
+
+/** The shared inbound-email mapping used by every mail transport. */
+function mapInboundEmail(
+  raw: RawEventInput,
+  namespace: 'gmail' | 'imap',
+): CanonicalMapping {
   const payload = raw.payload ?? {};
   const messageId =
     str(payload['messageId']) ?? raw.externalId ?? hashPayload(payload);
@@ -163,7 +189,7 @@ function mapGmail(raw: RawEventInput): CanonicalMapping {
   const looksLikeApplication = payload['looksLikeApplication'] === true;
   return {
     type: 'NEW_EMAIL',
-    dedupeKey: `gmail:msg:${messageId}`,
+    dedupeKey: `${namespace}:msg:${messageId}`,
     occurredAt: parseDate(payload['date']),
     subject: { type: 'candidate', email: from },
     // `body` (full text) + `cv` (attachment text) drive the RecruitAI screen;
@@ -362,6 +388,8 @@ export function mapRawEvent(raw: RawEventInput): CanonicalMapping {
       return mapGithub(raw);
     case 'gmail':
       return mapGmail(raw);
+    case 'imap':
+      return mapImap(raw);
     case 'chatwoot':
       return mapChatwoot(raw);
     case 'plane':

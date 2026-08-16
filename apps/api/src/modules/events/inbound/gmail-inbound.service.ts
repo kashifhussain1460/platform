@@ -5,14 +5,14 @@ import { asFetchResponse } from '../../../common/http/fetch-response';
 import { ConnectorTokenService } from '../../skills/connectors/connector-token.service';
 import { ConnectorHealthService } from '../../skills/connectors/connector-health.service';
 import { WorkflowsService } from '../../workflows/workflows.service';
-import { extractText } from '../../knowledge/knowledge.util';
 import {
-  GMAIL_ATTACHMENT_MAX_BYTES,
-  GMAIL_ATTACHMENT_MAX_CHARS,
+  extractInboundAttachments,
+  type InboundAttachment as SharedInboundAttachment,
+} from './attachment-extraction';
+import {
   GMAIL_BODY_MAX_CHARS,
   GMAIL_HISTORY_MAX_PAGES,
   GMAIL_INBOUND_BATCH,
-  GMAIL_MAX_ATTACHMENTS,
 } from '../events.constants';
 import { mapRawEvent } from '../normalization/event-mapper';
 
@@ -53,13 +53,7 @@ export interface PollResult {
  * candidate whose CV happened to be an unsupported format could be silently
  * scored on nothing but their email body with no visible explanation why.
  */
-interface InboundAttachment {
-  filename: string;
-  chars: number;
-  /** Present only for a skipped attachment; absent means it was parsed fine. */
-  skipped?: boolean;
-  skipReason?: string;
-}
+type InboundAttachment = SharedInboundAttachment;
 
 /** Flattened inbound message metadata a RawEvent payload carries. */
 interface InboundMessage {
@@ -793,81 +787,28 @@ export class GmailInboundService {
     messageId: string,
     parts: GmailPart[],
   ): Promise<{ cv: string | null; attachments: InboundAttachment[] }> {
-    const attachmentParts = parts
-      .filter((p) => p.filename && p.body?.attachmentId)
-      .slice(0, GMAIL_MAX_ATTACHMENTS);
-
-    const texts: string[] = [];
-    const attachments: InboundAttachment[] = [];
-    // Record a skip (docs/test-cases REC-13) instead of only logging it — a
-    // candidate whose CV happened to be an unsupported format previously got
-    // scored on their email body alone with nothing anywhere visible to
-    // explain why; now `{{trigger.attachments}}` carries the skip + reason.
-    const skip = (filename: string, reason: string) => {
-      this.logger.warn(`Gmail attachment "${filename}" skipped: ${reason}`);
-      attachments.push({ filename, chars: 0, skipped: true, skipReason: reason });
-    };
-    for (const part of attachmentParts) {
-      const filename = part.filename as string;
-      try {
-        const declaredSize = Number(part.body?.size ?? 0);
-        if (declaredSize > GMAIL_ATTACHMENT_MAX_BYTES) {
-          skip(filename, `${declaredSize}B over the size cap`);
-          continue;
-        }
-        const mime = (part.mimeType ?? '').toLowerCase();
-        const lowerName = filename.toLowerCase();
-        const isPdf = mime === 'application/pdf' || lowerName.endsWith('.pdf');
-        const isDocx =
-          mime ===
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-          lowerName.endsWith('.docx');
-        const isText = mime.startsWith('text/') || lowerName.endsWith('.txt');
-        if (!isPdf && !isDocx && !isText) {
-          skip(filename, `unsupported file type (${mime || 'unknown'})`);
-          continue;
-        }
-
-        const bytes = await this.downloadAttachment(
-          token,
-          messageId,
-          part.body!.attachmentId as string,
-        );
-        if (!bytes || bytes.length === 0) {
-          skip(filename, 'download returned no data');
-          continue;
-        }
-        if (bytes.length > GMAIL_ATTACHMENT_MAX_BYTES) {
-          skip(filename, `${bytes.length}B over the size cap`);
-          continue;
-        }
-
-        // Reuse the knowledge module's extractor (PDF -> pdf-parse, DOCX ->
-        // mammoth, else utf8).
-        const raw = await extractText(
-          bytes,
-          isPdf
-            ? 'application/pdf'
-            : isDocx
-              ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-              : 'text/plain',
-          filename,
-        );
-        const text = (raw ?? '').trim().slice(0, GMAIL_ATTACHMENT_MAX_CHARS);
-        if (!text) {
-          skip(filename, 'no extractable text (possibly a scanned/image-only file)');
-          continue;
-        }
-        texts.push(`# ${filename}\n${text}`);
-        attachments.push({ filename, chars: text.length });
-      } catch (err) {
-        skip(
-          filename,
-          `parse error: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-    return { cv: texts.length > 0 ? texts.join('\n\n') : null, attachments };
+    // Shared with the IMAP driver (attachment-extraction.ts): the type gate,
+    // the caps, the REC-13 skip recording and the `# filename` format must be
+    // identical across transports, or the same CV scores differently depending
+    // on which mailbox the candidate happened to email.
+    return extractInboundAttachments(
+      parts
+        .filter((p) => p.filename && p.body?.attachmentId)
+        .map((part) => ({
+          filename: part.filename as string,
+          mimeType: part.mimeType,
+          declaredSize: Number(part.body?.size ?? 0) || undefined,
+          // A thunk, so the size/type gates run BEFORE we pay for a download.
+          load: () =>
+            this.downloadAttachment(
+              token,
+              messageId,
+              part.body!.attachmentId as string,
+            ),
+        })),
+      this.logger,
+      'Gmail',
+    );
   }
 
   /** Download one attachment (base64url) and decode to a Buffer, or null. */

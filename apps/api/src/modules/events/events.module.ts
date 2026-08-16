@@ -10,6 +10,7 @@ import {
   CONNECTOR_RECONCILE_QUEUE,
   EVENT_NORMALIZE_QUEUE,
   GMAIL_INBOUND_QUEUE,
+  IMAP_INBOUND_QUEUE,
 } from './events.constants';
 import { CanonicalIngestModule } from './ingestion/canonical-ingest.module';
 import { EventNormalizeProcessor } from './ingestion/event-normalize.processor';
@@ -18,6 +19,8 @@ import { ConnectorReconcileProcessor } from './reconciliation/connector-reconcil
 import { ConnectorPollController } from './inbound/connector-poll.controller';
 import { GmailInboundService } from './inbound/gmail-inbound.service';
 import { GmailInboundProcessor } from './inbound/gmail-inbound.processor';
+import { ImapInboundService } from './inbound/imap-inbound.service';
+import { ImapInboundProcessor } from './inbound/imap-inbound.processor';
 import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
 
 /**
@@ -37,6 +40,7 @@ import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
     BullModule.registerQueue({ name: EVENT_NORMALIZE_QUEUE }),
     BullModule.registerQueue({ name: CONNECTOR_RECONCILE_QUEUE }),
     BullModule.registerQueue({ name: GMAIL_INBOUND_QUEUE }),
+    BullModule.registerQueue({ name: IMAP_INBOUND_QUEUE }),
     SkillsModule,
     WorkflowsModule,
     CanonicalIngestModule,
@@ -51,8 +55,14 @@ import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
     EventsService,
     ConnectorReconcileService,
     GmailInboundService,
+    ImapInboundService,
     ...(queueWorkersEnabled()
-      ? [EventNormalizeProcessor, ConnectorReconcileProcessor, GmailInboundProcessor]
+      ? [
+          EventNormalizeProcessor,
+          ConnectorReconcileProcessor,
+          GmailInboundProcessor,
+          ImapInboundProcessor,
+        ]
       : []),
   ],
   exports: [
@@ -60,6 +70,7 @@ import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
     CanonicalIngestModule,
     ConnectorReconcileService,
     GmailInboundService,
+    ImapInboundService,
   ],
 })
 export class EventsModule {}

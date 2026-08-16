@@ -1,6 +1,7 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger, type OnModuleInit } from '@nestjs/common';
+import { forwardRef, Inject, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
+import { WorkflowsService } from '../workflows.service';
 import {
   WORKFLOW_RUN_QUEUE,
   WORKFLOW_RUN_WATCHDOG_EVERY_MS,
@@ -19,8 +20,11 @@ import { runInJobContext } from '../../../common/observability/job-context';
  * Job shapes that flow through the same queue:
  * - `{ runId }`     — an already-created run (MANUAL/EVENT/WEBHOOK). Existing path.
  * - `{ runId, resume: true }` — resume a WAITING run whose APPROVAL was approved.
- * - `{ workflowId, source }` — a SCHEDULE/repeatable fire: create a run (with
- *   that source) then execute it.
+ * - `{ workflowId, source }` — a SCHEDULE/repeatable fire. WAVE 1 (G-B1): this
+ *   now hands off to `WorkflowsService.fireSchedule`, which creates the run
+ *   through `enqueueRun` like every other trigger. It used to call
+ *   `WorkflowEngine.trigger()`, which created the row itself and therefore
+ *   skipped version pinning, run idempotency and `workflow:run` authorization.
  * - `{ watchdog: true }` — repeatable stuck-run sweep, registered on boot below
  *   (same `upsertJobScheduler` pattern as ConnectorHealthProcessor).
  *
@@ -35,6 +39,9 @@ export class WorkflowProcessor extends WorkerHost implements OnModuleInit {
   constructor(
     @InjectQueue(WORKFLOW_RUN_QUEUE) private readonly queue: Queue,
     private readonly engine: WorkflowEngine,
+    // Same module, no cycle: WorkflowsService knows nothing about this worker.
+    @Inject(forwardRef(() => WorkflowsService))
+    private readonly workflows: WorkflowsService,
   ) {
     super();
   }
@@ -90,7 +97,7 @@ export class WorkflowProcessor extends WorkerHost implements OnModuleInit {
       this.logger.debug(
         `Triggered workflow ${data.workflowId} (source=${source})`,
       );
-      await this.engine.trigger(data.workflowId, source);
+      await this.workflows.fireSchedule(data.workflowId, source);
       return;
     }
     this.logger.warn(`Ignoring workflow job with unrecognised data shape`);

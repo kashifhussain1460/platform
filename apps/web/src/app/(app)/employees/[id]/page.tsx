@@ -19,7 +19,9 @@ import {
 } from '@/features/employees/hooks';
 import { STATUS_STYLES, formatRole } from '@/features/employees/labels';
 import { DocumentList } from '@/features/knowledge/components/DocumentList';
-import { UploadPanel } from '@/features/knowledge/components/UploadPanel';
+import { KnowledgeDropzone } from '@/features/knowledge/components/KnowledgeDropzone';
+import { useDocuments } from '@/features/knowledge/hooks';
+import type { EmployeeRole } from '@/features/knowledge/schemas';
 import { EmployeeSkillPicker } from '@/features/skills/components/EmployeeSkillPicker';
 import { useSessionStore } from '@/stores/session.store';
 
@@ -215,21 +217,16 @@ export default function EmployeeDetailPage({
 
       {activeTab === 'memory' && <LearningPanel employeeId={employeeId} />}
 
-      {activeTab === 'tools' && <EmployeeSkillPicker employeeId={employeeId} />}
+      {activeTab === 'tools' && (
+        <EmployeeSkillPicker
+          employeeId={employeeId}
+          employeeName={employee?.name}
+        />
+      )}
 
       {activeTab === 'knowledge' &&
         (employee ? (
-          <div className="grid gap-6 lg:grid-cols-3">
-            <section className="order-2 lg:order-1 lg:col-span-2">
-              <h2 className="mb-3 text-sm font-medium text-zinc-400">
-                {formatRole(employee.role)} + Shared documents
-              </h2>
-              <DocumentList category={employee.role} />
-            </section>
-            <div className="order-1 lg:order-2">
-              <UploadPanel defaultCategory={employee.role} />
-            </div>
-          </div>
+          <EmployeeKnowledgeTab role={employee.role} name={employee.name} />
         ) : (
           <p className="text-sm text-zinc-500">Loading…</p>
         ))}
@@ -241,5 +238,48 @@ export default function EmployeeDetailPage({
           <p className="text-sm text-zinc-500">Loading…</p>
         ))}
     </AppShell>
+  );
+}
+
+/**
+ * The employee's Knowledge tab — drop files, and they belong to this employee.
+ *
+ * ## Why there is no "Visible to" control here
+ *
+ * On THIS page the answer is already known: a document uploaded from Anushka's
+ * tab is Anushka's. Offering the dropdown let you pick another role from her
+ * page and upload a document she could not read — a control whose only possible
+ * use was to get it wrong. The global `/knowledge` page is where a genuine
+ * choice exists, and that is where the control lives.
+ *
+ * So the category is FIXED to the employee's role and stated as a fact, not
+ * offered as a decision. Existing documents can still be re-scoped from their
+ * row in the list, which is a deliberate act on a specific file rather than a
+ * setting to overlook at upload time.
+ */
+function EmployeeKnowledgeTab({
+  role,
+  name,
+}: {
+  role: EmployeeRole;
+  name: string;
+}) {
+  const { data: docs } = useDocuments(role);
+  const isEmpty = !docs || docs.length === 0;
+
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium text-zinc-400">
+          {formatRole(role)} + Shared documents
+        </h2>
+        <p className="text-xs text-zinc-500">
+          Anything you add here goes to {name} ({formatRole(role)}) — .txt, .md, .pdf
+        </p>
+      </div>
+      <KnowledgeDropzone choice={role} isEmpty={isEmpty} ownerName={name}>
+        <DocumentList category={role} />
+      </KnowledgeDropzone>
+    </section>
   );
 }

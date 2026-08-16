@@ -15,7 +15,7 @@ export class CreateAssistSessionDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
-  @MaxLength(4000)
+  @MaxLength(10000)
   prompt?: string;
 
   /** Set to EDIT an existing workflow rather than build a new one. */

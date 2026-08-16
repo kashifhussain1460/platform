@@ -484,6 +484,13 @@ export interface RunResultDto {
   validation: MessageValidationDto;
   /** Skill/tool actions taken during the run (empty when the employee used none). */
   toolCalls: ToolCallDto[];
+  /**
+   * True when the employee DECLINED the work as outside its role (e.g. an HR
+   * employee asked to screen a CV). Chat shows the polite decline as an answer;
+   * a workflow step must FAIL on it, because recording a refusal as finished
+   * work sends the next step off with nothing.
+   */
+  outOfScope?: boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -199,14 +199,21 @@ function listEmployees(
         select: { id: true, name: true, role: true, persona: true },
         orderBy: { createdAt: 'asc' },
       });
+      // Name the filter in the summary. "Read 0 active employee(s)" on a
+      // company that has several reads as a broken lookup — the tool trace is
+      // shown to the customer, and a filtered count without its filter is a
+      // half-truth.
+      const scope = args.role ? ` with the ${args.role.toUpperCase()} role` : '';
       return {
         ok: true,
-        summary: `Read ${employees.length} active employee(s)`,
+        summary: `Read ${employees.length} active employee(s)${scope}`,
         result: {
           employees,
           note:
             employees.length === 0
-              ? 'No AI Employees are hired and active. Any step that needs one will have to be flagged for the user to fill in.'
+              ? args.role
+                ? `Nobody is hired for the ${args.role.toUpperCase()} role. Design the step anyway, leave it unassigned, and tell the user which role to hire.`
+                : 'No AI Employees are hired and active. Any step that needs one will have to be flagged for the user to fill in.'
               : undefined,
         },
       };

@@ -63,18 +63,27 @@ export async function resolveReferences(
         });
         continue;
       }
-      if (!installedSkillKeys.has(skillKey)) {
-        unresolved.push({
-          nodeId: node.id,
-          reason: `Step ${label} wants to use ${skillKey}, which isn't connected yet.`,
-        });
-        continue;
-      }
+      // Check the ACTION before the connection.
+      //
+      // The other order hid a permanent error behind a temporary one: asked for
+      // a workflow with no skills connected, the assistant wrote
+      // `gmail/send_message` — a tool Gmail does not have (it has `send_email`;
+      // `send_message` is Slack's) — and the only thing reported was "gmail
+      // isn't connected yet". Connect Gmail, publish, run, and only then does
+      // the step fail on a name that was wrong from the start. A wrong action
+      // never becomes right, so it is the more useful thing to say first.
       const def = SkillCatalog.getTool(skillKey, tool);
       if (!def) {
         unresolved.push({
           nodeId: node.id,
           reason: `Step ${label} refers to "${tool}" on ${skillKey}, which isn't one of its actions.`,
+        });
+        continue;
+      }
+      if (!installedSkillKeys.has(skillKey)) {
+        unresolved.push({
+          nodeId: node.id,
+          reason: `Step ${label} wants to use ${skillKey}, which isn't connected yet.`,
         });
         continue;
       }
@@ -94,6 +103,21 @@ export async function resolveReferences(
     }
 
     if (node.type === 'AI_EMPLOYEE_STEP') {
+      // An instruction that references nothing from the run gets nothing from
+      // the run. Seen twice in one QA pass: a CV screening step that replied
+      // "Could you please provide the candidate's CV", and a leave-conflict
+      // step that replied "I do not have access to specific leave request
+      // details" — and then a CONDITION branched on that answer. Surfaced as a
+      // "needs your input" item rather than a rejection, because a step that
+      // genuinely needs no input (drafting boilerplate) is a real design.
+      const instruction = str(node.config, 'instruction');
+      if (instruction && !/\{\{\s*[\w.$]+\s*\}\}/.test(instruction)) {
+        unresolved.push({
+          nodeId: node.id,
+          reason: `Step ${label} is not given anything from the request — it will answer without the details it is being asked about.`,
+        });
+      }
+
       const employeeId = str(node.config, 'employeeId');
       if (!employeeId) {
         unresolved.push({

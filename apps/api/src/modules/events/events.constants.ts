@@ -46,6 +46,36 @@ export const CONNECTOR_RECONCILE_BATCH = 100;
 // all CONNECTED gmail connectors on a short interval. Inert offline (no CONNECTED
 // gmail connectors in tests) and safe on any provider/API error (logs + no-op).
 
+// --- IMAP inbound polling driver (own-mailbox inbound → NEW_EMAIL) ----------
+// The SMTP/IMAP counterpart of the Gmail driver, for the `email` skill: a
+// company's own mail server. Same pipeline, same canonical events.
+
+/** Queue that drives the scheduled IMAP inbound poll sweep. */
+export const IMAP_INBOUND_QUEUE = 'imap-inbound';
+
+/** Repeatable job name for the IMAP sweep. */
+export const IMAP_INBOUND_JOB = 'imap-inbound-sweep';
+
+/** Scheduler id for the repeatable IMAP sweep (idempotent upsert on boot). */
+export const IMAP_INBOUND_SCHEDULER = 'imap-inbound-sweep';
+
+/**
+ * How often the IMAP sweep runs.
+ *
+ * Slower than Gmail's poll on purpose. Gmail's history feed is a cheap HTTP
+ * call against Google's infrastructure; this opens a real IMAP session against
+ * a customer's own mail server, which counts against their connection limit and
+ * appears in their security logs. Two minutes is responsive enough for
+ * automation and gentle enough not to look like an attack.
+ */
+export const IMAP_INBOUND_EVERY_MS = 120_000;
+
+/** Max connectors per sweep, and max messages ingested per connector per poll. */
+export const IMAP_INBOUND_BATCH = 25;
+
+/** Cap on the stored plain-text body, mirroring GMAIL_BODY_MAX_CHARS. */
+export const IMAP_MAX_BODY_CHARS = 20_000;
+
 /** Queue that drives the scheduled Gmail inbound poll sweep. */
 export const GMAIL_INBOUND_QUEUE = 'gmail-inbound';
 

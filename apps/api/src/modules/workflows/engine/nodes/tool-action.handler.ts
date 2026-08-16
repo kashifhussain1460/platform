@@ -2,7 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import { SkillCatalog } from '../../../skills/catalog';
 import { SkillsService } from '../../../skills/skills.service';
-import { resolveArgs } from '../template';
+import {
+  findMissingRequiredArgs,
+  resolveArgs,
+  type MissingArg,
+} from '../template';
 import { SecretResolverService } from '../secret-resolver.service';
 import type {
   NodeExecContext,
@@ -21,6 +25,36 @@ import type {
  * result. Moving the gate into this file would silently reintroduce the bypass
  * G25 closed. Leave it in the loop.
  */
+/**
+ * Turn missing arguments into a sentence the person reading the run page can
+ * act on: which step, which field, and where the value was supposed to come
+ * from. The generic advice at the end covers the common cause — starting an
+ * event-driven workflow by hand, so nothing ever produced the trigger data the
+ * step reads.
+ */
+function describeMissingArgs(nodeId: string, missing: MissingArg[]): string {
+  const parts = missing.map(({ arg, refs }) =>
+    refs.length > 0
+      ? `"${arg}" is set to ${refs.map((r) => `{{${r}}}`).join(' + ')}, and this run produced no value for that`
+      : `"${arg}" is empty`,
+  );
+  // Only blame the trigger when the empty reference actually reads from it.
+  // Saying "a workflow started by hand has no trigger data" about a value an
+  // EARLIER STEP was supposed to produce sends the reader to the wrong end of
+  // their workflow — seen on a real run where the missing body came from a
+  // preceding AI step.
+  const fromTrigger = missing.some((m) =>
+    m.refs.some((r) => r === 'trigger' || r.startsWith('trigger.')),
+  );
+  const advice = fromTrigger
+    ? 'A workflow started by hand has no trigger data, so steps that read from the trigger have nothing to read.'
+    : 'Check the step that was supposed to produce it — a step\'s result is only readable if it sets an outputKey.';
+  return (
+    `Step "${nodeId}" is missing required information: ${parts.join('; ')}. ` +
+    `Nothing was sent. ${advice}`
+  );
+}
+
 @Injectable()
 export class ToolActionNodeHandler implements NodeHandler {
   readonly type = 'TOOL_ACTION' as const;
@@ -62,8 +96,25 @@ export class ToolActionNodeHandler implements NodeHandler {
     // or a quarantined connector) defeats the whole point of a safe preview —
     // it must catch every failure a real run would hit, just without the real
     // side effect. Same existence check runTool() uses.
-    if (!SkillCatalog.getTool(skillKey, tool)) {
+    const toolDef = SkillCatalog.getTool(skillKey, tool);
+    if (!toolDef) {
       throw new Error(`Unknown skill/tool: ${skillKey}/${tool}`);
+    }
+
+    // A required argument that templated down to nothing must stop the step
+    // HERE, not at the provider. Sending `to: ""` to Gmail comes back as
+    // "Gmail API error (400): Recipient address required" — a message that
+    // names neither the step, the argument, nor the placeholder that was empty,
+    // so the run page tells the customer nothing they can act on. It also
+    // spends a real API call on a request that cannot succeed.
+    const missing = findMissingRequiredArgs(
+      argsRaw,
+      args,
+      context,
+      toolDef.parameters?.required ?? [],
+    );
+    if (missing.length > 0) {
+      throw new Error(describeMissingArgs(node.id, missing));
     }
 
     // Quarantine (docs §5.5): if this skill's connector is DEGRADED or

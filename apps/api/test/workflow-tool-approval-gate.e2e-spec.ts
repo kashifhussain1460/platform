@@ -147,7 +147,16 @@ describeIfDb('G25 — workflow TOOL_ACTION approval gate', () => {
       'Gated payment link',
       'stripe',
       'create_payment_link',
-      { amount: '{{trigger.amount}}', currency: 'usd' },
+      // `description` is required by the catalog tool. It used to be absent and
+      // the mock executor accepted the call anyway; a real Stripe call would
+      // have rejected it, and TOOL_ACTION now refuses to send a required
+      // argument that resolved to nothing. The gate itself is what this suite
+      // tests, so the args just need to be the ones a customer would really set.
+      {
+        amount: '{{trigger.amount}}',
+        currency: 'usd',
+        description: 'Invoice for order 42',
+      },
     );
     plainWorkflowId = await makeWorkflow(
       'Ungated slack post',

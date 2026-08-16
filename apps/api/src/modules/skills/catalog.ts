@@ -49,17 +49,120 @@ const CATALOG: readonly SkillDefinition[] = [
     ],
   },
   {
+    // Your OWN mailbox, over SMTP (plan §7 "Custom SMTP", §10).
+    //
+    // An address like kashif.hussain@dotsquares.com does not say whether the
+    // mailbox is Google Workspace, Microsoft 365, Hostinger or cPanel — and no
+    // OAuth app can cover all of them. SMTP is the transport every mail host
+    // exposes, so this is the option that works for any company on day one.
+    // Google/Microsoft users who want one-click consent instead use the `gmail`
+    // skill (and, later, `outlook` — §9); the capability layer treats all of
+    // them as EMAIL_SEND, so a workflow does not care which one is connected.
     key: 'email',
-    name: 'Email',
-    description: 'Send transactional emails on behalf of the employee.',
+    name: 'Company Email (SMTP)',
+    description:
+      'Send email from your own company mailbox — your domain, Google Workspace, ' +
+      'Microsoft 365 or any mail host. Uses SMTP, so no provider app setup is needed.',
     category: 'communication',
-    connection: { type: 'api_key', label: 'Connect Email provider' },
+    connection: { type: 'api_key', label: 'Connect your mailbox' },
     configSchema: [
       {
-        key: 'fromAddress',
-        label: 'From address',
+        key: 'smtpHost',
+        label: 'Mail server (SMTP host)',
         type: 'string',
-        placeholder: 'no-reply@acme.com',
+        required: true,
+        placeholder: 'smtp.dotsquares.com',
+        help: 'Your provider calls this the outgoing/SMTP server. Google: smtp.gmail.com · Microsoft 365: smtp.office365.com',
+      },
+      {
+        key: 'smtpPort',
+        label: 'Port',
+        type: 'number',
+        required: true,
+        placeholder: '587',
+        help: '587 for STARTTLS (most common), 465 for SSL/TLS.',
+      },
+      {
+        key: 'smtpSecurity',
+        label: 'Security',
+        type: 'select',
+        options: ['starttls', 'tls', 'none'],
+        required: true,
+        help: 'Match this to the port: 587 → starttls, 465 → tls. Only use "none" on a trusted internal server.',
+      },
+      {
+        key: 'smtpUser',
+        label: 'Username',
+        type: 'string',
+        required: true,
+        placeholder: 'kashif.hussain@dotsquares.com',
+        help: 'Usually the full email address of the mailbox.',
+      },
+      {
+        // `secret: true` → stored ENCRYPTED in credentials by configureSkill's
+        // partitionConfig, never in the plaintext config column, and returned
+        // only as a masked boolean (§4).
+        key: 'smtpPassword',
+        label: 'Password',
+        type: 'string',
+        secret: true,
+        required: true,
+        help: 'If this mailbox uses 2-factor sign-in (Google Workspace, Microsoft 365), create an app password — the normal password will be rejected.',
+      },
+      {
+        key: 'fromAddress',
+        label: 'Send as (From address)',
+        type: 'string',
+        placeholder: 'kashif.hussain@dotsquares.com',
+        help: 'Leave blank to use the username. Most servers refuse to send as an address the mailbox does not own.',
+      },
+      { key: 'fromName', label: 'Sender name', type: 'string', placeholder: 'Dotsquares HR' },
+      // ── Inbound (IMAP) — optional ──────────────────────────────────────────
+      // Outbound alone is a perfectly valid connection (send-only notification
+      // mailboxes are common), so every IMAP field is optional and inbound
+      // polling simply does not start until a host is given. Leaving the
+      // username/password blank reuses the SMTP ones, which is correct for the
+      // overwhelmingly common case of one mailbox doing both.
+      {
+        key: 'imapHost',
+        label: 'Incoming mail server (IMAP host)',
+        type: 'string',
+        placeholder: 'imap.dotsquares.com',
+        help: 'Only needed if Orlixa should READ this mailbox and trigger workflows on new email. Google: imap.gmail.com · Microsoft 365: outlook.office365.com',
+      },
+      {
+        key: 'imapPort',
+        label: 'Incoming port',
+        type: 'number',
+        placeholder: '993',
+        help: '993 for SSL/TLS (almost always).',
+      },
+      {
+        key: 'imapSecurity',
+        label: 'Incoming security',
+        type: 'select',
+        options: ['tls', 'starttls', 'none'],
+        help: 'Match the port: 993 → tls, 143 → starttls.',
+      },
+      {
+        key: 'imapUser',
+        label: 'Incoming username',
+        type: 'string',
+        help: 'Leave blank to reuse the sending username.',
+      },
+      {
+        key: 'imapPassword',
+        label: 'Incoming password',
+        type: 'string',
+        secret: true,
+        help: 'Leave blank to reuse the sending password.',
+      },
+      {
+        key: 'imapFolder',
+        label: 'Folder to watch',
+        type: 'string',
+        placeholder: 'INBOX',
+        help: 'Defaults to INBOX.',
       },
       {
         key: 'dailyEmailLimit',
@@ -70,8 +173,6 @@ const CATALOG: readonly SkillDefinition[] = [
       { key: 'signature', label: 'Signature', type: 'textarea' },
       { key: 'businessHoursStart', label: 'Business hours start', type: 'string', placeholder: '09:00' },
       { key: 'businessHoursEnd', label: 'Business hours end', type: 'string', placeholder: '17:00' },
-      { key: 'canRead', label: 'Can read inbox', type: 'boolean' },
-      { key: 'canSend', label: 'Can send email', type: 'boolean' },
     ],
     tools: [
       {

@@ -104,6 +104,40 @@ export async function checkConnectorHealth(
   return data;
 }
 
+/** One stage of the connection state machine (plan §3). */
+export interface VerifyStepResult {
+  key: 'credentials' | 'account' | 'outbound' | 'inbound' | 'health';
+  label: string;
+  status: 'PASSED' | 'FAILED' | 'SKIPPED';
+  detail?: string;
+  code?: string;
+}
+
+export interface VerifyConnectionResult {
+  ok: boolean;
+  steps: VerifyStepResult[];
+  account: string | null;
+  code?: string;
+  connectionStatus: string;
+}
+
+/**
+ * Run the connection state machine (plan §3/§26): authenticate, identify the
+ * account, and — only when `sendTest` is set — run the provider's real test
+ * action. The API promotes the connector to CONNECTED only when it passes.
+ */
+export async function verifyConnection(vars: {
+  id: string;
+  sendTest?: boolean;
+  testTo?: string;
+}): Promise<VerifyConnectionResult> {
+  const { data } = await apiClient.post<VerifyConnectionResult>(
+    `/skills/installed/${vars.id}/verify`,
+    { sendTest: vars.sendTest, testTo: vars.testTo || undefined },
+  );
+  return data;
+}
+
 /**
  * Begin the real OAuth authorization-code flow for an `oauth` skill: ask the API
  * for the provider authorize URL (carrying a signed state). The caller then

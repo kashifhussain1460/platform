@@ -199,8 +199,21 @@ describeIfDb('P1 durable runtime', () => {
     // The crucial bit: the worker may have died AFTER the side effect, so this
     // is surfaced rather than silently retried.
     expect(reaped.outcomeUnknown).toBe(true);
-    expect(reaped.failureClass).toBe('INTERNAL');
+    // WAVE 2: was 'INTERNAL'. An unknown outcome is the one failure an operator
+    // must handle differently from every other — somebody has to go and look at
+    // the provider before anything is retried — so it has its own class and is
+    // findable in metrics and in the runs list.
+    expect(reaped.failureClass).toBe('OUTCOME_UNKNOWN');
     expect(reaped.leaseOwner).toBeNull();
+
+    // WAVE 2: the STEP must be settled too. Leaving it RUNNING is what let the
+    // next advance re-run the node — proven in
+    // `workflow-side-effect-safety.e2e-spec.ts`, where without this the run
+    // walked past the unknown node and reported COMPLETED.
+    const reapedStep = await prisma.workflowStepRun.findUniqueOrThrow({
+      where: { id: step.id },
+    });
+    expect(reapedStep.status).toBe('FAILED');
   });
 
   it('times out a run past its deadline', async () => {
@@ -262,7 +275,17 @@ describeIfDb('P1 durable runtime', () => {
       },
     });
 
-    const relayed = await relay.relayOnce();
+    // DRAIN, don't relay once. `relayOnce` publishes one bounded batch, so a
+    // single call only empties the outbox when the whole suite has produced
+    // fewer events than the batch size — which made this assertion a hidden
+    // function of how many events every earlier test happened to emit. The
+    // production relay loops (see WorkflowTimerProcessor), so the test does too.
+    let relayed = 0;
+    for (let batch = 0; batch < 20; batch += 1) {
+      const n = await relay.relayOnce();
+      relayed += n;
+      if (n === 0) break;
+    }
     expect(relayed).toBeGreaterThan(0);
     // BigInt autoincrement → the database owns ordering, not racing workers.
     expect([...seen].sort((a, b) => a - b)).toEqual(seen);

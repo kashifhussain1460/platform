@@ -145,11 +145,14 @@ export function PersistedMessage({
   message,
   onResume,
   resuming = false,
+  autoResume = false,
 }: {
   message: AssistMessageDto;
   /** Re-run the turn after a skill is connected (CONNECTION cards only). */
   onResume?: () => void;
   resuming?: boolean;
+  /** True only for the LAST message — see SkillRequirementCard.autoResume. */
+  autoResume?: boolean;
 }) {
   if (message.role === 'USER') return <UserBubble text={message.content} />;
 
@@ -166,6 +169,7 @@ export function PersistedMessage({
         sessionId={message.sessionId}
         onResume={onResume}
         resuming={resuming}
+        autoResume={autoResume}
       />
     );
   }

@@ -137,32 +137,20 @@ export class WorkflowEngine {
     this.logger.warn(`Workflow run ${runId} blocked: ${reason}`);
   }
 
-  /**
-   * Scheduled/triggered entry: create a WorkflowRun for a workflow (with the
-   * given source) then execute it. Used by the processor for `{workflowId,
-   * source}` jobs (SCHEDULE repeatable). A missing/deleted workflow is a no-op.
+  /*
+   * REMOVED in WAVE 1 (gap G-B1): `trigger(workflowId, source)`.
+   *
+   * It created a WorkflowRun with `prisma.workflowRun.create()` directly, which
+   * made SCHEDULE the one trigger type in the system that ran with no pinned
+   * `workflowVersionId` (so it executed the MUTABLE `Workflow.definition`
+   * instead of the published version), no `idempotencyKey`, and no
+   * `workflow:run` authorization.
+   *
+   * The canonical replacement is `WorkflowsService.fireSchedule()`, which goes
+   * through `enqueueRun` like every other trigger. `enqueueRun` is now the ONLY
+   * place in the codebase that creates a WorkflowRun — deliberately, so this
+   * class of gap cannot come back by someone adding a new trigger type.
    */
-  async trigger(workflowId: string, source: string): Promise<void> {
-    const workflow = await this.prisma.workflow.findUnique({
-      where: { id: workflowId },
-    });
-    if (!workflow) {
-      this.logger.warn(`Triggered workflow ${workflowId} not found; skipping`);
-      return;
-    }
-    const run = await this.prisma.workflowRun.create({
-      data: {
-        companyId: workflow.companyId,
-        workflowId,
-        status: 'PENDING',
-        source,
-        trigger: Prisma.JsonNull,
-        // A generated correlationId keeps SCHEDULE-triggered runs traceable too.
-        correlationId: randomUUID(),
-      },
-    });
-    await this.execute(run.id);
-  }
 
   /**
    * Fresh execution of a PENDING run: guard, flip to RUNNING, then walk from the
@@ -307,9 +295,34 @@ export class WorkflowEngine {
     if (stuck.length === 0) {
       return { swept: 0 };
     }
+
+    // WAVE 1 (gap G-B3) — `attempts: none` is NOT sufficient on its own.
+    //
+    // A run on the DURABLE engine has no attempt row until its first advance
+    // job is consumed. If that job is lost — Redis flushed, worker never booted,
+    // a deploy that dropped the queue — the run sits PENDING with zero attempts
+    // and matches the filter above. The reaper cannot help: its stuck sweep only
+    // looks at RUNNING runs. So the most trivially recoverable state in the whole
+    // system (nothing has executed, nothing has any side effect) was the one
+    // state that got killed instead of retried.
+    //
+    // Filtering by engine mode hands those runs back to the reaper, which
+    // re-enqueues the advance. Legacy runs are still swept here, unchanged.
+    const legacyStuck = stuck.filter(
+      (run) => !this.engineMode.usesStateMachine(run.companyId),
+    );
+    if (legacyStuck.length !== stuck.length) {
+      this.logger.log(
+        `workflow-run watchdog: left ${stuck.length - legacyStuck.length} durable-engine run(s) ` +
+          `to the reaper instead of failing them`,
+      );
+    }
+    if (legacyStuck.length === 0) {
+      return { swept: 0 };
+    }
     const error =
       'Orphaned: run exceeded the max expected execution time (likely a worker restart mid-execution) — swept by the workflow-run watchdog.';
-    for (const run of stuck) {
+    for (const run of legacyStuck) {
       await this.prisma.workflowStepRun.updateMany({
         where: { runId: run.id, status: { in: ['PENDING', 'RUNNING'] } },
         data: { status: 'FAILED', error, finishedAt: new Date() },
@@ -322,7 +335,7 @@ export class WorkflowEngine {
         `workflow-run watchdog: swept orphaned run=${run.id} wf=${run.workflowId} company=${run.companyId} (created ${run.createdAt.toISOString()})`,
       );
     }
-    return { swept: stuck.length };
+    return { swept: legacyStuck.length };
   }
 
   /**

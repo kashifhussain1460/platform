@@ -26,6 +26,8 @@ import {
   unassignSkill,
   uninstallSkill,
   updateInstalledSkill,
+  verifyConnection,
+  type VerifyConnectionResult,
 } from './api';
 
 export const skillKeys = {
@@ -294,6 +296,28 @@ export function useCheckConnectorHealth() {
     mutationFn: checkConnectorHealth,
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+    },
+  });
+}
+
+/**
+ * Run the connection verification (plan §3). Invalidates the installed list
+ * because a pass/fail CHANGES `connectionStatus` server-side — the wizard and
+ * the skill row must not disagree about whether the connector is live.
+ */
+export function useVerifyConnection() {
+  const qc = useQueryClient();
+  return useMutation<
+    VerifyConnectionResult,
+    NormalizedApiError,
+    { id: string; sendTest?: boolean; testTo?: string }
+  >({
+    mutationFn: verifyConnection,
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // The AI Assist skill card reads a different key; a verified connection
+      // must clear its "not connected" state too.
+      void qc.invalidateQueries({ queryKey: ['skill-requirements'] });
     },
   });
 }

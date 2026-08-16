@@ -154,6 +154,61 @@ export class RunAdvanceProcessor extends WorkerHost {
       orderBy: { createdAt: 'asc' },
     });
 
+    // WAVE 2 — SIDE-EFFECT SAFETY BACKSTOP.
+    //
+    // An attempt flagged `outcomeUnknown` means a worker died between the
+    // external side effect and its bookkeeping commit: the provider may already
+    // have sent the email, published the post, charged the card. Opening another
+    // attempt at that node would do it a second time.
+    //
+    // The reaper also FAILs the step when it sets the flag, which stops the run
+    // through the branch below. This check is the belt to that braces: it looks
+    // at the ATTEMPT rows rather than the step status, so any route that leaves
+    // a step re-runnable — a future sweep, a manual repair, a bug — still cannot
+    // re-execute the effect. Duplicating an irreversible action is not a failure
+    // mode worth being clever about.
+    const unknown = await this.prisma.workflowStepAttempt.findFirst({
+      where: { runId, companyId, outcomeUnknown: true },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, stepId: true, error: true },
+    });
+    if (unknown) {
+      const step = await this.prisma.workflowStepRun.findFirst({
+        where: { id: unknown.stepId },
+        select: { nodeId: true, status: true },
+      });
+      if (step && step.status !== 'FAILED') {
+        await this.state.transitionStep({
+          stepId: unknown.stepId,
+          runId,
+          companyId,
+          to: 'FAILED',
+          error: unknown.error ?? 'Attempt outcome unknown',
+          event: 'step.failed',
+        });
+      }
+      await this.state.transitionRun({
+        runId,
+        companyId,
+        to: 'FAILED',
+        error:
+          unknown.error ??
+          'An attempt ended with an UNKNOWN outcome and was not retried.',
+        failureClass: 'OUTCOME_UNKNOWN',
+        resumeNodeId: null,
+        event: 'run.failed',
+        eventData: {
+          failedNodeId: step?.nodeId,
+          attemptId: unknown.id,
+          outcomeUnknown: true,
+        },
+      });
+      this.logger.warn(
+        `advance: run=${runId} FAILED as OUTCOME_UNKNOWN (attempt=${unknown.id}) — not retried by design`,
+      );
+      return;
+    }
+
     // A step that failed terminally ends the run. Without this the advance would
     // hand the SAME failed node back on every pass and the run would sit RUNNING
     // for ever — the exact "stuck run" class the reaper exists to notice.
@@ -163,11 +218,21 @@ export class RunAdvanceProcessor extends WorkerHost {
         where: { runId, companyId, nodeId: failed.nodeId, status: 'FAILED' },
         select: { error: true },
       });
+      // WAVE 2 — carry the attempt's classification up to the run. Without it
+      // every step failure surfaced on the run as an unclassified error, so the
+      // failure taxonomy stopped at the attempt row and never reached metrics,
+      // the runs list, or the operator.
+      const lastAttempt = await this.prisma.workflowStepAttempt.findFirst({
+        where: { runId, companyId, status: 'FAILED' },
+        orderBy: { createdAt: 'desc' },
+        select: { failureClass: true },
+      });
       await this.state.transitionRun({
         runId,
         companyId,
         to: 'FAILED',
         error: step?.error ?? `Step "${failed.nodeId}" failed`,
+        failureClass: lastAttempt?.failureClass ?? 'NODE_ERROR',
         resumeNodeId: null,
         event: 'run.failed',
         eventData: { failedNodeId: failed.nodeId },

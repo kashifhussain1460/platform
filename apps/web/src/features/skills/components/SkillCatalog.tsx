@@ -37,15 +37,24 @@ const SKILL_ICON: Record<string, ElementType<{ className?: string }>> = {
 function SkillCard({
   skill,
   installed,
+  connected,
   installing,
   onInstall,
 }: {
   skill: SkillDefinitionDto;
   installed: boolean;
+  /**
+   * Installed AND usable. Kept separate from `installed` on purpose: a bare
+   * "Installed" badge read as "done", so people connected nothing, went back to
+   * AI Assist, and were told the skill was still not connected. Both screens
+   * were right; only this card was ambiguous.
+   */
+  connected: boolean;
   installing: boolean;
   onInstall: () => void;
 }) {
   const Icon = SKILL_ICON[skill.key] ?? Sparkles;
+  const needsConnecting = installed && !connected;
 
   return (
     <div className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 transition-colors hover:border-white/[0.14]">
@@ -66,18 +75,27 @@ function SkillCard({
         Tools: {skill.tools.map((t) => t.name).join(', ')}
       </p>
 
-      <button
-        type="button"
-        onClick={onInstall}
-        disabled={installed || installing}
-        className={`mt-4 w-full rounded-xl border px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
-          installed
-            ? 'border-white/[0.08] bg-white/[0.02] text-zinc-500'
-            : 'border-white/[0.12] bg-white/[0.03] text-zinc-300 hover:border-white/25 hover:bg-white/[0.06]'
-        }`}
-      >
-        {installed ? 'Installed' : installing ? 'Installing…' : 'Install'}
-      </button>
+      {needsConnecting ? (
+        <a
+          href={`#installed-${skill.key}`}
+          className="mt-4 w-full rounded-xl border border-status-warning/40 bg-status-warning/10 px-4 py-2 text-center text-sm font-medium text-status-warning transition-colors hover:bg-status-warning/20"
+        >
+          Installed — connect it
+        </a>
+      ) : (
+        <button
+          type="button"
+          onClick={onInstall}
+          disabled={installed || installing}
+          className={`mt-4 w-full rounded-xl border px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+            installed
+              ? 'border-white/[0.08] bg-white/[0.02] text-zinc-500'
+              : 'border-white/[0.12] bg-white/[0.03] text-zinc-300 hover:border-white/25 hover:bg-white/[0.06]'
+          }`}
+        >
+          {installed ? 'Installed' : installing ? 'Installing…' : 'Install'}
+        </button>
+      )}
     </div>
   );
 }
@@ -95,6 +113,13 @@ export function SkillCatalog() {
   }
 
   const installedKeys = new Set((installed ?? []).map((s) => s.skillKey));
+  // A skill that needs no credentials (connectionType `none`) is usable the
+  // moment it is installed, so it must not be nagged about.
+  const connectedKeys = new Set(
+    (installed ?? [])
+      .filter((s) => s.connectionStatus === 'CONNECTED' || s.connectionType === 'none')
+      .map((s) => s.skillKey),
+  );
   const categories = Array.from(new Set((catalog ?? []).map((s) => s.category)));
 
   const q = search.trim().toLowerCase();
@@ -159,6 +184,7 @@ export function SkillCatalog() {
               key={skill.key}
               skill={skill}
               installed={installedKeys.has(skill.key)}
+              connected={connectedKeys.has(skill.key)}
               installing={install.isPending}
               onInstall={() =>
                 install.mutate({ skillKey: skill.key, displayName: skill.name })

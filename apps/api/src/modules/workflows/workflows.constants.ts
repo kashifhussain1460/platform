@@ -67,8 +67,58 @@ export type WorkflowRunJobData =
       companyId?: never;
     };
 
+/**
+ * WAVE 1 — what an internal dispatch may carry.
+ *
+ * Narrower than `WorkflowRunJobData` on purpose: a dispatch always concerns a
+ * run that ALREADY EXISTS. Creating the run is `enqueueRun`'s job and nobody
+ * else's, so a `{workflowId}` shape is not representable here and cannot be
+ * reintroduced by accident.
+ */
+export interface RunDispatchJob {
+  runId: string;
+  resume?: boolean;
+  companyId?: string;
+}
+
 /** Minimum SCHEDULE interval (ms) — guards against runaway repeatable jobs. */
 export const MIN_SCHEDULE_MS = 15_000;
+
+/**
+ * Slot width used to deduplicate a CRON schedule fire. Cron's finest legal
+ * granularity is one minute, so two fires inside the same minute are always a
+ * duplicate delivery rather than two legitimate occurrences.
+ */
+export const CRON_SLOT_MS = 60_000;
+
+/**
+ * WAVE 1 — the idempotency key for one SCHEDULE occurrence.
+ *
+ * A schedule has TWO independent drivers: the BullMQ repeatable (worker
+ * deployments) and `/admin/cron/workflow-schedules` (serverless deployments).
+ * `addSchedule` refuses to register the repeatable in inline mode precisely
+ * because both firing produces two runs per interval — but that guard only
+ * holds if the deployment is cleanly one shape or the other. A leftover worker
+ * on the same Redis, or a mixed deployment mid-rollout, defeats it, and the
+ * result is every scheduled workflow silently running twice.
+ *
+ * Bucketing the fire time by the schedule's own interval turns that into a
+ * database-level no-op: the second fire in the same slot resolves to the same
+ * `(companyId, idempotencyKey)` and `enqueueRun` returns the first run.
+ * Defence in depth, not a replacement for the inline guard.
+ */
+export function scheduleSlotKey(
+  workflowId: string,
+  config: { everyMs?: unknown } | null | undefined,
+  nowMs: number,
+): string {
+  const everyMs = Number(config?.everyMs);
+  const width =
+    Number.isFinite(everyMs) && everyMs >= MIN_SCHEDULE_MS
+      ? everyMs
+      : CRON_SLOT_MS;
+  return `schedule:${workflowId}:${Math.floor(nowMs / width)}`;
+}
 
 /**
  * Hard cap on how many nodes a single run may visit, so a cyclic or malformed

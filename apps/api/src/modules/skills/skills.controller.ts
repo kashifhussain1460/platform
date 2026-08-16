@@ -27,6 +27,7 @@ import { UpdateInstalledSkillDto } from './dto/update-installed-skill.dto';
 import { ExecuteToolDto } from './dto/execute-tool.dto';
 import { ConfigureSkillDto } from './dto/configure-skill.dto';
 import { ConnectSkillDto } from './dto/connect-skill.dto';
+import { VerifyConnectionDto } from './dto/verify-connection.dto';
 import { SkillsService } from './skills.service';
 import { SkillRequirementsService } from './skill-requirements.service';
 
@@ -128,6 +129,26 @@ export class SkillsController {
     @Body() dto: ConnectSkillDto,
   ): Promise<InstalledSkillDto> {
     return this.skills.connectSkill(companyId, id, dto);
+  }
+
+  /**
+   * Run the connection state machine and report every stage (plan §3, §26).
+   *
+   * Drives the setup wizard's "Test connection" step. `sendTest: true` sends a
+   * REAL message, so it is opt-in and defaults to the connection's own address —
+   * hence `skill:connect` rather than a read permission.
+   */
+  @Post('installed/:id/verify')
+  @RequirePermission('skill:connect')
+  verify(
+    @CurrentTenant() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: VerifyConnectionDto,
+  ) {
+    return this.skills.verifyConnection(companyId, id, {
+      includeTest: dto.sendTest,
+      testTo: dto.testTo,
+    });
   }
 
   /** Disconnect the skill (clear credentials → NOT_CONNECTED). */

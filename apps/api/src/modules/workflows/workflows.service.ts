@@ -43,9 +43,11 @@ import { CreateWorkflowDto } from './dto/create-workflow.dto';
 import { UpdateWorkflowDto } from './dto/update-workflow.dto';
 import {
   MIN_SCHEDULE_MS,
+  scheduleSlotKey,
   WORKFLOW_RUN_JOB,
   WORKFLOW_RUN_QUEUE,
   WORKFLOW_TRIGGER_JOB,
+  type RunDispatchJob,
   type WorkflowRunJobData,
 } from './workflows.constants';
 import {
@@ -120,7 +122,7 @@ export class WorkflowsService {
    * clients simply find it finished, which is harmless.
    */
   private async dispatchRun(
-    job: WorkflowRunJobData,
+    job: RunDispatchJob,
     companyId: string,
   ): Promise<void> {
     // WAVE 1 (gap W1-a) — THE cutover. Until this line existed the durable
@@ -143,12 +145,8 @@ export class WorkflowsService {
     }
 
     try {
-      if ('runId' in job && job.runId) {
-        if (job.resume) await this.engine.resume(job.runId);
-        else await this.engine.execute(job.runId);
-      } else if ('workflowId' in job && job.workflowId) {
-        await this.engine.trigger(job.workflowId, job.source ?? 'SCHEDULE');
-      }
+      if (job.resume) await this.engine.resume(job.runId);
+      else await this.engine.execute(job.runId);
     } catch (err) {
       // The engine records a node failure as a FAILED run — a terminal domain
       // outcome the poller reads. So a throw here is an infrastructure problem,
@@ -171,23 +169,16 @@ export class WorkflowsService {
    * same run take the run's advisory lock in turn and the second finds the work
    * already done.
    *
-   * A `{workflowId, source}` job (a SCHEDULE fire) has no run yet. Creating the
-   * run is the legacy trigger's responsibility, and it is the same code path in
-   * both engines, so those still go through the queue — the run it creates then
-   * dispatches through THIS method and lands on the durable path.
+   * WAVE 1 (G-B1): this used to fall back to the legacy `workflow-run` queue for
+   * a `{workflowId, source}` job, because a SCHEDULE fire had no run yet and the
+   * legacy engine created it. Schedules now create their run through
+   * `fireSchedule` → `enqueueRun` like every other trigger, so a dispatch
+   * without a runId can no longer happen and the fallback is gone with it.
    */
   private async dispatchDurable(
-    job: WorkflowRunJobData,
+    job: RunDispatchJob,
     companyId: string,
   ): Promise<void> {
-    if (!('runId' in job) || !job.runId) {
-      await this.queue.add(WORKFLOW_RUN_JOB, job, {
-        removeOnComplete: true,
-        removeOnFail: 100,
-      });
-      return;
-    }
-
     await this.advanceQueue.add(
       WF_ADVANCE_JOB,
       { runId: job.runId, companyId },
@@ -788,6 +779,11 @@ export class WorkflowsService {
     runId: string,
     reason: string,
     companyId: string,
+    // WAVE 1 (G-B4): the taxonomy, not free text. Without it every approval
+    // rejection and every SLA expiry was indistinguishable from a node crash in
+    // `workflow_failure_total{failure_class}` and in any "why did this fail"
+    // query — the two most common non-technical failures were invisible.
+    failureClass: 'APPROVAL_REJECTED' | 'TIMEOUT' | 'CANCELLED' = 'APPROVAL_REJECTED',
   ): Promise<void> {
     const run = await this.prisma.workflowRun.findFirst({
       where: { id: runId, companyId },
@@ -805,6 +801,7 @@ export class WorkflowsService {
       companyId: run.companyId,
       to: 'FAILED',
       error: reason,
+      failureClass,
       resumeNodeId: null,
       event: 'run.failed',
     });
@@ -835,15 +832,32 @@ export class WorkflowsService {
     ) {
       throw new ConflictException('This run has already finished.');
     }
-    await this.prisma.workflowRun.update({
-      where: { id: runId },
-      data: {
-        status: 'CANCELLED',
-        finishedAt: new Date(),
-        error: 'Cancelled by a user',
-        resumeNodeId: null,
-      },
+    // WAVE 1 (G-B2) — go through RunStateWriter.
+    //
+    // The previous code did a plain `prisma.workflowRun.update`, which broke
+    // BOTH of the writer's invariants at once:
+    //
+    //   1. the status read above and this write were separate statements, so a
+    //      worker finishing the run in the gap was silently stomped back to
+    //      CANCELLED — a terminal→terminal transition the §7 state table forbids;
+    //   2. no outbox row, so `run.cancelled` — a declared event type — was
+    //      emitted by NOTHING. The realtime stream showed a cancelled run frozen
+    //      on its last step until someone reloaded the page.
+    //
+    // `transitionRun` returns false when the run already moved on, which turns
+    // the race into the same 409 the caller would have got a moment earlier.
+    const cancelled = await this.runState.transitionRun({
+      runId,
+      companyId,
+      to: 'CANCELLED',
+      error: 'Cancelled by a user',
+      failureClass: 'CANCELLED',
+      resumeNodeId: null,
+      event: 'run.cancelled',
     });
+    if (!cancelled) {
+      throw new ConflictException('This run has already finished.');
+    }
     await this.auditLog.record({
       companyId,
       actorUserId: userId,
@@ -1000,8 +1014,78 @@ export class WorkflowsService {
    * {@link sweepStuckRuns}: the repeatable that normally does this needs a
    * worker that a serverless deployment does not have.
    */
-  fireScheduled(workflowId: string): Promise<void> {
-    return this.engine.trigger(workflowId, 'SCHEDULE');
+  async fireScheduled(workflowId: string): Promise<void> {
+    await this.fireSchedule(workflowId, 'SCHEDULE');
+  }
+
+  /**
+   * WAVE 1 (gap G-B1) — THE canonical SCHEDULE entry point.
+   *
+   * This used to be `WorkflowEngine.trigger()`, which called
+   * `prisma.workflowRun.create()` directly. That single line meant a scheduled
+   * run was the ONLY kind of run in the system that got:
+   *
+   *   - no `workflowVersionId`, so it executed `Workflow.definition` — the
+   *     MUTABLE draft column — instead of the pinned immutable version. Editing
+   *     a workflow changed what its next scheduled run did, with no publish;
+   *   - no `idempotencyKey`, so the two schedule drivers could each produce a
+   *     run for the same occurrence;
+   *   - no `workflow:run` authorization, so a workflow restricted by
+   *     `WorkflowPermission` ran anyway on its schedule, and a DISABLED
+   *     publisher's schedule kept firing after their access was revoked.
+   *
+   * Routing it through `enqueueRun` fixes all three at once, because all three
+   * already live there for every other trigger type.
+   */
+  async fireSchedule(workflowId: string, source = 'SCHEDULE'): Promise<void> {
+    const workflow = await this.prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: {
+        id: true,
+        companyId: true,
+        triggerConfig: true,
+        status: true,
+        archivedAt: true,
+      },
+    });
+    if (!workflow) {
+      this.logger.warn(`Scheduled workflow ${workflowId} not found; skipping`);
+      return;
+    }
+
+    // Defence in depth. `deactivate()` removes the BullMQ repeatable, and the
+    // cron sweep already filters on ACTIVE — but a repeatable that outlives its
+    // removal (a Redis restore from backup, a failed removeSchedule) would
+    // otherwise keep running a workflow its owner had switched OFF. A paused
+    // automation that still sends email is the worst kind of surprise.
+    if (workflow.status !== 'ACTIVE' || workflow.archivedAt) {
+      this.logger.warn(
+        `Scheduled fire skipped for workflow=${workflowId}: status=${workflow.status}` +
+          `${workflow.archivedAt ? ' archived' : ''}`,
+      );
+      return;
+    }
+
+    try {
+      await this.enqueueRun(workflow.companyId, workflow.id, source, undefined, {
+        idempotencyKey: scheduleSlotKey(
+          workflow.id,
+          workflow.triggerConfig as { everyMs?: unknown } | null,
+          Date.now(),
+        ),
+      });
+    } catch (err) {
+      // A schedule fire is a background job with no caller to receive a 403.
+      // `assertCanRun` throwing here is a legitimate outcome — the workflow is
+      // restricted and its run subject is no longer allowed to run it — so it
+      // must be logged and swallowed, not left to fail the queue job and be
+      // retried forever against a permission that will not change.
+      this.logger.warn(
+        `Scheduled fire refused for workflow=${workflowId} company=${workflow.companyId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /**

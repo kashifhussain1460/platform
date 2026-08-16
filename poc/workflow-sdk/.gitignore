@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.nestjs/
+.swcrc
+.workflow-data/
+evidence/*.json
+!evidence/.gitkeep
+.env
+/.swc

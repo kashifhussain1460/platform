@@ -17,7 +17,18 @@ export type FailureClass =
   | 'VALIDATION_ERROR'
   | 'CANCELLED'
   | 'INTERNAL'
-  | 'AUTHORIZATION_DENIED';
+  | 'AUTHORIZATION_DENIED'
+  /**
+   * WAVE 2 — the worker died between the side effect and its bookkeeping
+   * commit, so whether the external action happened is genuinely unknown.
+   *
+   * Its own class rather than `INTERNAL` because it is the one failure an
+   * operator must treat differently from every other: before retrying anything,
+   * somebody has to go and LOOK at the provider. Folded into `INTERNAL` it was
+   * invisible in `workflow_failure_total{failure_class}` and unqueryable, so
+   * "which runs might have half-sent an email?" had no answer.
+   */
+  | 'OUTCOME_UNKNOWN';
 
 export interface RetryDecision {
   retry: boolean;
@@ -98,6 +109,10 @@ export class RetryPolicyService {
       case 'RATE_LIMITED':
       case 'TIMEOUT':
         return true;
+      // `OUTCOME_UNKNOWN` is the one that matters most here: a
+      // possibly-completed side effect must never be retried by machinery. Only
+      // a human who has checked the provider can decide, and they do it by
+      // starting a fresh run.
       case 'VALIDATION_ERROR':
       case 'AUTHORIZATION_DENIED':
       case 'APPROVAL_REJECTED':
@@ -105,6 +120,7 @@ export class RetryPolicyService {
       case 'SUBSCRIPTION_BLOCKED':
       case 'CANCELLED':
       case 'INTERNAL':
+      case 'OUTCOME_UNKNOWN':
         return false;
       default:
         return false;

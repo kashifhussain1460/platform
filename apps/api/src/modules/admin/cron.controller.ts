@@ -12,6 +12,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { isInlineExecution } from '../../common/resilience/workflow-execution-mode';
 import { ApprovalSlaService } from '../approvals/sla/approval-sla.service';
 import { GmailInboundService } from '../events/inbound/gmail-inbound.service';
+import { ImapInboundService } from '../events/inbound/imap-inbound.service';
 import { ConnectorReconcileService } from '../events/reconciliation/connector-reconcile.service';
 import { MarketingSyncService } from '../engines/marketing/marketing-sync.service';
 import { AuditRetentionService } from '../audit/audit-retention.service';
@@ -50,6 +51,7 @@ export class CronController {
     private readonly sla: ApprovalSlaService,
     private readonly retention: HrRetentionService,
     private readonly gmailInbound: GmailInboundService,
+    private readonly imapInbound: ImapInboundService,
     private readonly reconcile: ConnectorReconcileService,
     private readonly marketingSync: MarketingSyncService,
     private readonly auditRetention: AuditRetentionService,
@@ -109,6 +111,11 @@ export class CronController {
         // on a serverless deploy (QUEUE_WORKERS_ENABLED=false) no email ever
         // arrives. Driving it here makes EVENT-triggered email workflows work.
         return { ...(await this.gmailInbound.sweep()) };
+      case 'imap-poll':
+        // The own-mailbox (SMTP/IMAP) counterpart of gmail-poll: worker-only
+        // otherwise, so a serverless deploy would never read inbound email from
+        // a company's own mail server.
+        return { ...(await this.imapInbound.sweep()) };
       case 'connector-reconcile':
         // P1-4: the dropped-webhook catch-up sweep, same worker-only problem.
         return { ...(await this.reconcile.sweep()) };
@@ -118,7 +125,7 @@ export class CronController {
         return { ...(await this.marketingSync.sweep()) };
       default:
         throw new BadRequestException(
-          `Unknown cron job "${job}". Known: workflow-schedules, workflow-watchdog, approval-sla, hr-retention, audit-retention, data-retention, alerts, gmail-poll, connector-reconcile, marketing-sync.`,
+          `Unknown cron job "${job}". Known: workflow-schedules, workflow-watchdog, approval-sla, hr-retention, audit-retention, data-retention, alerts, gmail-poll, imap-poll, connector-reconcile, marketing-sync.`,
         );
     }
   }

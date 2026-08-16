@@ -1,5 +1,6 @@
 import { credString } from './credentials.util';
 import { asFetchResponse } from '../../../common/http/fetch-response';
+import { getProviderAdapter } from '../providers';
 
 /**
  * Per-provider active HEALTH PROBE strategy (docs §1.8): a cheap, authenticated
@@ -74,6 +75,28 @@ const githubProbe: HealthProbe = {
   },
 };
 
+/**
+ * Any provider that has a registered ADAPTER (plan §28) gets a real probe for
+ * free: `healthCheck()` is the adapter's own cheap authenticated call.
+ *
+ * This is why the adapter contract is worth having. Previously every provider
+ * except GitHub answered "healthy (mock)", so a mailbox whose password had been
+ * rotated stayed CONNECTED for ever and only failed at the moment a workflow
+ * tried to send — §33 asks for the opposite.
+ */
+const adapterProbe = (skillKey: string): HealthProbe => ({
+  async probe(creds, config) {
+    const adapter = getProviderAdapter(skillKey);
+    if (!adapter?.healthCheck) {
+      return { healthy: true, mock: true };
+    }
+    const check = await adapter.healthCheck({ creds, config });
+    return check.ok
+      ? { healthy: true, mock: check.assumed }
+      : { healthy: false, error: check.detail ?? 'Health check failed' };
+  },
+});
+
 /** Fallback: no cheap authenticated check implemented → assume healthy (mock). */
 const genericProbe: HealthProbe = {
   async probe() {
@@ -83,6 +106,7 @@ const genericProbe: HealthProbe = {
 
 const PROBES: Record<string, HealthProbe> = {
   github: githubProbe,
+  email: adapterProbe('email'),
 };
 
 /** Resolve the probe for a provider (generic mock fallback). */

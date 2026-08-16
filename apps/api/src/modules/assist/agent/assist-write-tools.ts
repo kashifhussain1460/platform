@@ -101,6 +101,122 @@ function requestConnection(): AssistTool<z.infer<typeof requestConnectionSchema>
 
 // ── propose_graph ────────────────────────────────────────────────────────────
 
+/**
+ * Settings that only ever mean anything inside a node's `config`.
+ *
+ * Listed explicitly rather than rejecting every unknown top-level key, because
+ * `name`, `position` and `disabled` legitimately live beside config and a
+ * blanket rule would start refusing valid graphs.
+ */
+const CONFIG_ONLY_KEYS = [
+  'outputKey',
+  'employeeId',
+  'skillKey',
+  'tool',
+  'args',
+  'instruction',
+  'query',
+  'message',
+  'left',
+  'op',
+  'right',
+] as const;
+
+/**
+ * `{{templates}}` whose first path segment is a STEP ID rather than an
+ * outputKey. Those always resolve to an empty string at run time.
+ *
+ * Walks nested config (a TOOL_ACTION's args are one level down) and reports
+ * `[stepId] {{ref}}` so the agent knows both where it is and what to replace.
+ */
+function findNodeIdRefs(
+  nodes: { id?: unknown; config?: unknown }[],
+  nodeIds: Set<string>,
+): string[] {
+  const found: string[] = [];
+  const scan = (value: unknown, owner: string): void => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(/\{\{\s*([\w.$]+)\s*\}\}/g)) {
+        const root = match[1].split('.')[0];
+        // `trigger` is the run payload, not a step, and `secret` is resolved at
+        // the connector boundary — neither is a step id even if someone names a
+        // step that.
+        if (root !== 'trigger' && root !== 'secret' && nodeIds.has(root)) {
+          found.push(`[${owner}] {{${match[1]}}}`);
+        }
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((v) => scan(v, owner));
+      return;
+    }
+    if (value && typeof value === 'object') {
+      Object.values(value as Record<string, unknown>).forEach((v) => scan(v, owner));
+    }
+  };
+  for (const node of nodes) {
+    scan(node.config, String(node.id));
+  }
+  return found;
+}
+
+/** Exported for tests only — the rule matters enough to pin directly. */
+export const findNodeIdRefsForTest = findNodeIdRefs;
+
+/**
+ * CONDITIONs that test an AI step's answer against a value the step was never
+ * told to produce.
+ *
+ * An AI Employee answers in prose. Comparing that whole paragraph to `"true"`
+ * with `eq` cannot match, so the branch is decided before the run starts — and
+ * decided the wrong way, silently. Live evidence: a leave request of 8 days
+ * overlapping a critical project (two policy conflicts) took the "no conflict"
+ * branch, skipped the mandatory HR approval, and the run finished **COMPLETED**
+ * with zero approvals. Nothing in readiness, the dry run or the run log said a
+ * word about it.
+ *
+ * The check is deliberately narrow: it only fires when the producing step's
+ * instruction never mentions the value being compared. A step told "answer with
+ * exactly one word: true or false" is a perfectly good design and passes.
+ */
+function findUntestableConditions(nodes: Record<string, unknown>[]): string[] {
+  const producers = new Map<string, Record<string, unknown>>();
+  for (const node of nodes) {
+    const cfg = (node.config ?? {}) as Record<string, unknown>;
+    const key = typeof cfg.outputKey === 'string' ? cfg.outputKey.trim() : '';
+    if (key) {
+      producers.set(key, node);
+    }
+  }
+
+  const problems: string[] = [];
+  for (const node of nodes) {
+    if (node.type !== 'CONDITION') continue;
+    const cfg = (node.config ?? {}) as Record<string, unknown>;
+    const left = typeof cfg.left === 'string' ? cfg.left.trim() : '';
+    const right = typeof cfg.right === 'string' ? cfg.right.trim() : '';
+    const match = /^\{\{\s*([\w.$]+)\s*\}\}$/.exec(left);
+    if (!match || !right) continue;
+
+    const producer = producers.get(match[1].split('.')[0]);
+    if (!producer || producer.type !== 'AI_EMPLOYEE_STEP') continue;
+
+    const instruction = String(
+      ((producer.config ?? {}) as Record<string, unknown>).instruction ?? '',
+    );
+    if (!instruction.toLowerCase().includes(right.toLowerCase())) {
+      problems.push(
+        `[${String(node.id)}] compares ${left} with "${right}", but step "${String(producer.id)}" was never told to answer "${right}"`,
+      );
+    }
+  }
+  return problems;
+}
+
+/** Exported for tests only. */
+export const findUntestableConditionsForTest = findUntestableConditions;
+
 const proposeGraphSchema = z.object({
   // A JSON *string*, not an object: `ToolParametersDto` is one level deep and
   // primitives only, so structured input has to arrive serialised.
@@ -163,6 +279,100 @@ function proposeGraph(
         };
       }
 
+      // Make every node satisfy the WorkflowNode contract BEFORE it is stored.
+      //
+      // Two live failures came from skipping this, and both were silent:
+      //
+      // 1. A TRIGGER written with no `config` key at all. Nothing complained
+      //    here, readiness reported the workflow ready — and then publishing it
+      //    failed with "definition.nodes.0.config must be an object", because
+      //    the UI's publish path saves the stored definition back through a DTO
+      //    that requires it. A workflow the assistant built could not be
+      //    published at all.
+      // 2. `outputKey` written as a TOP-LEVEL node field instead of inside
+      //    config. The engine only ever reads `node.config.outputKey`, so the
+      //    step's result was bound to nothing, a later CONDITION compared
+      //    `{{evaluation.recommendation}}` against an empty string, and every
+      //    candidate silently took the same branch.
+      //
+      // Defaulting the config is safe (the engine already treats a missing one
+      // as empty). A misplaced key is NOT defaulted — guessing which config it
+      // belonged to would be inventing the customer's workflow for them.
+      const misplaced: string[] = [];
+      for (const node of parsed.nodes) {
+        const raw = node as unknown as Record<string, unknown>;
+        if (raw.config === undefined || raw.config === null) {
+          raw.config = {};
+        }
+        if (typeof raw.config !== 'object' || Array.isArray(raw.config)) {
+          return {
+            ok: false,
+            summary: 'A step had an unreadable config',
+            result: {
+              error: `Step "${String(raw.id)}" has a config that is not an object. Send config as {...}.`,
+            },
+          };
+        }
+        for (const key of CONFIG_ONLY_KEYS) {
+          if (raw[key] !== undefined) {
+            misplaced.push(`[${String(raw.id)}] "${key}"`);
+          }
+        }
+      }
+      if (misplaced.length > 0) {
+        return {
+          ok: false,
+          summary: `${misplaced.length} setting(s) in the wrong place`,
+          result: {
+            error:
+              `These settings must go INSIDE the step's "config" object, not beside it: ${misplaced.join(', ')}. ` +
+              'Anything outside config is ignored at run time, so the step would quietly do nothing with it.',
+          },
+        };
+      }
+
+      // A step's result is bound to its `outputKey`, NEVER to its node id.
+      //
+      // The prompt has said so for a long time and models still write
+      // `{{prepareRejection.rejectionEmail}}` instead of `{{rejectionEmail}}`.
+      // It resolves to an empty string, so it fails at the worst possible
+      // moment: in a live QA run the rejection email survived generation, a
+      // dry run, publish, activation and a human approval, and only stopped at
+      // the send — where the customer had already agreed to email a candidate
+      // a letter that would have had no body. Caught here it is one sentence
+      // back to the agent, which then fixes it before anything is saved.
+      const nodeIds = new Set(parsed.nodes.map((n) => String(n.id)));
+      const nodeIdRefs = findNodeIdRefs(parsed.nodes, nodeIds);
+      if (nodeIdRefs.length > 0) {
+        return {
+          ok: false,
+          summary: `${nodeIdRefs.length} reference(s) point at a step id`,
+          result: {
+            error:
+              `These refer to a step by its id, which always resolves to blank: ${nodeIdRefs.join(', ')}. ` +
+              "Use the step's own outputKey instead — a step with " +
+              '`"outputKey":"decision"` is read as {{decision}}, not {{stepId.decision}}.',
+          },
+        };
+      }
+
+      const untestable = findUntestableConditions(
+        parsed.nodes as unknown as Record<string, unknown>[],
+      );
+      if (untestable.length > 0) {
+        return {
+          ok: false,
+          summary: `${untestable.length} branch(es) can never be taken`,
+          result: {
+            error:
+              `An AI Employee answers in sentences, so these comparisons can never match: ${untestable.join('; ')}. ` +
+              'Either tell that step, in its instruction, to reply with exactly the word you are testing for ' +
+              '(e.g. "Reply with exactly one word: true or false"), or compare with "contains" against a phrase ' +
+              'it will really write. A branch that can never be taken silently skips everything on it — including approvals.',
+          },
+        };
+      }
+
       // Frozen-17 enforcement in CODE, not just in the prompt (G32). A model
       // that reaches for the retired AI_STEP/NOTIFY gets told what to use.
       const banned = parsed.nodes.filter((n) => !isFrozenNodeType(String(n.type)));
@@ -181,12 +391,25 @@ function proposeGraph(
       // The SAME structural validator every human write path uses — no
       // assist-specific dialect can creep in.
       const issues = collectDefinitionIssues(parsed);
-      if (issues.length > 0) {
+      // ONE exception: a step whose AI Employee has not been hired yet.
+      //
+      // Rejecting that put the assistant in a corner with no honest way out.
+      // Asked for a recruitment workflow by a company with no RECRUITER hired,
+      // it was told to design the step anyway ("Being honest" in the prompt),
+      // forbidden from giving the work to the wrong role, and then refused by
+      // this gate when it tried to save — so it stopped and asked the customer
+      // for permission to proceed, which is not something they can answer.
+      //
+      // `resolveReferences` already reports it below as "needs an AI Employee
+      // assigned", and publish still blocks on it, so nothing can go live
+      // half-built. Every other problem is still a hard rejection.
+      const blocking = issues.filter((i) => i.code !== 'MISSING_EMPLOYEE');
+      if (blocking.length > 0) {
         return {
           ok: false,
-          summary: `Graph had ${issues.length} problem(s)`,
+          summary: `Graph had ${blocking.length} problem(s)`,
           result: {
-            error: `The workflow isn't valid yet: ${issues
+            error: `The workflow isn't valid yet: ${blocking
               .map((i) => `${i.nodeId ? `[${i.nodeId}] ` : ''}${i.message}`)
               .join(' · ')}`,
           },

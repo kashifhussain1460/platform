@@ -158,12 +158,17 @@ function MessageList({
 
   return (
     <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-      {session.messages.map((m) => (
+      {session.messages.map((m, i) => (
         <PersistedMessage
           key={m.id}
           message={m}
           onResume={onResume}
           resuming={streaming}
+          // Only the LAST message may carry on by itself: that is the one the
+          // conversation is waiting on. An older skill card is history, and
+          // auto-resuming from it would start a turn nobody asked for every
+          // time the conversation was reopened.
+          autoResume={i === session.messages.length - 1}
         />
       ))}
 
@@ -196,6 +201,8 @@ function MessageList({
               sessionId={session.id}
               onResume={onResume}
               resuming={streaming}
+              // The turn in flight is by definition what we're waiting on.
+              autoResume
             />
           ) : null}
         </div>

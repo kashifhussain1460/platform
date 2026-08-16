@@ -106,6 +106,13 @@ test.describe('Golden Enterprise Journey (§23)', () => {
     const docName = `handbook-${suffix}.txt`;
     await page.goto('/knowledge');
     await page.waitForLoadState('networkidle');
+    // Choosing who can read the document is now a REQUIRED step, not a default.
+    // The page used to default to "Shared (everyone)", so a document uploaded by
+    // someone who never opened this dropdown became readable by every AI
+    // Employee — an HR salary band answerable by the Sales assistant, with
+    // nothing anywhere saying so. Uploads are blocked until a human decides, so
+    // the journey has to decide too.
+    await page.getByLabel(/visible to/i).selectOption('SHARED');
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles({
       name: docName,
@@ -130,7 +137,17 @@ test.describe('Golden Enterprise Journey (§23)', () => {
             skillKey: 'stripe',
             tool: 'create_payment_link',
             employeeId: employee.id,
-            args: { amount: 4200, currency: 'usd' },
+            // `description` is required by the catalog tool. It was absent and
+            // the mock executor accepted the call anyway; a real Stripe call
+            // would have rejected it, and TOOL_ACTION now refuses to send a
+            // required argument that resolved to nothing. The approval gate is
+            // what this journey tests, so the args just need to be the ones a
+            // customer would really set.
+            args: {
+              amount: 4200,
+              currency: 'usd',
+              description: 'Golden journey payment link',
+            },
             outputKey: 'link',
           },
         },

@@ -10,6 +10,7 @@ import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
 import { WorkflowCanvas } from '@/features/workflows/components/builder/canvas/WorkflowCanvas';
 import { simplifiedWorkflowUX } from '@/lib/featureFlags';
 import { useSessionStore } from '@/stores/session.store';
+import { AssistBusyOverlay } from '@/features/assist/components/AssistBusyOverlay';
 import { AssistChat } from '@/features/assist/components/AssistChat';
 import { AssistStageRail } from '@/features/assist/components/AssistStageRail';
 import {
@@ -128,6 +129,15 @@ export default function AssistSessionPage() {
     );
   }
 
+  /**
+   * Working = a turn is in flight (until the stream's `done` event flips status
+   * back to idle), or the workflow row is being created straight afterwards.
+   *
+   * Both are covered because from the user's side they are one wait: the moment
+   * the overlay lifts is the moment there is something to look at.
+   */
+  const busy = stream.status === 'streaming' || accept.isPending;
+
   // Prefer the freshly-streamed graph; fall back to what's persisted.
   const definition = stream.graph?.definition ?? session.draftDefinition;
   const nodeCount = definition?.nodes.length ?? 0;
@@ -207,7 +217,8 @@ export default function AssistSessionPage() {
             aria-label="The workflow being built"
           >
             {nodeCount === 0 ? (
-              <div className="flex flex-1 items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 text-center">
+              // `relative` so the busy overlay can cover exactly this panel.
+              <div className="relative flex flex-1 items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 text-center">
                 <div>
                   <WandSparkles
                     className="mx-auto mb-3 h-6 w-6 text-zinc-600"
@@ -217,13 +228,21 @@ export default function AssistSessionPage() {
                     Your workflow will appear here as Orlixa builds it.
                   </p>
                 </div>
+                <AssistBusyOverlay active={busy} label={stream.thinking} />
               </div>
             ) : (
               <>
-                <div className="min-h-0 flex-1 overflow-hidden">
+                <div className="relative min-h-0 flex-1 overflow-hidden">
                   <AssistPreview
                     definition={definition}
                     locked={stream.status === 'streaming'}
+                  />
+                  {/* Over the canvas too: a partly-built graph looks finished,
+                      which is how people accepted a half-made workflow. */}
+                  <AssistBusyOverlay
+                    active={busy}
+                    label={stream.thinking}
+                    nodeCount={nodeCount}
                   />
                 </div>
                 {/* The one case the automatic hand-off deliberately skips: the

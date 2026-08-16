@@ -157,6 +157,8 @@ export class ApprovalSlaService {
         req.workflowRunId,
         'Approval EXPIRED — SLA breached, no further escalation configured',
         req.companyId,
+        // An expiry is a TIMEOUT, not a rejection: nobody decided anything.
+        'TIMEOUT',
       );
     }
     this.logger.warn(`approval-sla expired chain=${req.chainId} level=${req.level}`);

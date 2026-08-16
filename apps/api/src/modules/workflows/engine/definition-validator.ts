@@ -265,9 +265,15 @@ export function collectDefinitionIssues(
 
     if (node.type === 'AI_EMPLOYEE_STEP') {
       if (typeof cfg.employeeId !== 'string' || !cfg.employeeId.trim()) {
+        // Its own code, not the generic INVALID_CONFIG, because this is the one
+        // gap a freshly-designed workflow legitimately has: the right AI
+        // Employee has not been hired yet. Publishing still blocks on it (every
+        // issue does), but a DRAFT may carry it — see `propose_graph`, which
+        // lets this through so the assistant can design the workflow the
+        // customer asked for instead of refusing until they go and hire someone.
         push(
           node.id,
-          'INVALID_CONFIG',
+          'MISSING_EMPLOYEE',
           `AI_EMPLOYEE_STEP node "${node.id}" needs an employeeId`,
         );
       }

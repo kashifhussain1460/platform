@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import type { SkillConnectionStatus } from '@vaep/types';
 import { Button } from '@/components/ui/Button';
 import { ConnectSkillControl } from './ConnectSkillControl';
 import {
@@ -12,13 +13,36 @@ import {
   useUnassignSkill,
 } from '../hooks';
 
+const CONNECTION_LABELS: Record<SkillConnectionStatus, { text: string; className: string }> = {
+  CONNECTED: { text: 'Connected', className: 'bg-green-500/15 text-green-400' },
+  NOT_CONNECTED: { text: 'Not connected', className: 'bg-white/[0.06] text-zinc-400' },
+  DEGRADED: { text: 'Degraded', className: 'bg-amber-500/15 text-amber-400' },
+  DISCONNECTED: { text: 'Disconnected', className: 'bg-red-500/15 text-red-400' },
+};
+
+function ConnectionBadge({ status }: { status: SkillConnectionStatus }) {
+  const { text, className } = CONNECTION_LABELS[status];
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${className}`}>
+      {text}
+    </span>
+  );
+}
+
 /**
  * Assign / unassign already-installed company skills to a specific employee
  * (optimistic), plus a section to give this employee its OWN connection of an
  * OAuth-capable skill (e.g. its own Gmail mailbox) — separate from any
  * company-wide connection managed on the global /skills page.
  */
-export function EmployeeSkillPicker({ employeeId }: { employeeId: string }) {
+export function EmployeeSkillPicker({
+  employeeId,
+  employeeName,
+}: {
+  employeeId: string;
+  employeeName?: string;
+}) {
+  const who = employeeName ?? 'this employee';
   const { data: installed, isLoading } = useInstalledSkills();
   const { data: catalog } = useCatalog();
   const { data: assigned } = useEmployeeSkills(employeeId);
@@ -55,7 +79,17 @@ export function EmployeeSkillPicker({ employeeId }: { employeeId: string }) {
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-        <h2 className="mb-3 text-sm font-medium text-zinc-400">Skills</h2>
+        <h2 className="mb-1 text-sm font-medium text-zinc-400">Skills</h2>
+        {/* Without this line the screen looks broken: a skill shows as
+            connected on the Skills page and still offers "Assign" here, and
+            nothing says those are two different things. Connecting is done
+            once for the company; assigning is per AI Employee, and an employee
+            can only use what it has been given. */}
+        <p className="mb-3 text-xs text-zinc-500">
+          Connecting a skill is done once for the whole company. Assigning
+          decides which AI Employee may use it — {who} can only use the skills
+          assigned here.
+        </p>
 
         {isLoading ? (
           <p className="text-sm text-zinc-500">Loading skills…</p>
@@ -77,13 +111,35 @@ export function EmployeeSkillPicker({ employeeId }: { employeeId: string }) {
                   className="flex items-center justify-between gap-4 py-2.5"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-white">
-                      {skill.displayName}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate text-sm font-medium text-white">
+                        {skill.displayName}
+                      </p>
+                      <ConnectionBadge status={skill.connectionStatus} />
+                      {isAssigned ? (
+                        <span className="rounded-full bg-violet/20 px-2 py-0.5 text-xs font-medium text-violet-secondary">
+                          {who} can use this
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="text-xs text-zinc-500">
                       {skill.skillKey}
                       {!skill.enabled && ' · disabled'}
                     </p>
+                    {/* Assigning a skill nobody has connected hands the
+                        employee a tool that fails the moment it is used, and
+                        the failure surfaces mid-conversation rather than
+                        here. */}
+                    {skill.connectionStatus !== 'CONNECTED' ? (
+                      <p className="mt-1 text-xs text-status-warning">
+                        Not connected yet — actions will fail until someone
+                        connects it on the{' '}
+                        <Link href="/skills" className="underline hover:text-white">
+                          Skills page
+                        </Link>
+                        .
+                      </p>
+                    ) : null}
                   </div>
                   {isAssigned ? (
                     <button

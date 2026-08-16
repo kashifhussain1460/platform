@@ -71,6 +71,71 @@ export function resolveTemplate(
   });
 }
 
+/** A required argument that came out of templating with nothing in it. */
+export interface MissingArg {
+  /** The argument name, e.g. `to`. */
+  arg: string;
+  /**
+   * The `{{paths}}` in that argument that had no value in this run. Empty when
+   * the author simply left the field blank rather than referencing anything.
+   */
+  refs: string[];
+}
+
+/**
+ * Required arguments that resolved to nothing.
+ *
+ * `resolveTemplate` turns an unknown path into an empty string, which is the
+ * right call for an optional field and a trap for a required one: the step then
+ * calls the provider with `to: ""` and the customer gets back a vendor error
+ * ("Gmail API error (400): Recipient address required") that names neither the
+ * step, the argument, nor the placeholder that came up empty.
+ *
+ * Only REQUIRED arguments are reported — an optional `cc` that resolves to ''
+ * keeps behaving exactly as it did.
+ */
+export function findMissingRequiredArgs(
+  rawArgs: Record<string, unknown> | undefined,
+  resolvedArgs: Record<string, unknown>,
+  context: Record<string, unknown>,
+  required: string[],
+): MissingArg[] {
+  const missing: MissingArg[] = [];
+  for (const arg of required) {
+    const value = resolvedArgs[arg];
+    const isBlank =
+      value == null || (typeof value === 'string' && value.trim() === '');
+    if (!isBlank) {
+      continue;
+    }
+    missing.push({ arg, refs: unresolvedRefs(rawArgs?.[arg], context) });
+  }
+  return missing;
+}
+
+/** The `{{paths}}` inside one raw template whose value is absent from `context`. */
+function unresolvedRefs(
+  raw: unknown,
+  context: Record<string, unknown>,
+): string[] {
+  if (typeof raw !== 'string') {
+    return [];
+  }
+  const refs: string[] = [];
+  for (const match of raw.matchAll(TEMPLATE_RE)) {
+    const path = match[1];
+    // Secret refs are resolved later at the connector boundary, so "absent from
+    // context" says nothing about them.
+    if (path === 'secret' || path.startsWith('secret.')) {
+      continue;
+    }
+    if (lookup(context, path) == null) {
+      refs.push(path);
+    }
+  }
+  return refs;
+}
+
 /** Resolve every value of a `{ key: template }` map into a string map. */
 export function resolveArgs(
   args: Record<string, unknown> | undefined,

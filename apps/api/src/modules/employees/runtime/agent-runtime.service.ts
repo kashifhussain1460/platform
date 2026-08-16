@@ -21,6 +21,7 @@ import { toMessageDto } from '../employees.mapper';
 import { UsageService, startOfCurrentMonthUtc } from '../../usage/usage.service';
 import { LlmRouterService } from './llm-router.service';
 import { MemoryService, type LoadedMemory } from './memory.service';
+import { OUT_OF_SCOPE_MARKER, readScope } from './out-of-scope';
 import { PlannerService } from './planner.service';
 import { RetrievalService } from './retrieval.service';
 import { ToolExecutorService } from './tool-executor.service';
@@ -46,6 +47,20 @@ interface OtherEmployee {
  *   {plan, sources, validation, toolCalls} metadata) → write a SUMMARY memory →
  *   return RunResultDto.
  */
+/** Per-turn switches the workflow AI_EMPLOYEE_STEP node uses (chat passes none). */
+interface RunTurnOptions {
+  forceApprovalForTools?: boolean;
+  disableTools?: boolean;
+  forceApprovalForExternalActions?: boolean;
+  /**
+   * Cancels the model calls this turn makes. Supplied by the workflow
+   * AI_EMPLOYEE_STEP node, whose per-node timeout would otherwise abandon a
+   * hung completion rather than stop it — the request would keep running
+   * against the provider's own, longer timeout and keep spending.
+   */
+  signal?: AbortSignal;
+}
+
 @Injectable()
 export class AgentRuntimeService {
   private readonly logger = new Logger(AgentRuntimeService.name);
@@ -65,18 +80,7 @@ export class AgentRuntimeService {
     employee: AiEmployee,
     conversation: Conversation,
     userText: string,
-    options?: {
-      forceApprovalForTools?: boolean;
-      disableTools?: boolean;
-      forceApprovalForExternalActions?: boolean;
-      /**
-       * Cancels the model calls this turn makes. Supplied by the workflow
-       * AI_EMPLOYEE_STEP node, whose per-node timeout would otherwise abandon a
-       * hung completion rather than stop it — the request would keep running
-       * against the provider's own, longer timeout and keep spending.
-       */
-      signal?: AbortSignal;
-    },
+    options?: RunTurnOptions,
   ): Promise<RunResultDto> {
     // Guard: only ACTIVE employees accept new work.
     if (employee.status !== 'ACTIVE') {
@@ -101,7 +105,7 @@ export class AgentRuntimeService {
     await this.assertUnderBudget(employee);
 
     // Persist the user turn first so it is part of the loaded memory/history.
-    await this.prisma.message.create({
+    const userTurn = await this.prisma.message.create({
       data: {
         companyId,
         conversationId: conversation.id,
@@ -109,6 +113,106 @@ export class AgentRuntimeService {
         content: userText,
       },
     });
+
+    // EVERYTHING below can throw — a model timeout, a provider 429, a tool
+    // failure — and the user turn above is already committed by then. Without
+    // this guard a failed run left the question sitting in the thread with no
+    // reply; the customer asks again and the conversation shows what looks
+    // like a duplicate message. Observed in the wild: two identical USER rows
+    // 4s apart with a single ASSISTANT row after them.
+    const toolCalls: ToolCallDto[] = [];
+    try {
+      return await this.completeTurn(
+        employee,
+        conversation,
+        userText,
+        toolCalls,
+        options,
+      );
+    } catch (err) {
+      await this.settleFailedTurn(
+        companyId,
+        conversation.id,
+        userTurn.id,
+        toolCalls,
+        err,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Undo or annotate a turn whose run failed after the user message was
+   * committed.
+   *
+   * With NO tool call executed, nothing outside this conversation happened, so
+   * the partial write is simply removed — the caller's error is the whole
+   * story and the thread stays clean.
+   *
+   * Once a tool HAS run, deleting would erase the only record of a real
+   * side effect (an email that went out, a ticket that was created), so the
+   * turn is kept and an assistant note records that the reply never arrived.
+   */
+  private async settleFailedTurn(
+    companyId: string,
+    conversationId: string,
+    userMessageId: string,
+    toolCalls: ToolCallDto[],
+    err: unknown,
+  ): Promise<void> {
+    const reason = err instanceof Error ? err.message : String(err);
+    try {
+      if (toolCalls.length === 0) {
+        await this.prisma.message.delete({ where: { id: userMessageId } });
+        this.logger.warn(
+          `Turn failed before any tool ran; rolled back the user message (${reason})`,
+        );
+        return;
+      }
+      const metadata: MessageMetadataDto = {
+        plan: [],
+        sources: [],
+        validation: {
+          grounded: false,
+          confidence: 0,
+          needsApproval: false,
+          notes: 'The run failed before an answer was produced.',
+        },
+        toolCalls,
+      };
+      await this.prisma.message.create({
+        data: {
+          companyId,
+          conversationId,
+          role: 'ASSISTANT',
+          content:
+            'I could not finish this answer. Some actions had already been ' +
+            'taken — check the tool activity below before asking again.',
+          metadata: metadata as unknown as Prisma.InputJsonObject,
+        },
+      });
+      this.logger.warn(
+        `Turn failed after ${toolCalls.length} tool call(s); kept the turn and recorded the failure (${reason})`,
+      );
+    } catch (cleanupErr) {
+      // Never let cleanup mask the original failure the caller is about to see.
+      this.logger.error(
+        `Failed to settle a failed turn: ${
+          cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
+        }`,
+      );
+    }
+  }
+
+  /** The turn itself: PLAN → RETRIEVE → MEMORY → ACT → VALIDATE → persist. */
+  private async completeTurn(
+    employee: AiEmployee,
+    conversation: Conversation,
+    userText: string,
+    toolCalls: ToolCallDto[],
+    options?: RunTurnOptions,
+  ): Promise<RunResultDto> {
+    const { companyId } = employee;
 
     // PLAN → RETRIEVE (knowledge) → load MEMORY.
     const plan = await this.planner.plan(
@@ -163,7 +267,6 @@ export class AgentRuntimeService {
       employeeId: employee.id,
       conversationId: conversation.id,
     };
-    const toolCalls: ToolCallDto[] = [];
     let working = this.buildMessages(memory, userText);
     let answer = '';
     let awaitingApproval = false;
@@ -242,6 +345,13 @@ export class AgentRuntimeService {
       answer = (draft.content ?? '').trim();
     }
 
+    // Did the employee DECLINE this as someone else's job? Strip the marker
+    // before anything is stored or shown — the customer should read a plain
+    // apology, not a protocol token — but keep the verdict, because a workflow
+    // step must fail rather than record a refusal as finished work.
+    const scope = readScope(answer);
+    answer = scope.answer;
+
     // A high-risk action was routed to the Approval Center — make it explicit in
     // the assistant turn so the user knows nothing was performed yet.
     if (awaitingApproval) {
@@ -285,6 +395,7 @@ export class AgentRuntimeService {
       sources,
       validation,
       toolCalls,
+      outOfScope: scope.outOfScope,
     };
   }
 
@@ -305,10 +416,13 @@ export class AgentRuntimeService {
         'screening is RECRUITER work, bookkeeping/expenses is ACCOUNTANT work, ' +
         'people-ops policy is HR work, customer issues are SUPPORT work — or ' +
         'any role listed below) you MUST refuse to perform it, even partially. ' +
-        'Reply with ONLY a short, polite decline explaining this is outside ' +
+        `Begin that reply with the exact marker ${OUT_OF_SCOPE_MARKER} and then ` +
+        'give ONLY a short, polite decline explaining this is outside ' +
         'your role and naming the correct AI employee/role for it — do not ' +
         'produce the requested output, an estimate, or a "however, in ' +
-        'general..." answer.',
+        'general..." answer. The marker is how the platform tells a refusal ' +
+        'from an answer; without it a workflow step records your refusal as ' +
+        'completed work. Use it ONLY when you are declining.',
     ];
     // Named, per-company redirect targets — generalizes the refusal above
     // beyond the 4 hardcoded example categories (RECRUITER/ACCOUNTANT/HR/

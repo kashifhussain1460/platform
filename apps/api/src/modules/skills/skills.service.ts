@@ -11,6 +11,7 @@ import type {
   ConfigFieldDto,
   EmployeeSkillDto,
   InstalledSkillDto,
+  SkillConnectionStatus,
   SkillDefinitionDto,
   ToolCallDto,
   ToolDefinitionDto,
@@ -30,6 +31,11 @@ import { CircuitOpenError } from '../../common/resilience/circuit-breaker';
 import { RateLimiter } from '../../common/resilience/rate-limiter';
 import { countsTowardCircuit } from '../../common/resilience/error-classifier';
 import { SkillCatalog, type SkillDefinition } from './catalog';
+import {
+  getProviderAdapter,
+  runVerification,
+  type VerifyStep,
+} from './providers';
 import { ConnectorHealthService } from './connectors/connector-health.service';
 import { ConnectorTokenService } from './connectors/connector-token.service';
 import {
@@ -50,6 +56,11 @@ import {
 import { toEmployeeSkillDto, toInstalledSkillDto } from './skills.mapper';
 import { SuppressionService } from '../engines/marketing/suppression.service';
 import { extractRecipients } from './recipient-extraction';
+
+/** The detail of the first FAILED verification step — what to show + store. */
+function lastFailure(steps: VerifyStep[]): string | undefined {
+  return steps.find((s) => s.status === 'FAILED')?.detail;
+}
 
 /**
  * Tenant-scoped skills: install/uninstall built-in skills, assign them to
@@ -281,6 +292,43 @@ export class SkillsService {
       ...this.readCredentials(installed.credentials),
       ...dto.credentials,
     };
+
+    // §37 — "A skill is NOT complete because the Install button works."
+    //
+    // This method used to write CONNECTED unconditionally: type any string into
+    // the box and the connector claimed to be live, while the first real
+    // execution failed (or silently ran on the mock executor). That is the §1
+    // `Install → API Key → Save` anti-pattern, and it is why a customer could
+    // see "Installed" on one screen and "Not connected" on another with no way
+    // to tell which was right.
+    //
+    // Skills WITHOUT an adapter keep the previous behaviour on purpose — see the
+    // provider-adapter header. Only providers that can actually be checked are
+    // held to the gate.
+    const adapter = getProviderAdapter(installed.skillKey);
+    if (adapter) {
+      const check = await adapter.validateCredentials({
+        creds: mergedCreds,
+        config: ((installed.config as Record<string, unknown> | null) ?? {}),
+      });
+      if (!check.ok) {
+        await this.auditLog.record({
+          companyId,
+          action: 'connector.connect_failed',
+          entityType: 'InstalledSkill',
+          entityId: installed.id,
+          metadata: {
+            skillKey: installed.skillKey,
+            code: check.code ?? 'AUTH_FAILED',
+            // The adapter guarantees this carries no credential (§4).
+            detail: check.detail ?? null,
+          },
+        });
+        throw new BadRequestException(
+          check.detail ?? 'The provider rejected these credentials.',
+        );
+      }
+    }
 
     const row = await this.prisma.installedSkill.update({
       where: { id },
@@ -911,6 +959,105 @@ export class SkillsService {
    * exchange; scoped by the companyId carried in the signed state so a tenant
    * can only connect its own skill.
    */
+  /**
+   * §3 / §26 — run the connection state machine and report every stage.
+   *
+   * This is what the setup wizard calls. It is deliberately SEPARATE from
+   * `connectSkill`: connect proves the credentials are usable (cheap, no side
+   * effect, runs on every save), while verify additionally discovers the account
+   * and can send a real test message — which the user has to ask for, because a
+   * test that emails somebody is itself an outbound action.
+   *
+   * A skill with no adapter reports a single SKIPPED step rather than a green
+   * tick, so "we cannot check this provider yet" never reads as "verified".
+   */
+  async verifyConnection(
+    companyId: string,
+    id: string,
+    opts: { includeTest?: boolean; testTo?: string } = {},
+  ): Promise<{
+    ok: boolean;
+    steps: VerifyStep[];
+    account: string | null;
+    code?: string;
+    connectionStatus: SkillConnectionStatus;
+  }> {
+    const installed = await this.findOwnedInstalled(companyId, id);
+    const adapter = getProviderAdapter(installed.skillKey);
+    const current = installed.connectionStatus as SkillConnectionStatus;
+
+    if (!adapter) {
+      return {
+        ok: false,
+        steps: [
+          {
+            key: 'credentials',
+            label: 'Sign in to the provider',
+            status: 'SKIPPED',
+            detail: 'Orlixa cannot verify this provider automatically yet.',
+          },
+        ],
+        account: null,
+        connectionStatus: current,
+      };
+    }
+
+    const input = {
+      creds: this.readCredentials(installed.credentials),
+      config: ((installed.config as Record<string, unknown> | null) ?? {}),
+    };
+    const result = await runVerification(adapter, input, {
+      includeTest: Boolean(opts.includeTest),
+      testTo: opts.testTo,
+    });
+
+    // The verification IS the status. A pass promotes the connector to
+    // CONNECTED and resets the health lifecycle exactly as `connect` does; a
+    // failure demotes it, because a connection that cannot authenticate right
+    // now must not keep telling workflows it is usable.
+    const nextStatus: SkillConnectionStatus = result.ok
+      ? 'CONNECTED'
+      : current === 'CONNECTED'
+        ? 'DEGRADED'
+        : 'NOT_CONNECTED';
+
+    const row = await this.prisma.installedSkill.update({
+      where: { id },
+      data: {
+        connectionStatus: nextStatus,
+        lastHealthCheckAt: new Date(),
+        consecutiveErrors: result.ok ? 0 : { increment: 1 },
+        lastHealthError: result.ok ? null : (lastFailure(result.steps) ?? null),
+        ...(result.ok ? { disabledReason: null } : {}),
+        ...(result.account
+          ? {
+              config: {
+                ...input.config,
+                // Non-secret, and the thing §6 assignment is reasoned about.
+                connectedAccount: result.account,
+              } as Prisma.InputJsonObject,
+            }
+          : {}),
+      },
+    });
+
+    await this.auditLog.record({
+      companyId,
+      action: result.ok ? 'connector.verified' : 'connector.verify_failed',
+      entityType: 'InstalledSkill',
+      entityId: row.id,
+      metadata: {
+        skillKey: installed.skillKey,
+        account: result.account,
+        code: result.code ?? null,
+        testRequested: Boolean(opts.includeTest),
+        steps: result.steps.map((s) => ({ key: s.key, status: s.status })),
+      },
+    });
+
+    return { ...result, connectionStatus: nextStatus };
+  }
+
   async connectOAuth(
     companyId: string,
     installedSkillId: string,

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, type ElementType } from 'react';
+import { useEffect, useRef, useState, type ElementType } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Activity,
   Calendar,
@@ -34,6 +35,7 @@ import {
 import { CONNECTION_STATUS_STYLES, formatConnectionStatus } from '../labels';
 import type { InstalledSkillDto, SkillDefinitionDto } from '../schemas';
 import { ConfigureSkillForm } from './ConfigureSkillForm';
+import { SkillSetupWizard } from './SkillSetupWizard';
 import { ConnectSkillControl } from './ConnectSkillControl';
 
 /** Real brand marks where we have one; a plain lucide glyph in a badge otherwise. */
@@ -105,6 +107,12 @@ function ActionIconButton({
   );
 }
 
+/**
+ * Skills whose backend has a provider adapter, so the guided setup can really
+ * verify. Mirrors `registerProviderAdapter` in the API's `skills/providers`.
+ */
+const WIZARD_SKILLS = new Set(['email']);
+
 /** One installed-skill card: connect, configure, events, health, enable/disable, uninstall. */
 function InstalledSkillRow({
   skill,
@@ -119,10 +127,48 @@ function InstalledSkillRow({
   const [showConfig, setShowConfig] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
   const isTemp = skill.id.startsWith('temp_');
+  /**
+   * Which skills get the sequential wizard.
+   *
+   * Kept as an explicit list rather than "anything with a configSchema" so
+   * turning a provider on is a deliberate act tied to it having a real backend
+   * adapter — a wizard whose "Check connection" step cannot actually check
+   * anything would be worse than the plain control it replaces.
+   */
+  const usesWizard = WIZARD_SKILLS.has(skill.skillKey);
+  const [showWizard, setShowWizard] = useState(false);
   const health = checkHealth.data;
 
+  /**
+   * Arrived from AI Assist's "finish connecting it" link (`?connect=<key>`) or
+   * the catalog's own anchor. Scroll this row into view and ring it, because
+   * landing at the top of a long Skills page and being told to "connect it"
+   * is how people ended up connecting nothing at all.
+   */
+  const rowRef = useRef<HTMLDivElement>(null);
+  const search = useSearchParams();
+  const targeted = search.get('connect') === skill.skillKey;
+  useEffect(() => {
+    if (!targeted) return;
+    rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Arriving from "finish connecting it" should LAND on the setup, not on a
+    // highlighted row the user then has to find a button in. One less step at
+    // the exact point people were giving up.
+    if (usesWizard) setShowWizard(true);
+  }, [targeted, usesWizard]);
+
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 transition-colors hover:border-white/[0.14]">
+    <div
+      ref={rowRef}
+      id={`installed-${skill.skillKey}`}
+      // `scroll-mt` keeps the sticky header from covering the row on an anchor
+      // jump; the ring is the "you are here" cue for the highlighted skill.
+      className={`scroll-mt-24 rounded-2xl border bg-white/[0.02] p-4 transition-colors ${
+        targeted
+          ? 'border-violet/60 ring-1 ring-violet/40'
+          : 'border-white/[0.07] hover:border-white/[0.14]'
+      }`}
+    >
       <div className="flex items-center gap-3">
         <ConnectorMark skillKey={skill.skillKey} />
         <div className="min-w-0 flex-1">
@@ -143,10 +189,27 @@ function InstalledSkillRow({
       <p className="mt-3 truncate text-[11px] text-zinc-600">{skill.skillKey}</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {def ? (
-          <ConnectSkillControl installed={skill} def={def} />
-        ) : (
+        {!def ? (
           <span className="text-xs text-zinc-600">Unknown skill</span>
+        ) : usesWizard ? (
+          // Providers Orlixa can really verify get the sequential wizard (§26)
+          // instead of a single credential box: they need several fields, and
+          // the connection is only allowed to become live once the provider has
+          // actually accepted them (§37).
+          <button
+            type="button"
+            onClick={() => setShowWizard((v) => !v)}
+            disabled={isTemp}
+            className="rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {showWizard
+              ? 'Hide setup'
+              : skill.connectionStatus === 'CONNECTED'
+                ? 'Manage connection'
+                : (def.connection?.label ?? 'Set up')}
+          </button>
+        ) : (
+          <ConnectSkillControl installed={skill} def={def} />
         )}
         <div className="ml-auto flex items-center gap-1.5">
           {def && (
@@ -190,7 +253,21 @@ function InstalledSkillRow({
         </div>
       </div>
 
-      {showConfig && def && (
+      {showWizard && def && (
+        <div className="mt-4">
+          <SkillSetupWizard
+            installed={skill}
+            def={def}
+            onClose={() => setShowWizard(false)}
+          />
+        </div>
+      )}
+
+      {/* The raw config form stays available behind the gear for a connected
+          skill (changing a signature, a daily cap). It is hidden while the
+          wizard is open so the same fields are never editable in two places at
+          once — that is how half-saved settings happen. */}
+      {showConfig && def && !showWizard && (
         <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
           <ConfigureSkillForm
             installed={skill}

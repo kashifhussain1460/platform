@@ -268,4 +268,41 @@ describeIfDb('Assist agent loop (doc 30 A2)', () => {
       .send({ text: 'Let me in.' })
       .expect(404);
   }, 40_000);
+
+  it('does not store the opening prompt twice when it is sent again unanswered', async () => {
+    // The client is meant to open the stream with EMPTY text when a session was
+    // created with a prompt. When it sends the words again instead, the customer
+    // saw their own question twice in the thread — and it cost them one of their
+    // limited turns for a message the agent was already going to read.
+    const prompt = 'When a CV arrives, acknowledge it by email.';
+    const sessionId = await startSession(prompt);
+
+    await request(app.getHttpServer())
+      .post(`/assist/sessions/${sessionId}/turns`)
+      .set(bearer(token))
+      .send({ text: prompt })
+      .expect(201);
+
+    const asked = await prisma.assistMessage.count({
+      where: { sessionId, role: 'USER' },
+    });
+    expect(asked).toBe(1);
+  });
+
+  it('still stores a genuinely new question', async () => {
+    // The guard must only collapse a REPEAT of the unanswered turn — a real
+    // follow-up has to land, or the conversation stops working.
+    const sessionId = await startSession('Acknowledge new CVs by email.');
+
+    await request(app.getHttpServer())
+      .post(`/assist/sessions/${sessionId}/turns`)
+      .set(bearer(token))
+      .send({ text: 'Also tell the hiring manager on Slack.' })
+      .expect(201);
+
+    const asked = await prisma.assistMessage.count({
+      where: { sessionId, role: 'USER' },
+    });
+    expect(asked).toBe(2);
+  });
 });

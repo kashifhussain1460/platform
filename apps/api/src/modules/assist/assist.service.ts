@@ -224,7 +224,18 @@ export class AssistService {
     // An empty text means "the opening prompt is already stored, just run" —
     // used when a session is created with a prompt and the client immediately
     // opens the stream instead of sending the same words twice.
-    if (text.trim()) {
+    // Storing the SAME words again when the last turn is still unanswered shows
+    // the customer their own prompt twice and spends one of their
+    // ASSIST_MAX_TURNS rounds on a message the agent was already going to read.
+    // Seen in the wild: the opening prompt appeared twice in one session, 22s
+    // apart, with a single reply after it. The client is supposed to open the
+    // stream with empty text in that case; this makes it not matter if it does
+    // not — a repeat of an unanswered question is the same question.
+    const last = existing.messages[existing.messages.length - 1];
+    const repeatsUnanswered =
+      last?.role === 'USER' && last.content.trim() === text.trim();
+
+    if (text.trim() && !repeatsUnanswered) {
       await this.prisma.assistMessage.create({
         data: { sessionId: id, companyId, role: 'USER', content: text },
       });

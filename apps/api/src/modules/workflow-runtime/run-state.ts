@@ -50,7 +50,18 @@ export const RUN_TRANSITIONS: Readonly<
 export const STEP_TRANSITIONS: Readonly<
   Record<StepRunStatus, readonly StepRunStatus[]>
 > = {
-  PENDING: ['RUNNING', 'SKIPPED', 'WAITING'],
+  /**
+   * WAVE 2: `FAILED` added.
+   *
+   * A step can genuinely fail without ever running. `NodeAttemptProcessor`
+   * claims the attempt lease BEFORE it transitions the step to RUNNING, so a
+   * worker killed in that window leaves a PENDING step with a dead attempt —
+   * and the reaper then has to settle it. Without this the reaper threw
+   * `IllegalStateTransitionError` mid-sweep, which (because the sweeps run under
+   * `Promise.all`) abandoned every remaining tenant's expired leases, due timers
+   * and stuck runs. One unusual row stopped recovery for everybody.
+   */
+  PENDING: ['RUNNING', 'SKIPPED', 'WAITING', 'FAILED'],
   RUNNING: ['COMPLETED', 'FAILED', 'RETRYING', 'WAITING', 'SKIPPED'],
   RETRYING: ['RUNNING', 'FAILED'],
   WAITING: ['RUNNING', 'FAILED', 'SKIPPED'],

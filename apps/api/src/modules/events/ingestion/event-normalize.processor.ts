@@ -10,6 +10,7 @@ import {
   type NormalizeJobData,
 } from '../events.constants';
 import { mapRawEvent } from '../normalization/event-mapper';
+import { getProviderDriver } from '../normalization/signature-verifier';
 import { toQueueError } from '../../../common/resilience/queue-retry';
 import { DEFAULT_QUEUE_CONCURRENCY } from '../../../common/resilience/queue-concurrency.constants';
 import { runInJobContext } from '../../../common/observability/job-context';
@@ -133,7 +134,23 @@ export class EventNormalizeProcessor extends WorkerHost {
       if (created && canonical) {
         try {
           await this.workflows.fireEvent(raw.companyId, canonical.type, {
-            eventId: canonical.id,
+            // Identify the run by the PROVIDER's delivery id when it gave one,
+            // not by our canonical row id.
+            //
+            // RawEvent dedupe keys on a hash of the signed body, which is right
+            // for replay: an identical delivery can never mint a second event.
+            // But a provider RETRY is rarely byte-identical — it re-stamps a
+            // timestamp or reorders keys — so it produced a fresh canonical row,
+            // a fresh id, a fresh idempotency key, and a SECOND workflow run.
+            // Measured: two deliveries of one logical event, differing only in a
+            // `deliveredAt` field, ran the workflow twice. Anything with a side
+            // effect would have fired twice too.
+            //
+            // The header is unsigned, but this runs only after the signature over
+            // the body has been verified, so the request as a whole is
+            // authenticated by the time we read it. Falling back to the canonical
+            // id keeps every provider that sends no delivery id exactly as it was.
+            eventId: deliveryIdFor(raw) ?? canonical.id,
             subject: canonical.subject ?? null,
             data: canonical.data ?? null,
           });
@@ -155,4 +172,26 @@ export class EventNormalizeProcessor extends WorkerHost {
       throw toQueueError(err);
     }
   }
+
+}
+
+/**
+ * The provider's own delivery identifier for a received event, if it sent one.
+ *
+ * Namespaced by provider so two providers cannot collide on a plain counter
+ * ("1"), and read through the same driver the ingress used, so a provider with
+ * a dedicated driver keeps its own header convention.
+ */
+export function deliveryIdFor(raw: {
+  provider: string;
+  headers: Prisma.JsonValue | null;
+}): string | null {
+  const headers = raw.headers;
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+    return null;
+  }
+  const id = getProviderDriver(raw.provider).externalId(
+    headers as Record<string, string>,
+  );
+  return id ? `${raw.provider}:${id}` : null;
 }

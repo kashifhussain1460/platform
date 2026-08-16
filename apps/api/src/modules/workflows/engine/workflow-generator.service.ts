@@ -179,6 +179,12 @@ export class WorkflowGeneratorService {
       'A TOOL_ACTION node\'s config must be {"skillKey":"...","tool":"...","args":{}} using ONLY a skillKey+tool pair from the installed skills list below — never invent one.',
       'An AI_STEP node\'s config may include an "employeeId" from the hired employees list below — pick the employee whose ROLE fits the task (e.g. screening/scoring CVs is a RECRUITER, not HR); omit it if none fits rather than using the wrong role.',
       'A node whose result a later node uses (AI_STEP, RETRIEVE) MUST set an "outputKey" in its config, e.g. "outputKey":"decision", and later nodes reference it as {{decision}} — never {{node_id}} (a node-id reference resolves to blank).',
+      // Without naming the trigger contract, a model that needs the incoming
+      // email address has nothing correct to write and invents the one thing it
+      // was told not to — a node-id path like {{trigger_new_application.email}}.
+      // Seen in a real generated recruiting workflow: the acknowledgement email
+      // went out with an empty "to" and the provider rejected it.
+      'The data the workflow was triggered with lives under "trigger": reference it as {{trigger.<field>}} — e.g. {{trigger.email}}, {{trigger.name}}. NEVER reference it through the trigger node\'s id.',
       'Every node needs a unique "id"; edges are {"from":"<id>","to":"<id>"}. Start with one TRIGGER node with no incoming edge.',
       'The engine supports real branching: a CONDITION node\'s config is {"left":"<template>","op":"eq"|"neq"|"contains"|"gt"|"lt","right":"<literal>"}, and its TWO outgoing edges must each carry a "branch":"true" or "branch":"false" tag so the run takes the matching path — e.g. {"from":"gate","to":"schedule","branch":"true"} and {"from":"gate","to":"decline","branch":"false"}. Use this whenever the user describes an if/then/otherwise, a qualification gate, or any "do X only when Y" requirement — do not fake it with two unconditional linear paths.',
       `${INSTALLED_SKILLS_OPEN}${JSON.stringify(skills)}${INSTALLED_SKILLS_CLOSE}`,

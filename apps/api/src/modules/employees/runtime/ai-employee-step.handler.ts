@@ -12,6 +12,12 @@ import { AgentRuntimeService } from './agent-runtime.service';
 /** Bound on tool calls per step — matches the chat runtime's own ceiling. */
 const DEFAULT_MAX_TOOL_CALLS = 3;
 
+/** Quote enough of a refusal to be actionable without pasting an essay into the run log. */
+function clip(text: string, max = 180): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
 /**
  * P2-03 — AI_EMPLOYEE_STEP.
  *
@@ -168,6 +174,21 @@ export class AiEmployeeStepNodeHandler implements NodeHandler, OnModuleInit {
 
     // RunResultDto exposes the persisted assistant MESSAGE, not a bare string.
     const text = result.message.content;
+
+    // The employee REFUSED this as another role's job. That is not a result.
+    //
+    // Left alone it was the worst kind of failure: the step recorded COMPLETED,
+    // the run went green, and the next step carried on with the refusal as its
+    // input — a live run ended with an acknowledgement email sent for a
+    // candidate summary that had never been written. A run nobody was told
+    // about is worse than one that stops.
+    if (result.outOfScope) {
+      throw new Error(
+        `Step "${node.id}" is assigned to ${employee.name}, a ${employee.role} ` +
+          `AI Employee, who declined it as outside that role: "${clip(text)}" — ` +
+          'give this step an AI Employee whose role covers the work.',
+      );
+    }
     const output = {
       employeeId,
       employeeName: employee.name,

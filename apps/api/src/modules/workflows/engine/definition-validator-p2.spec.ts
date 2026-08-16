@@ -247,9 +247,27 @@ describe('definition validator — P2 rules', () => {
   });
 
   it('requires employeeId/instruction on AI_EMPLOYEE_STEP', () => {
+    // The missing employee has its OWN code so a draft can carry it (the AI
+    // Employee may simply not be hired yet) while publish still refuses it.
+    // A missing instruction stays a plain config error — nobody but the author
+    // can supply that.
     expect(
       codes(def([{ id: 'a', type: 'AI_EMPLOYEE_STEP', config: {} }])),
-    ).toEqual(['INVALID_CONFIG', 'INVALID_CONFIG']);
+    ).toEqual(['MISSING_EMPLOYEE', 'INVALID_CONFIG']);
+  });
+
+  it('still BLOCKS publish on a missing employee — it is not a warning', () => {
+    // The whole reason it is safe for `propose_graph` to save a draft with this
+    // gap is that nothing downstream treats it as optional.
+    const issues = collectDefinitionIssues(
+      def([{ id: 'a', type: 'AI_EMPLOYEE_STEP', config: { instruction: 'do it' } }]),
+    );
+    expect(issues.map((i) => i.code)).toContain('MISSING_EMPLOYEE');
+    expect(() =>
+      validateDefinitionStructure(
+        def([{ id: 'a', type: 'AI_EMPLOYEE_STEP', config: { instruction: 'do it' } }]),
+      ),
+    ).toThrow();
   });
 
   it('requires employeeId and content on MEMORY_WRITE', () => {
