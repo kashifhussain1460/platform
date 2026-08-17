@@ -122,12 +122,12 @@ export function SkillRequirementCard({
   const activeKey = rows.find((r) => r.status !== 'READY')?.skillKey;
 
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
-      <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-zinc-200">
-        <Plug className="h-3.5 w-3.5 text-violet-secondary" aria-hidden />
+    <div className="rounded-xl border border-app-border bg-app-surface p-3">
+      <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-app-ink">
+        <Plug className="h-3.5 w-3.5 text-violet" aria-hidden />
         {allReady ? 'Skills connected' : 'Connect these skills'}
       </p>
-      <p className="mb-3 text-xs text-zinc-500">
+      <p className="mb-3 text-xs text-app-ink-3">
         {allReady
           ? 'Everything this workflow needs is connected.'
           : `Your workflow needs these before it can run — ${readyCount} of ${rows.length} connected. Connect the next one and Orlixa carries on by itself.`}
@@ -200,12 +200,12 @@ function SkillRow({
 
   return (
     <li
-      className={`rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 ${done ? 'opacity-60' : ''}`}
+      className={`rounded-lg border border-app-border bg-app-surface p-2.5 ${done ? 'opacity-60' : ''}`}
     >
       <div className="flex items-center gap-2.5">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-zinc-100">{req.displayName}</p>
-          <p className="truncate text-xs text-zinc-500">
+          <p className="truncate text-sm font-medium text-app-ink">{req.displayName}</p>
+          <p className="truncate text-xs text-app-ink-3">
             {req.capabilities.map((c) => CAPABILITY_LABEL[c] ?? c).join(' · ') || 'Skill'}
           </p>
         </div>
@@ -215,12 +215,12 @@ function SkillRow({
       </div>
 
       {done ? (
-        <p className="mt-1 flex items-center gap-1.5 text-xs text-status-succeeded">
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-sl-succeeded">
           <Check className="h-3.5 w-3.5" aria-hidden />
           Connected — nothing more to do here.
         </p>
       ) : !req.canManageConnection ? (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-status-warning">
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-sl-warning">
           <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
           An owner or admin needs to connect this.
         </p>
@@ -231,7 +231,7 @@ function SkillRow({
               type="button"
               onClick={connectOAuth}
               disabled={busy}
-              className="flex items-center gap-1.5 rounded-lg border border-violet/40 bg-violet/15 px-2.5 py-1.5 text-xs font-medium text-violet-secondary transition-colors hover:bg-violet/25 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex items-center gap-1.5 rounded-lg border border-violet/40 bg-violet/15 px-2.5 py-1.5 text-xs font-medium text-violet transition-colors hover:bg-violet/25 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
               {busy ? 'Opening…' : `Connect ${req.displayName}`}
@@ -242,12 +242,12 @@ function SkillRow({
               type="button"
               disabled
               title="Connect the skill above first"
-              className="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-white/[0.08] px-2.5 py-1.5 text-xs font-medium text-zinc-500"
+              className="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-app-ink-3"
             >
               Up next
             </button>
           )}
-          {error ? <p className="mt-1.5 text-xs text-status-failed">{error}</p> : null}
+          {error ? <p className="mt-1.5 text-xs text-sl-failed">{error}</p> : null}
         </div>
       ) : (
         // Manual (api-key) skills are configured on the Skills page — the card
@@ -260,7 +260,7 @@ function SkillRow({
             telling the truth about different things. Say which one is missing.
           */}
           {req.installedSkillId ? (
-            <p className="mb-1.5 text-xs text-status-warning">
+            <p className="mb-1.5 text-xs text-sl-warning">
               Installed, but its credentials aren&apos;t set yet — that last step
               is what connects it.
             </p>
@@ -268,7 +268,7 @@ function SkillRow({
           <Link
             // Straight to THIS skill's connect box, not the top of the page.
             href={`/skills?connect=${encodeURIComponent(req.skillKey)}`}
-            className={`inline-flex items-center gap-1.5 rounded-lg border border-white/[0.12] px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.06] ${active ? '' : 'pointer-events-none opacity-50'}`}
+            className={`inline-flex items-center gap-1.5 rounded-lg border border-app-border-strong px-2.5 py-1.5 text-xs text-app-ink-2 hover:bg-app-raised ${active ? '' : 'pointer-events-none opacity-50'}`}
           >
             {req.installedSkillId ? 'Finish connecting it' : 'Set up on the Skills page'}
             <ArrowRight className="h-3 w-3" aria-hidden />
@@ -290,17 +290,17 @@ const SKILL_POLL_MS = 4_000;
 
 /** Status → label + colour. Covers every state the contract can carry. */
 const STATUS_META: Record<SkillRequirementStatus, { label: string; className: string }> = {
-  READY: { label: 'Connected', className: 'text-status-succeeded' },
-  NOT_CONNECTED: { label: 'Not connected', className: 'text-zinc-400' },
-  AUTHORIZING: { label: 'Authorising…', className: 'text-violet-secondary' },
-  CONFIGURATION_REQUIRED: { label: 'Needs setup', className: 'text-status-warning' },
-  VALIDATING: { label: 'Checking…', className: 'text-violet-secondary' },
-  DEGRADED: { label: 'Degraded', className: 'text-status-warning' },
-  DISCONNECTED: { label: 'Reconnect needed', className: 'text-status-failed' },
-  EXPIRED: { label: 'Expired', className: 'text-status-failed' },
-  REVOKED: { label: 'Revoked', className: 'text-status-failed' },
-  INSUFFICIENT_PERMISSION: { label: 'Missing permission', className: 'text-status-warning' },
-  ERROR: { label: 'Unavailable', className: 'text-status-failed' },
+  READY: { label: 'Connected', className: 'text-sl-succeeded' },
+  NOT_CONNECTED: { label: 'Not connected', className: 'text-app-ink-2' },
+  AUTHORIZING: { label: 'Authorising…', className: 'text-violet' },
+  CONFIGURATION_REQUIRED: { label: 'Needs setup', className: 'text-sl-warning' },
+  VALIDATING: { label: 'Checking…', className: 'text-violet' },
+  DEGRADED: { label: 'Degraded', className: 'text-sl-warning' },
+  DISCONNECTED: { label: 'Reconnect needed', className: 'text-sl-failed' },
+  EXPIRED: { label: 'Expired', className: 'text-sl-failed' },
+  REVOKED: { label: 'Revoked', className: 'text-sl-failed' },
+  INSUFFICIENT_PERMISSION: { label: 'Missing permission', className: 'text-sl-warning' },
+  ERROR: { label: 'Unavailable', className: 'text-sl-failed' },
 };
 
 const CAPABILITY_LABEL: Record<string, string> = {

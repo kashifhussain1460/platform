@@ -29,9 +29,9 @@ export function VersionViewer({
     >
       {version ? (
         <div>
-          <p className="mb-3 text-sm text-wf-ink-2">
+          <p className="mb-3 text-sm text-app-ink-2">
             {version.changeNote || 'No change note.'}
-            <span className="ml-2 text-wf-ink-3">
+            <span className="ml-2 text-app-ink-3">
               {version.status} ·{' '}
               {formatRelativeTime(version.publishedAt ?? version.createdAt)}
             </span>

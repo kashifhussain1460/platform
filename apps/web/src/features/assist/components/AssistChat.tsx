@@ -66,7 +66,7 @@ export function AssistChat({
         onResume={() => onSend('')}
       />
 
-      <div className="mt-3 shrink-0 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3">
+      <div className="mt-3 shrink-0 rounded-2xl border border-app-border bg-app-surface p-3">
         <textarea
           rows={2}
           value={input}
@@ -82,14 +82,14 @@ export function AssistChat({
           disabled={streaming}
           placeholder={streaming ? 'Orlixa is working…' : 'Tell me what to change…'}
           aria-label="Message Orlixa"
-          className="w-full resize-none bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent text-sm text-app-ink placeholder:text-app-ink-3 focus:outline-none disabled:cursor-not-allowed"
         />
-        <div className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-2">
+        <div className="mt-2 flex items-center justify-between border-t border-app-border pt-2">
           <button
             type="button"
             onClick={onStartOver}
             disabled={streaming}
-            className="flex items-center gap-1.5 text-xs text-zinc-500 transition-colors hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-1.5 text-xs text-app-ink-3 transition-colors hover:text-app-ink-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RotateCcw className="h-3 w-3" aria-hidden />
             Start over
@@ -98,7 +98,7 @@ export function AssistChat({
             <button
               type="button"
               onClick={onStop}
-              className="flex items-center gap-1.5 rounded-lg border border-white/[0.12] px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.06]"
+              className="flex items-center gap-1.5 rounded-lg border border-app-border-strong px-3 py-1.5 text-sm text-app-ink-2 hover:bg-app-raised"
             >
               <Square className="h-3 w-3" aria-hidden />
               Stop
@@ -210,7 +210,7 @@ function MessageList({
 
       {stream.error ? (
         <div className="rounded-xl border border-status-failed/30 bg-status-failed/10 p-3">
-          <p className="text-sm text-status-failed">{stream.error.message}</p>
+          <p className="text-sm text-sl-failed">{stream.error.message}</p>
         </div>
       ) : null}
 

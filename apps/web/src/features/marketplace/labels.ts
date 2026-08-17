@@ -16,14 +16,14 @@ import {
 
 /** Tailwind classes for the employee-role badge, keyed by role. */
 export const ROLE_STYLES: Record<EmployeeRole, string> = {
-  SUPPORT: 'bg-teal-400/15 text-teal-400',
-  SALES: 'bg-sky-400/15 text-sky-300',
-  RECRUITER: 'bg-violet/20 text-violet-secondary',
-  HR: 'bg-rose-400/15 text-rose-400',
-  ACCOUNTANT: 'bg-indigo-400/15 text-indigo-400',
-  PROJECT_MANAGER: 'bg-amber-400/15 text-amber-400',
-  MARKETING: 'bg-fuchsia-400/15 text-fuchsia-400',
-  CUSTOM: 'bg-white/[0.06] text-zinc-300',
+  SUPPORT: 'bg-teal-400/15 text-teal-800',
+  SALES: 'bg-sky-400/15 text-sky-800',
+  RECRUITER: 'bg-violet/20 text-violet',
+  HR: 'bg-rose-400/15 text-rose-800',
+  ACCOUNTANT: 'bg-indigo-400/15 text-indigo-800',
+  PROJECT_MANAGER: 'bg-amber-400/15 text-amber-800',
+  MARKETING: 'bg-fuchsia-400/15 text-fuchsia-800',
+  CUSTOM: 'bg-app-raised text-app-ink-2',
 };
 
 const ACRONYMS = new Set(['HR']);
@@ -59,19 +59,19 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
 
 /** Icon-badge accent per category, same key set as {@link CATEGORY_ICON}. */
 const CATEGORY_BADGE: Record<string, string> = {
-  Recruiting: 'bg-violet/20 text-violet-secondary',
-  Sales: 'bg-sky-400/15 text-sky-300',
-  'Customer Support': 'bg-teal-400/15 text-teal-400',
-  'Human Resources': 'bg-rose-400/15 text-rose-400',
-  Finance: 'bg-indigo-400/15 text-indigo-400',
-  'Project Management': 'bg-amber-400/15 text-amber-400',
-  Marketing: 'bg-fuchsia-400/15 text-fuchsia-400',
-  Procurement: 'bg-orange-400/15 text-orange-400',
-  Operations: 'bg-emerald-400/15 text-emerald-400',
-  Legal: 'bg-cyan-400/15 text-cyan-400',
+  Recruiting: 'bg-violet/20 text-violet',
+  Sales: 'bg-sky-400/15 text-sky-800',
+  'Customer Support': 'bg-teal-400/15 text-teal-800',
+  'Human Resources': 'bg-rose-400/15 text-rose-800',
+  Finance: 'bg-indigo-400/15 text-indigo-800',
+  'Project Management': 'bg-amber-400/15 text-amber-800',
+  Marketing: 'bg-fuchsia-400/15 text-fuchsia-800',
+  Procurement: 'bg-orange-400/15 text-orange-800',
+  Operations: 'bg-emerald-400/15 text-emerald-800',
+  Legal: 'bg-cyan-400/15 text-cyan-800',
 };
 
-const DEFAULT_CATEGORY_BADGE = 'bg-white/[0.06] text-zinc-300';
+const DEFAULT_CATEGORY_BADGE = 'bg-app-raised text-app-ink-2';
 
 /** Falls back to a neutral Bot icon for any category the catalog adds later. */
 export function categoryIcon(category: string): LucideIcon {

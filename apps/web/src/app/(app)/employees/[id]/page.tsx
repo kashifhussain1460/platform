@@ -37,7 +37,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const secondaryBtnClass =
-  'inline-flex items-center gap-1.5 rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex items-center gap-1.5 rounded-xl border border-app-border-strong bg-app-surface px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function EmployeeDetailPage({
   params,
@@ -91,21 +91,21 @@ export default function EmployeeDetailPage({
 
   return (
     <AppShell {...shellProps}>
-      <nav className="mb-4 flex items-center gap-1.5 pt-2 text-sm text-zinc-500">
-        <Link href="/employees" className="transition-colors hover:text-zinc-300">
+      <nav className="mb-4 flex items-center gap-1.5 pt-2 text-sm text-app-ink-3">
+        <Link href="/employees" className="transition-colors hover:text-app-ink-2">
           AI Employees
         </Link>
         <ChevronRight className="h-3.5 w-3.5" />
-        <span className="text-zinc-300">{employee?.name ?? 'Loading…'}</span>
+        <span className="text-app-ink-2">{employee?.name ?? 'Loading…'}</span>
       </nav>
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">
+          <h1 className="text-2xl font-bold text-app-ink sm:text-3xl">
             {employee?.name ?? 'Loading…'}
           </h1>
           <div className="mt-2 flex items-center gap-3">
-            <span className="text-sm text-zinc-400">
+            <span className="text-sm text-app-ink-2">
               {employee ? formatRole(employee.role) : ''}
             </span>
             {employee && (
@@ -167,7 +167,7 @@ export default function EmployeeDetailPage({
             className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === t.id
                 ? 'bg-violet text-white'
-                : 'text-zinc-400 hover:bg-white/[0.04] hover:text-white'
+                : 'text-app-ink-2 hover:bg-app-raised hover:text-app-ink'
             }`}
           >
             {t.label}
@@ -179,7 +179,7 @@ export default function EmployeeDetailPage({
         (employee ? (
           <EmployeeAbout employee={employee} />
         ) : (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-app-ink-3">Loading…</p>
         ))}
 
       {activeTab === 'chat' && (
@@ -197,8 +197,8 @@ export default function EmployeeDetailPage({
           {conversationId && employee ? (
             <ChatPanel conversationId={conversationId} employee={employee} />
           ) : (
-            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 text-center">
-              <p className="mb-4 text-sm text-zinc-400">
+            <div className="rounded-2xl border border-app-border bg-app-surface p-8 text-center">
+              <p className="mb-4 text-sm text-app-ink-2">
                 {conversations && conversations.length === 0
                   ? 'No conversations yet.'
                   : 'Loading conversation…'}
@@ -228,14 +228,14 @@ export default function EmployeeDetailPage({
         (employee ? (
           <EmployeeKnowledgeTab role={employee.role} name={employee.name} />
         ) : (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-app-ink-3">Loading…</p>
         ))}
 
       {activeTab === 'settings' &&
         (employee ? (
           <EmployeeSettings employee={employee} />
         ) : (
-          <p className="text-sm text-zinc-500">Loading…</p>
+          <p className="text-sm text-app-ink-3">Loading…</p>
         ))}
     </AppShell>
   );
@@ -270,10 +270,10 @@ function EmployeeKnowledgeTab({
   return (
     <section>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-sm font-medium text-zinc-400">
+        <h2 className="text-sm font-medium text-app-ink-2">
           {formatRole(role)} + Shared documents
         </h2>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-app-ink-3">
           Anything you add here goes to {name} ({formatRole(role)}) — .txt, .md, .pdf
         </p>
       </div>

@@ -61,7 +61,7 @@ export function ConfigureSkillForm({
 
   if (fields.length === 0) {
     return (
-      <p className="text-xs text-zinc-500">This skill has no configuration.</p>
+      <p className="text-xs text-app-ink-3">This skill has no configuration.</p>
     );
   }
 
@@ -76,7 +76,7 @@ export function ConfigureSkillForm({
               className={field.type === 'textarea' ? 'sm:col-span-2' : ''}
             >
               {field.type === 'boolean' ? (
-                <label htmlFor={id} className="flex items-center gap-2 text-sm text-zinc-300">
+                <label htmlFor={id} className="flex items-center gap-2 text-sm text-app-ink-2">
                   <input
                     id={id}
                     type="checkbox"
@@ -87,9 +87,9 @@ export function ConfigureSkillForm({
                 </label>
               ) : (
                 <>
-                  <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-zinc-300">
+                  <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-app-ink-2">
                     {field.label}
-                    {field.required && <span className="text-red-400"> *</span>}
+                    {field.required && <span className="text-red-600"> *</span>}
                   </label>
                   {field.type === 'textarea' ? (
                     <textarea
@@ -126,7 +126,7 @@ export function ConfigureSkillForm({
                 </>
               )}
               {field.help && (
-                <p className="mt-1 text-xs text-zinc-500">{field.help}</p>
+                <p className="mt-1 text-xs text-app-ink-3">{field.help}</p>
               )}
             </div>
           );
@@ -134,7 +134,7 @@ export function ConfigureSkillForm({
       </div>
 
       {configure.isError && (
-        <p className="text-sm text-red-400">
+        <p className="text-sm text-red-600">
           {configure.error?.message ?? 'Could not save configuration'}
         </p>
       )}
@@ -144,7 +144,7 @@ export function ConfigureSkillForm({
           {configure.isPending ? 'Saving…' : 'Save configuration'}
         </Button>
         {configure.isSuccess && !configure.isPending && (
-          <span className="text-sm text-green-400">Saved.</span>
+          <span className="text-sm text-green-700">Saved.</span>
         )}
       </div>
     </form>

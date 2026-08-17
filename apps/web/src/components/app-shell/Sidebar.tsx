@@ -84,13 +84,13 @@ function NavLink({
       className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
         active
           ? 'bg-violet/20 text-white'
-          : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
+          : 'text-fg-muted hover:bg-white/[0.06] hover:text-white'
       }`}
     >
       <Icon className="h-[18px] w-[18px] shrink-0" />
       {item.label}
       {item.beta ? (
-        <span className="ml-auto rounded-full bg-violet/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-secondary">
+        <span className="ml-auto rounded-full bg-violet/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-bright">
           Beta
         </span>
       ) : badge > 0 ? (
@@ -107,10 +107,17 @@ export function Sidebar({
   companyName,
   pendingApprovals,
   canManageOrg,
+  inDrawer = false,
 }: {
   companyName?: string;
   pendingApprovals: number;
   canManageOrg: boolean;
+  /**
+   * Rendered inside the mobile drawer, where it must be visible at every width —
+   * the default instance is `hidden lg:flex` because the drawer is what serves
+   * small screens.
+   */
+  inDrawer?: boolean;
 }) {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href || pathname?.startsWith(`${href}/`);
@@ -120,7 +127,13 @@ export function Sidebar({
   const runningRuns = running?.length ?? 0;
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-white/[0.06] bg-[#030510] lg:flex">
+    <aside
+      className={
+        inDrawer
+          ? 'flex h-full w-full shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] bg-[#030510]'
+          : 'hidden w-64 shrink-0 flex-col border-r border-white/[0.06] bg-[#030510] lg:flex'
+      }
+    >
       <div className="flex items-center gap-2 px-5 py-6">
         <OrlixaMark size={26} />
         <div>
@@ -137,7 +150,7 @@ export function Sidebar({
         </div>
 
         <div className="space-y-1 border-t border-white/[0.06] pt-4">
-          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+          <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-fg-subtle">
             Automation
           </p>
           {NAV_AUTOMATION.map((item) => (
@@ -164,7 +177,7 @@ export function Sidebar({
             className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
               isActive('/approvals')
                 ? 'bg-violet/20 text-white'
-                : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200'
+                : 'text-fg-muted hover:bg-white/[0.06] hover:text-white'
             }`}
           >
             <span className="flex items-center gap-3">

@@ -8,12 +8,12 @@ export function EmployeeList() {
   const { data: employees, isLoading } = useEmployees();
 
   if (isLoading) {
-    return <p className="text-sm text-zinc-500">Loading employees…</p>;
+    return <p className="text-sm text-app-ink-3">Loading employees…</p>;
   }
 
   if (!employees || employees.length === 0) {
     return (
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-app-ink-3">
         No employees yet. Hire one above to get started.
       </p>
     );

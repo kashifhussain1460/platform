@@ -23,11 +23,11 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-zinc-400">
+      <label className="mb-1 block text-xs font-medium text-app-ink-2">
         {label}
       </label>
       {children}
-      {hint && <p className="mt-1 text-xs text-zinc-500">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-app-ink-3">{hint}</p>}
     </div>
   );
 }
@@ -66,7 +66,7 @@ function ArgsEditor({
         value={text}
         onChange={(e) => onEdit(e.target.value)}
       />
-      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );
 }
@@ -85,7 +85,7 @@ export function NodeEditor({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-zinc-500">{NODE_HINTS[node.type]}</p>
+      <p className="text-xs text-app-ink-3">{NODE_HINTS[node.type]}</p>
 
       <Field label="Step name (optional)">
         <input
@@ -269,7 +269,7 @@ export function NodeEditor({
             label="Approval mode"
             hint="On: this step is skipped entirely — no approval queue, no pause; the run continues straight to the next step the moment it's reached. Off (default): pauses and waits for a manager in Approvals."
           >
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <label className="flex items-center gap-2 text-sm text-app-ink-2">
               <input
                 type="checkbox"
                 checked={cfg.autoApprove === true}
@@ -283,7 +283,7 @@ export function NodeEditor({
       )}
 
       {node.type === 'TRIGGER' && (
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-app-ink-3">
           No configuration. The run trigger payload seeds the context.
         </p>
       )}

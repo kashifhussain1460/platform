@@ -44,7 +44,7 @@ export function RunFailureCard({
       className="rounded-2xl border border-status-failed/25 bg-status-failed/[0.07] p-5"
       role="alert"
     >
-      <h2 className="flex items-center gap-2 font-display text-base font-semibold text-status-failed">
+      <h2 className="flex items-center gap-2 font-display text-base font-semibold text-sl-failed">
         <CircleAlert className="h-5 w-5" aria-hidden />
         {run.status === 'TIMED_OUT' ? 'This run timed out' : 'This run failed'}
       </h2>
@@ -53,7 +53,7 @@ export function RunFailureCard({
         {stepLabel && (
           <Row label="Where">
             {stepLabel}
-            <span className="ml-2 font-mono text-xs text-zinc-500">
+            <span className="ml-2 font-mono text-xs text-app-ink-3">
               {failedStep?.nodeId}
             </span>
           </Row>
@@ -75,14 +75,14 @@ export function RunFailureCard({
       </dl>
 
       {retryError && (
-        <p className="mt-3 text-sm text-status-failed">{retryError}</p>
+        <p className="mt-3 text-sm text-sl-failed">{retryError}</p>
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {advice.action && (
           <Link
             href={advice.action.href}
-            className="rounded-lg border border-white/[0.14] px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/[0.06]"
+            className="rounded-lg border border-app-border-strong px-4 py-2 text-sm font-medium text-app-ink transition-colors hover:border-app-border hover:bg-app-raised"
           >
             {advice.action.label}
           </Link>
@@ -100,13 +100,13 @@ export function RunFailureCard({
         )}
         <Link
           href={`/workflows/${run.workflowId}`}
-          className="text-sm font-medium text-zinc-400 hover:text-white"
+          className="text-sm font-medium text-app-ink-2 hover:text-app-ink"
         >
           Open the workflow
         </Link>
       </div>
 
-      <p className="mt-3 text-xs text-zinc-500">
+      <p className="mt-3 text-xs text-app-ink-3">
         Starting a new run begins at the first step again. It does not continue
         the failed run, and it does not undo anything that already happened —
         check before re-running something that sends messages or moves money.
@@ -118,8 +118,8 @@ export function RunFailureCard({
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <dt className="w-28 shrink-0 text-zinc-500">{label}</dt>
-      <dd className="min-w-0 flex-1 break-words text-zinc-200">{children}</dd>
+      <dt className="w-28 shrink-0 text-app-ink-3">{label}</dt>
+      <dd className="min-w-0 flex-1 break-words text-app-ink">{children}</dd>
     </div>
   );
 }

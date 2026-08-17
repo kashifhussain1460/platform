@@ -11,11 +11,11 @@ import {
 import { formatRelativeTime } from '@/lib/time';
 
 const TONE_CLS: Record<StateTone, string> = {
-  neutral: 'bg-white/[0.06] text-zinc-300',
-  good: 'bg-status-succeeded/15 text-status-succeeded',
-  warn: 'bg-status-waiting/15 text-status-waiting',
-  bad: 'bg-status-failed/15 text-status-failed',
-  muted: 'bg-white/[0.04] text-zinc-500',
+  neutral: 'bg-app-raised text-app-ink-2',
+  good: 'bg-status-succeeded/15 text-sl-succeeded',
+  warn: 'bg-status-waiting/15 text-sl-waiting',
+  bad: 'bg-status-failed/15 text-sl-failed',
+  muted: 'bg-app-raised text-app-ink-3',
 };
 
 /** Wall-clock length of a run, or how long it has been going. */
@@ -63,20 +63,20 @@ export function RunsTable({
   emptyMessage?: string;
 }) {
   if (isLoading) {
-    return <p className="text-sm text-zinc-500">Loading runs…</p>;
+    return <p className="text-sm text-app-ink-3">Loading runs…</p>;
   }
   if (!runs || runs.length === 0) {
     return (
-      <p className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-6 text-sm text-zinc-500">
+      <p className="rounded-2xl border border-app-border bg-app-surface px-5 py-6 text-sm text-app-ink-3">
         {emptyMessage}
       </p>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-white/[0.07]">
+    <div className="overflow-x-auto rounded-2xl border border-app-border">
       <table className="w-full min-w-[720px] text-left text-sm">
-        <thead className="bg-white/[0.03] text-xs uppercase tracking-wide text-zinc-500">
+        <thead className="bg-app-surface text-xs uppercase tracking-wide text-app-ink-3">
           <tr>
             {showWorkflow && <th className="px-4 py-3 font-medium">Workflow</th>}
             <th className="px-4 py-3 font-medium">Started by</th>
@@ -86,38 +86,38 @@ export function RunsTable({
             <th className="px-4 py-3 font-medium" />
           </tr>
         </thead>
-        <tbody className="divide-y divide-white/[0.05]">
+        <tbody className="divide-y divide-app-border">
           {runs.map((run) => (
-            <tr key={run.id} className="transition-colors hover:bg-white/[0.02]">
+            <tr key={run.id} className="transition-colors hover:bg-app-raised">
               {showWorkflow && (
                 <td className="px-4 py-3">
                   <Link
                     href={`/workflows/${run.workflowId}`}
-                    className="font-medium text-zinc-200 hover:text-white"
+                    className="font-medium text-app-ink hover:text-app-ink"
                   >
                     {run.workflowName ?? 'Workflow'}
                   </Link>
                   {run.dryRun && (
-                    <span className="ml-2 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                    <span className="ml-2 rounded-full bg-app-raised px-2 py-0.5 text-[10px] uppercase tracking-wide text-app-ink-2">
                       Test
                     </span>
                   )}
                 </td>
               )}
-              <td className="px-4 py-3 text-zinc-400">
+              <td className="px-4 py-3 text-app-ink-2">
                 {triggerSourceLabel(run.source)}
               </td>
               <td className="px-4 py-3">
                 <RunStatusPill status={run.status} />
               </td>
-              <td className="px-4 py-3 text-zinc-400">
+              <td className="px-4 py-3 text-app-ink-2">
                 {formatRelativeTime(run.startedAt ?? run.createdAt)}
               </td>
-              <td className="px-4 py-3 text-zinc-400">{formatDuration(run)}</td>
+              <td className="px-4 py-3 text-app-ink-2">{formatDuration(run)}</td>
               <td className="px-4 py-3 text-right">
                 <Link
                   href={`/runs/${run.id}`}
-                  className="text-sm font-medium text-violet-secondary hover:text-white"
+                  className="text-sm font-medium text-violet hover:text-app-ink"
                 >
                   View
                 </Link>
@@ -142,7 +142,7 @@ export function RunStatusFilter({
     `rounded-full px-3 py-1 text-sm transition-colors ${
       active
         ? 'bg-violet text-white'
-        : 'border border-white/[0.1] text-zinc-400 hover:border-white/25 hover:text-zinc-200'
+        : 'border border-app-border text-app-ink-2 hover:border-app-border-strong hover:text-app-ink'
     }`;
 
   return (

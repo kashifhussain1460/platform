@@ -34,7 +34,7 @@ export function AutosaveStatus({
 
   if (state === 'error') {
     return (
-      <span className={`text-status-failed ${className}`} aria-live="polite">
+      <span className={`text-sl-failed ${className}`} aria-live="polite">
         Save failed —{' '}
         <button type="button" onClick={onRetry} className="underline hover:no-underline">
           retry
@@ -45,7 +45,7 @@ export function AutosaveStatus({
 
   if (state === 'conflict') {
     return (
-      <span className={`text-status-waiting ${className}`} aria-live="polite">
+      <span className={`text-sl-waiting ${className}`} aria-live="polite">
         Someone else edited this — reload to see their version
       </span>
     );
@@ -59,7 +59,7 @@ export function AutosaveStatus({
         : 'Unsaved changes…';
 
   return (
-    <span className={`text-wf-ink-3 ${className}`} aria-live="polite">
+    <span className={`text-app-ink-3 ${className}`} aria-live="polite">
       {text}
     </span>
   );

@@ -11,7 +11,7 @@ const CANCELLABLE: WorkflowRunStatus[] = ['PENDING', 'RUNNING', 'WAITING'];
 const RETRYABLE: WorkflowRunStatus[] = ['FAILED', 'CANCELLED', 'TIMED_OUT'];
 
 const barBtn =
-  'inline-flex items-center gap-1.5 rounded-lg border border-wf-hairline px-3 py-1.5 text-sm font-medium text-wf-ink-2 transition-colors hover:border-wf-hairline-hover hover:text-wf-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus';
+  'inline-flex items-center gap-1.5 rounded-lg border border-app-border px-3 py-1.5 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus';
 
 /**
  * RunBar — the header of the run-watch surface (doc 29 §3.F). Shows the live run
@@ -39,7 +39,7 @@ export function RunBar({
   const completed = run?.steps?.filter((s) => s.status === 'COMPLETED').length ?? 0;
 
   return (
-    <div className="rounded-2xl border border-wf-hairline bg-void-section p-3">
+    <div className="rounded-2xl border border-app-border bg-app-raised p-3">
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={onClose} className={barBtn}>
           <ArrowLeft className="h-4 w-4" aria-hidden />
@@ -53,11 +53,11 @@ export function RunBar({
             {status}
           </span>
         ) : (
-          <span className="text-xs text-wf-ink-3">{isLoading ? 'Loading run…' : 'Run not found'}</span>
+          <span className="text-xs text-app-ink-3">{isLoading ? 'Loading run…' : 'Run not found'}</span>
         )}
 
         {run ? (
-          <span className="text-xs text-wf-ink-3">
+          <span className="text-xs text-app-ink-3">
             {completed}/{nodeCount} steps
             {run.dryRun ? ' · test run' : ''}
             {run.startedAt ? ` · started ${formatRelativeTime(run.startedAt)}` : ''}
@@ -98,8 +98,8 @@ export function RunBar({
         </div>
       </div>
 
-      {run?.error ? <p className="mt-2 text-xs text-status-failed">{run.error}</p> : null}
-      {cancel.isError ? <p className="mt-2 text-xs text-status-failed">{cancel.error.message}</p> : null}
+      {run?.error ? <p className="mt-2 text-xs text-sl-failed">{run.error}</p> : null}
+      {cancel.isError ? <p className="mt-2 text-xs text-sl-failed">{cancel.error.message}</p> : null}
     </div>
   );
 }

@@ -7,10 +7,10 @@ import { EMPLOYEE_ROLES, type EmployeeRole } from '../schemas';
 import { useDeleteDocument, useDocuments, useUpdateDocumentCategory, useViewDocument } from '../hooks';
 
 const STATUS_STYLES: Record<DocumentStatus, string> = {
-  PENDING: 'bg-white/[0.06] text-zinc-400',
-  PROCESSING: 'bg-amber-500/15 text-amber-400',
-  READY: 'bg-green-500/15 text-green-400',
-  FAILED: 'bg-red-500/15 text-red-400',
+  PENDING: 'bg-app-raised text-app-ink-2',
+  PROCESSING: 'bg-amber-500/15 text-amber-800',
+  READY: 'bg-green-500/15 text-green-800',
+  FAILED: 'bg-red-500/15 text-red-600',
 };
 
 function StatusBadge({ status }: { status: DocumentStatus }) {
@@ -26,15 +26,15 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 /** Icon + accent chip + short label derived from the document's real mimeType. */
 function fileTypeMeta(mimeType: string): { label: string; Icon: LucideIcon; chip: string } {
   if (mimeType === 'application/pdf') {
-    return { label: 'PDF', Icon: FileText, chip: 'bg-red-500/15 text-red-400' };
+    return { label: 'PDF', Icon: FileText, chip: 'bg-red-500/15 text-red-600' };
   }
   if (mimeType === 'text/markdown') {
-    return { label: 'Markdown', Icon: FileCode, chip: 'bg-sky-500/15 text-sky-400' };
+    return { label: 'Markdown', Icon: FileCode, chip: 'bg-sky-500/15 text-sky-800' };
   }
   if (mimeType === 'text/plain') {
-    return { label: 'Text', Icon: File, chip: 'bg-green-500/15 text-green-400' };
+    return { label: 'Text', Icon: File, chip: 'bg-green-500/15 text-green-800' };
   }
-  return { label: mimeType, Icon: File, chip: 'bg-white/[0.06] text-zinc-400' };
+  return { label: mimeType, Icon: File, chip: 'bg-app-raised text-app-ink-2' };
 }
 
 /**
@@ -50,19 +50,19 @@ export function DocumentList({ category }: { category?: EmployeeRole } = {}) {
   const retag = useUpdateDocumentCategory();
 
   if (isLoading) {
-    return <p className="text-sm text-zinc-500">Loading documents…</p>;
+    return <p className="text-sm text-app-ink-3">Loading documents…</p>;
   }
 
   if (!docs || docs.length === 0) {
     return (
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-app-ink-3">
         No documents yet. Upload one to get started.
       </p>
     );
   }
 
   return (
-    <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
+    <ul className="divide-y divide-app-border overflow-hidden rounded-2xl border border-app-border bg-app-surface">
       {docs.map((doc) => {
         const isTemp = doc.id.startsWith('temp_');
         const { label, Icon, chip } = fileTypeMeta(doc.mimeType);
@@ -76,7 +76,7 @@ export function DocumentList({ category }: { category?: EmployeeRole } = {}) {
         return (
           <li
             key={doc.id}
-            className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-white/[0.02]"
+            className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-app-raised"
           >
             <span
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${chip}`}
@@ -84,10 +84,10 @@ export function DocumentList({ category }: { category?: EmployeeRole } = {}) {
               <Icon className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-white">
+              <p className="truncate text-sm font-semibold text-app-ink">
                 {doc.filename}
               </p>
-              <p className="mt-0.5 truncate text-xs text-zinc-500">
+              <p className="mt-0.5 truncate text-xs text-app-ink-3">
                 {label} · {detail}
               </p>
             </div>
@@ -115,7 +115,7 @@ export function DocumentList({ category }: { category?: EmployeeRole } = {}) {
                 type="button"
                 onClick={() => view.mutate(doc.id)}
                 disabled={isTemp || view.isPending}
-                className="text-xs font-medium text-zinc-400 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="text-xs font-medium text-app-ink-2 transition-colors hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-40"
               >
                 View
               </button>
@@ -123,12 +123,12 @@ export function DocumentList({ category }: { category?: EmployeeRole } = {}) {
                 type="button"
                 onClick={() => del.mutate(doc.id)}
                 disabled={isTemp || del.isPending}
-                className="text-xs font-medium text-zinc-500 transition-colors hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                className="text-xs font-medium text-app-ink-3 transition-colors hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Delete
               </button>
             </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
+            <ChevronRight className="h-4 w-4 shrink-0 text-app-ink-3" aria-hidden />
           </li>
         );
       })}

@@ -57,9 +57,9 @@ function SkillCard({
   const needsConnecting = installed && !connected;
 
   return (
-    <div className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 transition-colors hover:border-white/[0.14]">
+    <div className="flex flex-col rounded-2xl border border-app-border bg-app-surface p-4 transition-colors hover:border-app-border-strong">
       <div className="mb-3 flex items-start justify-between gap-2">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet-secondary">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet">
           <Icon className="h-5 w-5" />
         </span>
         <span
@@ -69,16 +69,16 @@ function SkillCard({
         </span>
       </div>
 
-      <p className="font-bold text-white">{skill.name}</p>
-      <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{skill.description}</p>
-      <p className="mt-2 truncate text-[11px] text-zinc-600">
+      <p className="font-bold text-app-ink">{skill.name}</p>
+      <p className="mt-1 line-clamp-2 text-xs text-app-ink-2">{skill.description}</p>
+      <p className="mt-2 truncate text-xs text-app-ink-3">
         Tools: {skill.tools.map((t) => t.name).join(', ')}
       </p>
 
       {needsConnecting ? (
         <a
           href={`#installed-${skill.key}`}
-          className="mt-4 w-full rounded-xl border border-status-warning/40 bg-status-warning/10 px-4 py-2 text-center text-sm font-medium text-status-warning transition-colors hover:bg-status-warning/20"
+          className="mt-4 w-full rounded-xl border border-status-warning/40 bg-status-warning/10 px-4 py-2 text-center text-sm font-medium text-sl-warning transition-colors hover:bg-status-warning/20"
         >
           Installed — connect it
         </a>
@@ -89,8 +89,8 @@ function SkillCard({
           disabled={installed || installing}
           className={`mt-4 w-full rounded-xl border px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
             installed
-              ? 'border-white/[0.08] bg-white/[0.02] text-zinc-500'
-              : 'border-white/[0.12] bg-white/[0.03] text-zinc-300 hover:border-white/25 hover:bg-white/[0.06]'
+              ? 'border-app-border bg-app-surface text-app-ink-3'
+              : 'border-app-border-strong bg-app-surface text-app-ink-2 hover:border-app-border-strong hover:bg-app-raised'
           }`}
         >
           {installed ? 'Installed' : installing ? 'Installing…' : 'Install'}
@@ -109,7 +109,7 @@ export function SkillCatalog() {
   const [category, setCategory] = useState<SkillCategory | 'all'>('all');
 
   if (isLoading) {
-    return <p className="text-sm text-zinc-500">Loading catalog…</p>;
+    return <p className="text-sm text-app-ink-3">Loading catalog…</p>;
   }
 
   const installedKeys = new Set((installed ?? []).map((s) => s.skillKey));
@@ -135,7 +135,7 @@ export function SkillCatalog() {
   return (
     <section>
       <div className="relative max-w-sm">
-        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-app-ink-3" />
         <input
           type="text"
           value={search}
@@ -154,7 +154,7 @@ export function SkillCatalog() {
           className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
             category === 'all'
               ? 'bg-violet text-white'
-              : 'border border-white/[0.1] text-zinc-400 hover:text-white'
+              : 'border border-app-border text-app-ink-2 hover:text-app-ink'
           }`}
         >
           All
@@ -167,7 +167,7 @@ export function SkillCatalog() {
             className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
               category === c
                 ? 'bg-violet text-white'
-                : 'border border-white/[0.1] text-zinc-400 hover:text-white'
+                : 'border border-app-border text-app-ink-2 hover:text-app-ink'
             }`}
           >
             {formatCategory(c)}
@@ -176,7 +176,7 @@ export function SkillCatalog() {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">No skills match your search.</p>
+        <p className="mt-6 text-sm text-app-ink-3">No skills match your search.</p>
       ) : (
         <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((skill) => (

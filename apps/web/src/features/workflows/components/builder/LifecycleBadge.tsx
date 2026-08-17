@@ -27,20 +27,20 @@ interface BadgeLook {
  */
 function look(workflow: WorkflowDto): BadgeLook {
   if (workflow.status === 'ARCHIVED') {
-    return { label: 'Archived', icon: Archive, cls: 'border-white/[0.06] bg-white/[0.03] text-wf-ink-3' };
+    return { label: 'Archived', icon: Archive, cls: 'border-app-border bg-app-surface text-app-ink-3' };
   }
   if (workflow.status === 'ACTIVE') {
     return {
       label: 'Active',
       icon: CircleDot,
-      cls: 'border-status-succeeded/30 bg-status-succeeded/10 text-status-succeeded',
+      cls: 'border-status-succeeded/30 bg-status-succeeded/10 text-sl-succeeded',
     };
   }
   if (workflow.status === 'PAUSED') {
     return {
       label: 'Paused',
       icon: PauseCircle,
-      cls: 'border-status-waiting/30 bg-status-waiting/10 text-status-waiting',
+      cls: 'border-status-waiting/30 bg-status-waiting/10 text-sl-waiting',
     };
   }
   // DRAFT status: published (has an active version) vs never-published.
@@ -48,10 +48,10 @@ function look(workflow: WorkflowDto): BadgeLook {
     return {
       label: 'Not turned on',
       icon: CheckCircle2,
-      cls: 'border-violet-secondary/40 bg-violet/10 text-violet-secondary',
+      cls: 'border-violet-secondary/40 bg-violet/10 text-violet',
     };
   }
-  return { label: 'Draft', icon: Pencil, cls: 'border-wf-hairline bg-white/[0.04] text-wf-ink-2' };
+  return { label: 'Draft', icon: Pencil, cls: 'border-app-border bg-app-raised text-app-ink-2' };
 }
 
 /** The builder's lifecycle state pill (doc 29 §3.E — icon + word + color). */

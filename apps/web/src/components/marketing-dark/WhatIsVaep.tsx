@@ -32,7 +32,7 @@ export function WhatIsVaep() {
                 </span>
                 <div>
                   <p className="text-[15px] font-semibold text-white">{title}</p>
-                  <p className="text-sm text-zinc-500">{body}</p>
+                  <p className="text-sm text-fg-muted">{body}</p>
                 </div>
               </li>
             ))}

@@ -54,10 +54,10 @@ export function RunPanel({
   const steps = current?.steps ?? [];
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      <h2 className="mb-3 text-sm font-medium text-zinc-400">Run</h2>
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-3 text-sm font-medium text-app-ink-2">Run</h2>
 
-      <label className="mb-1 block text-xs font-medium text-zinc-400">
+      <label className="mb-1 block text-xs font-medium text-app-ink-2">
         Trigger payload (JSON, optional)
       </label>
       <textarea
@@ -67,21 +67,21 @@ export function RunPanel({
         onChange={(e) => setTriggerText(e.target.value)}
       />
       {triggerError && (
-        <p className="mt-1 text-xs text-red-400">{triggerError}</p>
+        <p className="mt-1 text-xs text-red-600">{triggerError}</p>
       )}
 
-      <label className="mt-2 flex items-center gap-2 text-sm text-zinc-300">
+      <label className="mt-2 flex items-center gap-2 text-sm text-app-ink-2">
         <input
           type="checkbox"
           checked={dryRun}
           onChange={(e) => setDryRun(e.target.checked)}
-          className="h-4 w-4 rounded border-white/[0.2] bg-white/[0.03] accent-violet-secondary"
+          className="h-4 w-4 rounded border-app-border bg-app-surface accent-violet-secondary"
         />
         Dry run (preview only — won&rsquo;t actually send emails, create calendar events, etc.)
       </label>
 
       {!canRun && (
-        <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
+        <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
           Add at least one step and click <strong>Save</strong> above before running.
         </p>
       )}
@@ -98,36 +98,36 @@ export function RunPanel({
           </span>
         )}
         {current?.source && (
-          <span className="inline-block rounded-full bg-white/[0.06] px-2.5 py-0.5 text-xs font-medium text-zinc-400">
+          <span className="inline-block rounded-full bg-app-raised px-2.5 py-0.5 text-xs font-medium text-app-ink-2">
             {current.source}
           </span>
         )}
         {current?.dryRun && (
-          <span className="inline-block rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+          <span className="inline-block rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-800">
             DRY RUN
           </span>
         )}
       </div>
 
       {current?.correlationId && (
-        <p className="mt-2 font-mono text-xs text-zinc-500">
+        <p className="mt-2 font-mono text-xs text-app-ink-3">
           corr: {current.correlationId}
           {current.triggerEventId ? ` · event: ${current.triggerEventId}` : ''}
         </p>
       )}
 
       {run.isError && (
-        <p className="mt-2 text-sm text-red-400">
+        <p className="mt-2 text-sm text-red-600">
           {run.error?.message ?? 'Could not start run'}
         </p>
       )}
       {current?.error && (
-        <p className="mt-2 text-sm text-red-400">{current.error}</p>
+        <p className="mt-2 text-sm text-red-600">{current.error}</p>
       )}
 
       {runId && (
         <div className="mt-4">
-          <h3 className="mb-2 text-xs font-medium text-zinc-400">Run log</h3>
+          <h3 className="mb-2 text-xs font-medium text-app-ink-2">Run log</h3>
           <RunSteps steps={steps} />
         </div>
       )}

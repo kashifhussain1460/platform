@@ -37,7 +37,7 @@ export function IntegrationsSection() {
               className="flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.08] bg-void-card px-3 py-5 transition-colors hover:border-white/[0.16]"
             >
               <span
-                className={`flex h-9 w-9 items-center justify-center rounded-lg ${muted ? 'text-zinc-500' : ''}`}
+                className={`flex h-9 w-9 items-center justify-center rounded-lg ${muted ? 'text-fg-muted' : ''}`}
               >
                 <Icon className="h-7 w-7" />
               </span>

@@ -12,9 +12,9 @@ export function formatRole(role: EmployeeRole): string {
 
 /** Tailwind classes for the status badge, keyed by status (dark theme). */
 export const STATUS_STYLES: Record<EmployeeStatus, string> = {
-  ACTIVE: 'bg-green-500/15 text-green-400',
-  PAUSED: 'bg-amber-500/15 text-amber-400',
-  DISABLED: 'bg-white/[0.06] text-zinc-400',
+  ACTIVE: 'bg-green-500/15 text-green-800',
+  PAUSED: 'bg-amber-500/15 text-amber-800',
+  DISABLED: 'bg-app-raised text-app-ink-2',
 };
 
 /** Permission flags surfaced as checkboxes in the employee Settings panel. */

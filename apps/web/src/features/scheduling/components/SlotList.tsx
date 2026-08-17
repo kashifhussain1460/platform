@@ -22,7 +22,7 @@ export function SlotList() {
             className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === t
                 ? 'bg-violet text-white'
-                : 'bg-white/[0.04] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200'
+                : 'bg-app-raised text-app-ink-2 hover:bg-app-raised hover:text-app-ink'
             }`}
           >
             {t.charAt(0) + t.slice(1).toLowerCase()}
@@ -31,9 +31,9 @@ export function SlotList() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading slots…</p>
+        <p className="text-sm text-app-ink-3">Loading slots…</p>
       ) : !slots || slots.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-app-ink-3">
           {tab === 'BOOKED'
             ? 'No booked interviews yet.'
             : tab === 'OPEN'

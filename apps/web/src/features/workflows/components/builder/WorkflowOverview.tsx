@@ -66,10 +66,10 @@ export function WorkflowOverview({
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+      <section className="rounded-2xl border border-app-border bg-app-surface p-5">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <LifecycleBadge workflow={workflow} />
-          <span className="text-sm text-zinc-500">
+          <span className="text-sm text-app-ink-3">
             {workflowStateLabel(workflow).label === 'Active'
               ? 'This is running on its own.'
               : 'This is not running right now.'}
@@ -81,12 +81,12 @@ export function WorkflowOverview({
           <Fact label="Steps">{stepCount}</Fact>
           <Fact label="Last run">
             {lastRun ? (
-              <Link href={`/runs/${lastRun.id}`} className="hover:text-white">
+              <Link href={`/runs/${lastRun.id}`} className="hover:text-app-ink">
                 {formatRelativeTime(lastRun.startedAt ?? lastRun.createdAt)}{' '}
                 <RunStatusPill status={lastRun.status} />
               </Link>
             ) : (
-              <span className="text-zinc-500">never</span>
+              <span className="text-app-ink-3">never</span>
             )}
           </Fact>
           <Fact label="Next run">
@@ -99,7 +99,7 @@ export function WorkflowOverview({
                 minute: '2-digit',
               })
             ) : (
-              <span className="text-zinc-500">
+              <span className="text-app-ink-3">
                 {workflow.triggerType === 'SCHEDULE'
                   ? workflow.status === 'ACTIVE'
                     ? 'custom schedule'
@@ -110,11 +110,11 @@ export function WorkflowOverview({
           </Fact>
           <Fact label="Finished runs">
             {finished.length === 0 ? (
-              <span className="text-zinc-500">none yet</span>
+              <span className="text-app-ink-3">none yet</span>
             ) : (
               <>
                 {succeeded} of {finished.length} worked
-                <span className="ml-1 text-zinc-500">
+                <span className="ml-1 text-app-ink-3">
                   ({Math.round((succeeded / finished.length) * 100)}%)
                 </span>
               </>
@@ -139,7 +139,7 @@ export function WorkflowOverview({
               type="button"
               onClick={onPause}
               disabled={pausePending}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/[0.14] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/[0.06] disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-xl border border-app-border-strong px-5 py-2.5 text-sm font-medium text-app-ink transition-colors hover:border-app-border hover:bg-app-raised disabled:opacity-60"
             >
               <Pause className="h-4 w-4" aria-hidden />
               {pausePending ? 'Pausing…' : 'Pause'}
@@ -148,27 +148,27 @@ export function WorkflowOverview({
           <button
             type="button"
             onClick={onEdit}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/[0.14] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/[0.06]"
+            className="inline-flex items-center gap-2 rounded-xl border border-app-border-strong px-5 py-2.5 text-sm font-medium text-app-ink transition-colors hover:border-app-border hover:bg-app-raised"
           >
             <Pencil className="h-4 w-4" aria-hidden />
             {canManage ? 'Edit' : 'Open the builder'}
           </button>
           <Link
             href={`/workflows/${workflow.id}/runs`}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/[0.14] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/[0.06]"
+            className="inline-flex items-center gap-2 rounded-xl border border-app-border-strong px-5 py-2.5 text-sm font-medium text-app-ink transition-colors hover:border-app-border hover:bg-app-raised"
           >
             View runs
           </Link>
           <Link
             href={`/workflows/${workflow.id}/versions`}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/[0.14] px-5 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/[0.06]"
+            className="inline-flex items-center gap-2 rounded-xl border border-app-border-strong px-5 py-2.5 text-sm font-medium text-app-ink transition-colors hover:border-app-border hover:bg-app-raised"
           >
             Version history
           </Link>
         </div>
 
         {canManage && (
-          <p className="mt-3 text-xs text-zinc-500">
+          <p className="mt-3 text-xs text-app-ink-3">
             Editing doesn&apos;t change what&apos;s running. Your changes stay a
             draft until you publish them.
           </p>
@@ -187,8 +187,8 @@ function Fact({
 }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-zinc-500">{label}</dt>
-      <dd className="mt-1 text-zinc-200">{children}</dd>
+      <dt className="text-xs uppercase tracking-wide text-app-ink-3">{label}</dt>
+      <dd className="mt-1 text-app-ink">{children}</dd>
     </div>
   );
 }

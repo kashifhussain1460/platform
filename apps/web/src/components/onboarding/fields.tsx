@@ -30,3 +30,50 @@ export function ToggleCard({
     </label>
   );
 }
+
+/**
+ * A labelled field with an icon inside the control and optional helper text.
+ *
+ * The icon is `aria-hidden` and the label stays a real `<label>`: the picture is
+ * a landmark for someone scanning the form, never the name of the field. A
+ * screen reader announces "Company size", not "people icon".
+ */
+export function IconField({
+  id,
+  label,
+  optional,
+  hint,
+  icon,
+  children,
+}: {
+  id: string;
+  label: string;
+  /** Rendered as a quieter suffix, so "optional" reads as part of the label. */
+  optional?: boolean;
+  hint?: string;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-zinc-300">
+        {label}
+        {optional && <span className="font-normal text-fg-muted"> (optional)</span>}
+      </label>
+      <div className="relative">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-violet-secondary"
+        >
+          {icon}
+        </span>
+        {children}
+      </div>
+      {hint && (
+        <p id={`${id}-hint`} className="mt-1.5 text-[13px] text-fg-muted">
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}

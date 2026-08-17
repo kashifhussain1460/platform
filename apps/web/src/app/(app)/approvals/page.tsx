@@ -26,8 +26,8 @@ export default function ApprovalsPage() {
   return (
     <AppShell {...shellProps}>
       <header className="mb-8 pt-2">
-        <p className="text-sm text-zinc-500">Governance</p>
-        <h1 className="text-2xl font-bold text-white">Approval Center</h1>
+        <p className="text-sm text-app-ink-3">Governance</p>
+        <h1 className="text-2xl font-bold text-app-ink">Approval Center</h1>
       </header>
 
       <ApprovalList />

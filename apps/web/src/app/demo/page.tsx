@@ -29,7 +29,7 @@ export default function DemoPage() {
         <OrlixaMark size={26} />
         <span className="text-sm font-bold tracking-tight text-white">Orlixa</span>
       </Link>
-      <span className="absolute right-8 top-8 z-20 text-xs font-medium tracking-wide text-zinc-500">orlixa.io</span>
+      <span className="absolute right-8 top-8 z-20 text-xs font-medium tracking-wide text-fg-muted">orlixa.io</span>
 
       <div className="relative z-10 w-full max-w-4xl">
         <video

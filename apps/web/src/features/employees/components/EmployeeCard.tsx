@@ -8,7 +8,7 @@ import { useDeleteEmployee, useUpdateEmployee } from '../hooks';
 import { STATUS_STYLES, formatRole } from '../labels';
 
 const secondaryBtnClass =
-  'rounded-lg border border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50';
+  'rounded-lg border border-app-border-strong bg-app-surface px-3 py-1.5 text-xs font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 
 /** One employee card: identity, status badge, lifecycle toggles, open + delete. */
 export function EmployeeCard({ employee }: { employee: AiEmployeeDto }) {
@@ -20,15 +20,15 @@ export function EmployeeCard({ employee }: { employee: AiEmployeeDto }) {
     update.mutate({ id: employee.id, data: { status } });
 
   return (
-    <div className="flex flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 transition-colors hover:border-white/[0.14]">
+    <div className="flex flex-col rounded-2xl border border-app-border bg-app-surface p-5 transition-colors hover:border-app-border-strong">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet-secondary">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet">
             <Bot className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-white">{employee.name}</p>
-            <p className="truncate text-xs text-zinc-400">{formatRole(employee.role)}</p>
+            <p className="truncate text-sm font-bold text-app-ink">{employee.name}</p>
+            <p className="truncate text-xs text-app-ink-2">{formatRole(employee.role)}</p>
           </div>
         </div>
         <span
@@ -82,7 +82,7 @@ export function EmployeeCard({ employee }: { employee: AiEmployeeDto }) {
         <button
           type="button"
           aria-label="Delete employee"
-          className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg p-1.5 text-app-ink-3 transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => del.mutate(employee.id)}
           disabled={isTemp || del.isPending}
         >

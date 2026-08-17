@@ -53,11 +53,11 @@ export default function DashboardPage() {
   return (
     <AppShell {...shellProps}>
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4 pt-2">
-        <h1 className="text-2xl font-bold text-white">
+        <h1 className="text-2xl font-bold text-app-ink">
           {greeting()}
           {user?.name ? `, ${user.name.split(' ')[0]}` : ''} 👋
         </h1>
-        <div className="flex gap-1 rounded-xl border border-white/[0.08] bg-white/[0.03] p-1">
+        <div className="flex gap-1 rounded-xl border border-app-border bg-app-surface p-1">
           {RANGE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
@@ -65,7 +65,7 @@ export default function DashboardPage() {
               className={`rounded-lg px-3.5 py-1.5 text-sm font-medium capitalize transition-colors ${
                 range === opt.value
                   ? 'bg-violet text-white'
-                  : 'text-zinc-400 hover:text-white'
+                  : 'text-app-ink-2 hover:text-app-ink'
               }`}
             >
               {opt.label}
@@ -119,18 +119,24 @@ export default function DashboardPage() {
 
       {/* Per-employee KPIs + activity feed */}
       <div className="grid gap-6 lg:grid-cols-5">
-        <section className="lg:col-span-3">
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">AI Employee Performance</h2>
+        {/* `min-w-0` is what makes the table inside actually scroll. A grid item
+            defaults to `min-width: auto`, so it refuses to shrink below its
+            content — the 7-column performance table pushed this section to
+            635px inside a 390px phone and the whole dashboard scrolled
+            sideways, taking the nav with it. The wrapper's `overflow-x-auto`
+            could never fire because the column simply grew instead. */}
+        <section className="min-w-0 lg:col-span-3">
+          <h2 className="mb-3 text-sm font-medium text-app-ink-2">AI Employee Performance</h2>
           <KpiTable range={range} />
         </section>
         <section className="lg:col-span-2">
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">Today&rsquo;s AI Activity</h2>
+          <h2 className="mb-3 text-sm font-medium text-app-ink-2">Today&rsquo;s AI Activity</h2>
           <ActivityPanel range={range} />
         </section>
       </div>
 
       {isLoading && (
-        <p className="mt-8 text-sm text-zinc-500">Loading your profile…</p>
+        <p className="mt-8 text-sm text-app-ink-3">Loading your profile…</p>
       )}
     </AppShell>
   );

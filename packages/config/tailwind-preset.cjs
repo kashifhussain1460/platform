@@ -36,12 +36,72 @@ module.exports = {
         // One inverted spread (Approvals & Security).
         midnight: { DEFAULT: '#0E1020', 2: '#171933' },
 
+        // ── The signed-in app: dark sidebar, LIGHT content.
+        //
+        // A cool near-white, not the warm `paper` scale above — the app reads as
+        // a workspace beside a dark rail, and warm paper next to violet goes
+        // muddy. Every step below is measured against every surface it is used
+        // on, so a label cannot quietly fail on the raised card it lands in:
+        //
+        //            canvas    card    raised
+        //   ink      17.29    18.32    16.57
+        //   ink-2     8.15     8.63     7.81
+        //   ink-3     4.91     5.20     4.70
+        //   ink-4     3.19     3.37     3.05  ← below AA on purpose: placeholder
+        //                                       and disabled only, never content
+        app: {
+          bg: '#F8F8FC',
+          surface: '#FFFFFF',
+          raised: '#F3F3F9',
+          tint: '#F4F2FF', // violet-tinted panel (the "build it yourself" strip)
+          border: '#E8E8F0',
+          'border-strong': '#D9D9E5',
+          ink: '#14141C',
+          'ink-2': '#4A4A5E',
+          'ink-3': '#6B6B80',
+          'ink-4': '#8A8AA0',
+        },
+
+        // ── Foreground scale for the DARK product surfaces.
+        //
+        // Measured, not chosen by eye. The app is dark everywhere, and it was
+        // using `zinc-500` (#71717A) and `zinc-600` (#52525B) as its muted text:
+        // on the near-black canvas those come out at 4.19 and 2.62, so the
+        // smaller of the two failed WCAG AA outright and the larger missed the
+        // 4.5 body threshold on every single screen. A browser sweep found 66
+        // failures across 11 pages from those two utilities alone.
+        //
+        // Each step below clears AA on the darkest surface (#05060A) AND on the
+        // lightest card (#171A26), so a muted label stays readable wherever a
+        // card happens to sit:
+        //   muted    #9CA3AF → 7.98 / 6.82
+        //   subtle   #8B8B94 → 6.00 / 5.13
+        //   disabled #6B7280 → 4.19 (deliberately below AA; WCAG exempts
+        //            disabled controls, and it must read as unavailable)
+        fg: {
+          DEFAULT: '#FFFFFF',
+          secondary: '#D1D5DB',
+          muted: '#9CA3AF',
+          subtle: '#8B8B94',
+          disabled: '#6B7280',
+        },
+
         // ── Dark/violet marketing palette — pixel-sampled from the reference
         // mockup (not the earlier LayoutConfig.json guess, which ran slightly
         // magenta/light). Scoped, non-colliding names — used ONLY by the dark
         // marketing sections, kept separate from the Workforce Ledger tokens.
         void: { DEFAULT: '#030408', section: '#0C0E14', card: '#0F1017', 'card-hover': '#171923' },
-        violet: { DEFAULT: '#5E3CE8', hover: '#7659F0', secondary: '#8B6EF2', accent: '#6D3FE0' },
+        // `bright` is for text sitting on a violet TINT (`bg-violet/20`) over a
+        // dark surface — the tint lifts the backdrop enough that `secondary`
+        // drops to ~4.1, just under AA. On plain dark, `secondary` is still the
+        // right step; this is only for the chip case.
+        violet: {
+          DEFAULT: '#5E3CE8',
+          hover: '#7659F0',
+          secondary: '#8B6EF2',
+          bright: '#B7A2F8',
+          accent: '#6D3FE0',
+        },
         gold: { DEFAULT: '#F0B90D' }, // badge rocket + star-rating accent only
 
         // ── Workflow Builder tokens (doc 29). Dark, violet-accented; built on the
@@ -75,6 +135,26 @@ module.exports = {
           escalated: '#FB923C',
           expired: '#6B7280',
         },
+        // Status text on a LIGHT surface. The `status` scale above was picked
+        // against a near-black canvas and does not survive the move: on white,
+        // succeeded lands at 1.85, waiting 1.93, escalated 2.50, pending 2.70,
+        // running 3.62 and failed 3.14 — every one under AA for text. These are
+        // the same meanings re-picked for white (all ≥ 4.5), and they stay a
+        // separate group so the dark builder canvas keeps the original hues.
+        //   pending 7.53 · running 6.39 · waiting 6.34 · warning 6.34
+        //   succeeded 5.48 · failed 4.83 · cancelled 5.02 · escalated 5.31
+        //   expired 5.20
+        sl: {
+          pending: '#475569',
+          running: '#5E3CE8',
+          waiting: '#92400E',
+          warning: '#92400E',
+          succeeded: '#047857',
+          failed: '#DC2626',
+          cancelled: '#64748B',
+          escalated: '#C2410C',
+          expired: '#6B7280',
+        },
         edge: {
           idle: 'rgba(255,255,255,0.16)',
           hover: '#7659F0',
@@ -86,7 +166,10 @@ module.exports = {
         wf: {
           ink: '#F5F6FA',
           'ink-2': '#A6ADBB',
-          'ink-3': '#6B7280',
+          // Was #6B7280 — 4.19 on the canvas and 3.58 on a raised node, so node
+          // meta ("2 steps", "last run") sat under AA on the very screen people
+          // read most closely. Matched to `fg.muted`.
+          'ink-3': '#9CA3AF',
           hairline: 'rgba(255,255,255,0.07)',
           'hairline-hover': 'rgba(255,255,255,0.14)',
           focus: '#8B6EF2',

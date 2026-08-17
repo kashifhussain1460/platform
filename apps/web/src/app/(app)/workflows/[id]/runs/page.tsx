@@ -42,14 +42,14 @@ export default function WorkflowRunsPage({
     <AppShell {...shellProps}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4 pt-2">
         <div className="min-w-0">
-          <p className="text-sm text-zinc-500">Runs</p>
-          <h1 className="truncate text-2xl font-bold text-white">
+          <p className="text-sm text-app-ink-3">Runs</p>
+          <h1 className="truncate text-2xl font-bold text-app-ink">
             {workflow?.name ?? 'Workflow'}
           </h1>
         </div>
         <Link
           href={`/workflows/${params.id}`}
-          className="text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+          className="text-sm font-medium text-app-ink-2 transition-colors hover:text-app-ink"
         >
           ← Back to the workflow
         </Link>

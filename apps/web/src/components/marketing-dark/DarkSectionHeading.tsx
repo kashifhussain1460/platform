@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 /** Mono/tracked-caps kicker used above every dark-section headline. */
 export function DarkKicker({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <p className={`text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 ${className}`}>
+    <p className={`text-xs font-semibold uppercase tracking-[0.14em] text-fg-muted ${className}`}>
       {children}
     </p>
   );

@@ -12,13 +12,13 @@ function UsageBar({ label, used, max }: { label: string; used: number; max: numb
   return (
     <div>
       <div className="flex items-baseline justify-between">
-        <p className="text-sm text-zinc-400">{label}</p>
-        <p className="text-xs tabular-nums text-zinc-500">
+        <p className="text-sm text-app-ink-2">{label}</p>
+        <p className="text-xs tabular-nums text-app-ink-3">
           {formatNumber(used)} / {formatLimit(max)}
         </p>
       </div>
       {pct !== null && (
-        <div className="mt-2 h-2 rounded-full bg-white/[0.08]">
+        <div className="mt-2 h-2 rounded-full bg-app-raised">
           <div style={{ width: `${pct}%` }} className={`h-2 rounded-full ${barColor}`} />
         </div>
       )}
@@ -31,10 +31,10 @@ function UsageCount({ label, value, helper }: { label: string; value: number; he
   return (
     <div className="flex items-baseline justify-between">
       <div>
-        <p className="text-sm text-zinc-400">{label}</p>
-        {helper && <p className="mt-0.5 text-xs text-zinc-600">{helper}</p>}
+        <p className="text-sm text-app-ink-2">{label}</p>
+        {helper && <p className="mt-0.5 text-xs text-app-ink-3">{helper}</p>}
       </div>
-      <p className="text-sm font-semibold tabular-nums text-white">{formatNumber(value)}</p>
+      <p className="text-sm font-semibold tabular-nums text-app-ink">{formatNumber(value)}</p>
     </div>
   );
 }
@@ -45,15 +45,15 @@ export function UsageSummary() {
 
   if (isLoading || !usage) {
     return (
-      <div className="flex h-full flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-        <p className="text-sm text-zinc-500">Loading usage…</p>
+      <div className="flex h-full flex-col rounded-2xl border border-app-border bg-app-surface p-6">
+        <p className="text-sm text-app-ink-3">Loading usage…</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-      <h2 className="text-base font-bold text-white">Usage This Month</h2>
+    <div className="flex h-full flex-col rounded-2xl border border-app-border bg-app-surface p-6">
+      <h2 className="text-base font-bold text-app-ink">Usage This Month</h2>
 
       <div className="mt-5 space-y-5">
         <UsageBar label="AI Employees" used={usage.employees} max={usage.maxEmployees} />
@@ -67,7 +67,7 @@ export function UsageSummary() {
       </div>
 
       {usage.overEmployeeLimit && (
-        <div className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+        <div className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
           <span>
             You&rsquo;re over your plan&rsquo;s AI employee limit
             {usage.maxEmployees !== null
@@ -77,14 +77,14 @@ export function UsageSummary() {
           </span>
           <Link
             href="#plans"
-            className="shrink-0 font-semibold text-amber-300 underline underline-offset-2"
+            className="shrink-0 font-semibold text-amber-700 underline underline-offset-2"
           >
             Upgrade
           </Link>
         </div>
       )}
 
-      <p className="mt-5 text-xs text-zinc-600">
+      <p className="mt-5 text-xs text-app-ink-3">
         Voice-minute metering is coming soon.
       </p>
     </div>

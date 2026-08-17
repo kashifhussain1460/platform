@@ -27,24 +27,24 @@ function RunRow({
   const { data: detail } = useWorkflowRun(expanded ? run.id : null);
 
   return (
-    <li className="rounded-xl border border-white/[0.07] bg-white/[0.02]">
+    <li className="rounded-xl border border-app-border bg-app-surface">
       <button
         type="button"
         onClick={onToggle}
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
       >
         <div className="min-w-0">
-          <p className="text-sm text-zinc-300">{formatWhen(run.createdAt)}</p>
+          <p className="text-sm text-app-ink-2">{formatWhen(run.createdAt)}</p>
           {run.error && (
-            <p className="mt-0.5 truncate text-xs text-red-400">{run.error}</p>
+            <p className="mt-0.5 truncate text-xs text-red-600">{run.error}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="inline-block rounded-full bg-white/[0.06] px-2.5 py-0.5 text-xs font-medium text-zinc-400">
+          <span className="inline-block rounded-full bg-app-raised px-2.5 py-0.5 text-xs font-medium text-app-ink-2">
             {run.source}
           </span>
           {run.dryRun && (
-            <span className="inline-block rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400">
+            <span className="inline-block rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-800">
               DRY RUN
             </span>
           )}
@@ -56,7 +56,7 @@ function RunRow({
         </div>
       </button>
       {expanded && (
-        <div className="border-t border-white/[0.06] p-4">
+        <div className="border-t border-app-border p-4">
           <RunSteps steps={detail?.steps ?? []} />
         </div>
       )}
@@ -70,12 +70,12 @@ export function PastRunsPanel({ workflowId }: { workflowId: string }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      <h2 className="mb-3 text-sm font-medium text-zinc-400">Past Runs</h2>
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-3 text-sm font-medium text-app-ink-2">Past Runs</h2>
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading past runs…</p>
+        <p className="text-sm text-app-ink-3">Loading past runs…</p>
       ) : !runs || runs.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-app-ink-3">
           No runs yet — use Run above to try this workflow.
         </p>
       ) : (

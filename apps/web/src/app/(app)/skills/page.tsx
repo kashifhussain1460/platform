@@ -50,15 +50,15 @@ export default function SkillsPage() {
   return (
     <AppShell {...shellProps}>
       <div className="mb-6 flex items-center justify-between pt-2">
-        <h1 className="text-2xl font-bold text-white">Skills</h1>
+        <h1 className="text-2xl font-bold text-app-ink">Skills</h1>
       </div>
 
       {banner && (
         <div
           className={`mb-6 rounded-xl border px-4 py-3 text-sm ${
             banner.kind === 'ok'
-              ? 'border-green-500/20 bg-green-500/10 text-green-400'
-              : 'border-red-500/20 bg-red-500/10 text-red-400'
+              ? 'border-green-500/20 bg-green-500/10 text-green-800'
+              : 'border-red-500/20 bg-red-500/10 text-red-600'
           }`}
         >
           {banner.text}
@@ -68,7 +68,7 @@ export default function SkillsPage() {
       <div className="space-y-10">
         <SkillCatalog />
         <section>
-          <h2 className="mb-4 text-sm font-medium text-zinc-400">Installed Skills</h2>
+          <h2 className="mb-4 text-sm font-medium text-app-ink-2">Installed Skills</h2>
           <InstalledSkillList />
         </section>
       </div>

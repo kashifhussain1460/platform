@@ -26,11 +26,11 @@ export function AiEmployeesGrid() {
               key={title}
               className="rounded-xl border border-white/[0.08] bg-void-card p-5 transition-colors hover:border-white/[0.16]"
             >
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet/15 text-violet-secondary">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet/15 text-violet-bright">
                 <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
               </span>
               <p className="mt-3.5 text-[15px] font-semibold text-white">{title}</p>
-              <p className="mt-1 text-sm text-zinc-500">{body}</p>
+              <p className="mt-1 text-sm text-fg-muted">{body}</p>
             </div>
           ))}
 
@@ -38,7 +38,7 @@ export function AiEmployeesGrid() {
             href="/register"
             className="rounded-xl border border-violet/30 bg-violet/10 p-5 transition-colors hover:border-violet/50"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet/20 text-violet-secondary">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet/20 text-violet-bright">
               <Plus className="h-[18px] w-[18px]" strokeWidth={2} />
             </span>
             <p className="mt-3.5 text-[15px] font-semibold text-violet-secondary">More Roles</p>

@@ -16,7 +16,7 @@ const DAYS = [
   { value: 6, label: 'Sat' },
 ];
 
-const labelClass = 'mb-1.5 block text-sm font-medium text-zinc-300';
+const labelClass = 'mb-1.5 block text-sm font-medium text-app-ink-2';
 
 /** Generate a recurring weekly OPEN-slot pattern over a date range. */
 export function GenerateSlotsForm() {
@@ -56,8 +56,8 @@ export function GenerateSlotsForm() {
   });
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5">
-      <h2 className="mb-3 text-sm font-medium text-zinc-400">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-3 text-sm font-medium text-app-ink-2">
         Generate a recurring pattern
       </h2>
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
@@ -73,7 +73,7 @@ export function GenerateSlotsForm() {
               {...register('startDate')}
             />
             {errors.startDate && (
-              <p className="mt-1.5 text-sm text-red-400">{errors.startDate.message}</p>
+              <p className="mt-1.5 text-sm text-red-600">{errors.startDate.message}</p>
             )}
           </div>
           <div>
@@ -87,7 +87,7 @@ export function GenerateSlotsForm() {
               {...register('endDate')}
             />
             {errors.endDate && (
-              <p className="mt-1.5 text-sm text-red-400">{errors.endDate.message}</p>
+              <p className="mt-1.5 text-sm text-red-600">{errors.endDate.message}</p>
             )}
           </div>
         </div>
@@ -103,7 +103,7 @@ export function GenerateSlotsForm() {
                 className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
                   daysOfWeek.includes(d.value)
                     ? 'bg-violet text-white'
-                    : 'bg-white/[0.04] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200'
+                    : 'bg-app-raised text-app-ink-2 hover:bg-app-raised hover:text-app-ink'
                 }`}
               >
                 {d.label}
@@ -111,7 +111,7 @@ export function GenerateSlotsForm() {
             ))}
           </div>
           {errors.daysOfWeek && (
-            <p className="mt-1.5 text-sm text-red-400">{errors.daysOfWeek.message}</p>
+            <p className="mt-1.5 text-sm text-red-600">{errors.daysOfWeek.message}</p>
           )}
         </div>
 
@@ -157,16 +157,16 @@ export function GenerateSlotsForm() {
           </div>
         </div>
         {(errors.dailyStartHour || errors.dailyEndHour || errors.slotMinutes) && (
-          <p className="text-sm text-red-400">Check the hour/length values.</p>
+          <p className="text-sm text-red-600">Check the hour/length values.</p>
         )}
 
         {generate.isError && (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-red-600">
             {generate.error?.message ?? 'Could not generate slots'}
           </p>
         )}
         {generate.isSuccess && (
-          <p className="text-sm text-green-400">
+          <p className="text-sm text-green-700">
             Created {generate.data.created} open slot(s).
           </p>
         )}

@@ -13,7 +13,7 @@ import { simplifiedWorkflowUX } from '@/lib/featureFlags';
 import { useSessionStore } from '@/stores/session.store';
 
 const secondaryBtnClass =
-  'rounded-xl border border-white/[0.12] bg-white/[0.03] px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06]';
+  'rounded-xl border border-app-border-strong bg-app-surface px-5 py-2.5 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised';
 
 export default function WorkflowsPage() {
   const router = useRouter();
@@ -41,7 +41,7 @@ export default function WorkflowsPage() {
   return (
     <AppShell {...shellProps}>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4 pt-2">
-        <h1 className="text-2xl font-bold text-white">Workflows</h1>
+        <h1 className="text-2xl font-bold text-app-ink">Workflows</h1>
 
         {/* Simplified UX: ONE way in. The three competing controls below are the
             legacy path, kept behind the flag so a rollout problem is an env var

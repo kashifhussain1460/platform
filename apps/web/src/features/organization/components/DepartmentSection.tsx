@@ -18,10 +18,10 @@ import {
 } from '../schemas';
 
 const secondaryBtnClass =
-  'rounded-lg border border-white/[0.12] bg-white/[0.03] px-3.5 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50';
+  'rounded-lg border border-app-border-strong bg-app-surface px-3.5 py-1.5 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 const dangerBtnClass =
-  'rounded-lg border border-white/[0.12] bg-white/[0.03] px-3.5 py-1.5 text-sm font-medium text-red-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50';
-const labelClass = 'mb-1 block text-sm font-medium text-zinc-300';
+  'rounded-lg border border-app-border-strong bg-app-surface px-3.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50';
+const labelClass = 'mb-1 block text-sm font-medium text-app-ink-2';
 
 /** One department row: display + (OWNER/ADMIN) inline edit / remove. */
 function DepartmentRow({
@@ -88,9 +88,9 @@ function DepartmentRow({
   return (
     <li className="flex items-center justify-between gap-3 px-4 py-3">
       <div>
-        <div className="font-medium text-white">{dept.name}</div>
+        <div className="font-medium text-app-ink">{dept.name}</div>
         {dept.description && (
-          <div className="text-xs text-zinc-500">{dept.description}</div>
+          <div className="text-xs text-app-ink-3">{dept.description}</div>
         )}
       </div>
       {canManage && (
@@ -149,8 +149,8 @@ export function DepartmentSection() {
   const rows = departments ?? [];
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      <h2 className="mb-4 text-sm font-medium text-zinc-400">Departments</h2>
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-4 text-sm font-medium text-app-ink-2">Departments</h2>
 
       {canManage && (
         <form onSubmit={onSubmit} className="mb-4 space-y-3" noValidate>
@@ -166,12 +166,12 @@ export function DepartmentSection() {
                 {...register('name')}
               />
               {errors.name && (
-                <p className="mt-1 text-sm text-red-400">{errors.name.message}</p>
+                <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
               )}
             </div>
             <div>
               <label htmlFor="dept-desc" className={labelClass}>
-                Description <span className="text-zinc-500">(optional)</span>
+                Description <span className="text-app-ink-3">(optional)</span>
               </label>
               <input
                 id="dept-desc"
@@ -181,7 +181,7 @@ export function DepartmentSection() {
             </div>
           </div>
           {create.isError && (
-            <p className="text-sm text-red-400">
+            <p className="text-sm text-red-600">
               {create.error?.message ?? 'Could not add department'}
             </p>
           )}
@@ -192,15 +192,15 @@ export function DepartmentSection() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading departments…</p>
+        <p className="text-sm text-app-ink-3">Loading departments…</p>
       ) : isError ? (
-        <p className="text-sm text-red-400">
+        <p className="text-sm text-red-600">
           {error?.message ?? 'Could not load departments'}
         </p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-zinc-500">No departments yet.</p>
+        <p className="text-sm text-app-ink-3">No departments yet.</p>
       ) : (
-        <ul className="divide-y divide-white/[0.06] rounded-xl border border-white/[0.07]">
+        <ul className="divide-y divide-app-border rounded-xl border border-app-border">
           {rows.map((d) => (
             <DepartmentRow key={d.id} dept={d} canManage={canManage} />
           ))}

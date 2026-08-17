@@ -46,8 +46,8 @@ function BranchPaths({
     { label: 'No', value: 'false' },
   ];
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-3">
-      <span className="text-xs font-medium text-zinc-500">Branches:</span>
+    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
+      <span className="text-xs font-medium text-app-ink-3">Branches:</span>
       {branches.map(({ label, value }) => {
         const edge = edges.find(
           (e) => e.from === conditionId && e.branch === value,
@@ -56,7 +56,7 @@ function BranchPaths({
         return edge && target ? (
           <span
             key={value}
-            className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-xs text-zinc-300"
+            className="rounded-lg border border-app-border bg-app-surface px-2.5 py-1 text-xs text-app-ink-2"
           >
             {label} → {NODE_LABELS[target.type]}
           </span>
@@ -65,7 +65,7 @@ function BranchPaths({
             key={value}
             type="button"
             onClick={() => onAddBranch(value)}
-            className="rounded-lg border border-dashed border-white/[0.15] px-2.5 py-1 text-xs font-medium text-zinc-400 transition-colors hover:border-white/30 hover:text-white"
+            className="rounded-lg border border-dashed border-app-border px-2.5 py-1 text-xs font-medium text-app-ink-2 transition-colors hover:border-app-border hover:text-app-ink"
           >
             + Add {label} path
           </button>
@@ -222,9 +222,9 @@ export function NodeList({ workflow }: { workflow: WorkflowDto }) {
   };
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-medium text-zinc-400">Steps</h2>
+        <h2 className="text-sm font-medium text-app-ink-2">Steps</h2>
         <div className="flex items-center gap-2">
           <div className="w-44">
             <select
@@ -242,7 +242,7 @@ export function NodeList({ workflow }: { workflow: WorkflowDto }) {
           <button
             type="button"
             onClick={addStep}
-            className="rounded-lg border border-white/[0.1] px-3.5 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/[0.2] hover:text-white"
+            className="rounded-lg border border-app-border px-3.5 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border hover:text-app-ink"
           >
             + Add step
           </button>
@@ -253,15 +253,15 @@ export function NodeList({ workflow }: { workflow: WorkflowDto }) {
       </div>
 
       {update.isError && (
-        <p className="mb-3 text-sm text-red-400">
+        <p className="mb-3 text-sm text-red-600">
           {update.error?.message ?? 'Could not save workflow'}
         </p>
       )}
       {update.isSuccess && !update.isPending && (
-        <p className="mb-3 text-sm text-green-400">Saved.</p>
+        <p className="mb-3 text-sm text-green-700">Saved.</p>
       )}
       {workflow.warnings.length > 0 && (
-        <ul className="mb-3 space-y-1 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-400">
+        <ul className="mb-3 space-y-1 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-800">
           {workflow.warnings.map((w) => (
             <li key={w}>⚠ {w}</li>
           ))}
@@ -277,10 +277,10 @@ export function NodeList({ workflow }: { workflow: WorkflowDto }) {
               {index > 0 && (
                 <div
                   aria-hidden
-                  className="absolute -top-3 left-[34px] h-3 w-px bg-white/[0.1]"
+                  className="absolute -top-3 left-[34px] h-3 w-px bg-app-raised"
                 />
               )}
-              <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4 transition-colors hover:border-white/[0.14]">
+              <div className="rounded-xl border border-app-border bg-app-surface p-4 transition-colors hover:border-app-border-strong">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-3">
                     <span
@@ -289,10 +289,10 @@ export function NodeList({ workflow }: { workflow: WorkflowDto }) {
                       <Icon className="h-4 w-4" />
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-white">
+                      <p className="truncate text-sm font-semibold text-app-ink">
                         {index + 1}. {NODE_LABELS[node.type]}
                       </p>
-                      <p className="truncate text-xs text-zinc-500">
+                      <p className="truncate text-xs text-app-ink-3">
                         {node.name || NODE_HINTS[node.type]}
                       </p>
                     </div>
@@ -303,7 +303,7 @@ export function NodeList({ workflow }: { workflow: WorkflowDto }) {
                       onClick={() => move(index, -1)}
                       disabled={index <= 1}
                       aria-label="Move up"
-                      className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                      className="rounded-lg p-1.5 text-app-ink-3 transition-colors hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <ChevronUp className="h-4 w-4" />
                     </button>
@@ -312,7 +312,7 @@ export function NodeList({ workflow }: { workflow: WorkflowDto }) {
                       onClick={() => move(index, 1)}
                       disabled={index === 0 || index === nodes.length - 1}
                       aria-label="Move down"
-                      className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+                      className="rounded-lg p-1.5 text-app-ink-3 transition-colors hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-30"
                     >
                       <ChevronDown className="h-4 w-4" />
                     </button>
@@ -321,7 +321,7 @@ export function NodeList({ workflow }: { workflow: WorkflowDto }) {
                         type="button"
                         onClick={() => removeNode(node.id)}
                         aria-label="Delete step"
-                        className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:text-red-400"
+                        className="rounded-lg p-1.5 text-app-ink-3 transition-colors hover:text-red-600"
                       >
                         <X className="h-4 w-4" />
                       </button>

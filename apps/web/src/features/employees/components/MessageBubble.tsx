@@ -56,7 +56,7 @@ export function MessageBubble({
   return (
     <div className={`flex items-start gap-2.5 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && (
-        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet/20 text-violet-secondary">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet/20 text-violet">
           <Bot className="h-4 w-4" />
         </span>
       )}
@@ -65,7 +65,7 @@ export function MessageBubble({
           className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm ${
             isUser
               ? 'bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] text-white'
-              : 'border border-white/[0.07] bg-white/[0.04] text-zinc-200'
+              : 'border border-app-border bg-app-raised text-app-ink'
           }`}
         >
           {message.content}
@@ -78,12 +78,12 @@ export function MessageBubble({
         )}
 
         {canRate && (
-          <div className="mt-1.5 flex items-center gap-2 text-xs text-zinc-500">
+          <div className="mt-1.5 flex items-center gap-2 text-xs text-app-ink-3">
             <button
               type="button"
               aria-label="Good answer"
-              className={`rounded px-1 hover:text-green-400 ${
-                rated === 'UP' ? 'text-green-400' : ''
+              className={`rounded px-1 hover:text-green-700 ${
+                rated === 'UP' ? 'text-green-700' : ''
               }`}
               disabled={feedback.isPending}
               onClick={() => rate('UP')}
@@ -93,8 +93,8 @@ export function MessageBubble({
             <button
               type="button"
               aria-label="Bad answer"
-              className={`rounded px-1 hover:text-red-400 ${
-                rated === 'DOWN' ? 'text-red-400' : ''
+              className={`rounded px-1 hover:text-red-600 ${
+                rated === 'DOWN' ? 'text-red-600' : ''
               }`}
               disabled={feedback.isPending}
               onClick={() => rate('DOWN')}
@@ -103,13 +103,13 @@ export function MessageBubble({
             </button>
             <button
               type="button"
-              className="rounded px-1 hover:text-violet-secondary"
+              className="rounded px-1 hover:text-violet"
               onClick={() => setTeaching((t) => !t)}
             >
               Teach…
             </button>
             {rated && !teaching && (
-              <span className="text-zinc-500">Thanks — noted.</span>
+              <span className="text-app-ink-3">Thanks — noted.</span>
             )}
           </div>
         )}

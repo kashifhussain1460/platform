@@ -36,7 +36,7 @@ export function DarkHero() {
       />
       <div aria-hidden className="pointer-events-none absolute left-1/4 top-1/3 h-[420px] w-[420px] bg-dark-glow opacity-40 blur-3xl" />
 
-      <div className="relative z-10 mx-auto max-w-[1440px] px-8 pb-24 pt-20">
+      <div className="relative z-10 mx-auto max-w-[1440px]">
         <div className="grid items-center gap-10 lg:grid-cols-2">
           {/* ── Left: copy ───────────────────────────────────────────── */}
           <div>
@@ -56,7 +56,15 @@ export function DarkHero() {
               initial="hidden"
               animate="show"
               custom={1}
-              className="mt-6 text-[44px] font-black leading-[1.05] tracking-tight text-white sm:text-[56px] lg:text-[72px]"
+              // 700, not 900. `font-black` at 72px turned the headline into a
+              // solid slab — the counters close up, the descenders crowd, and it
+              // shouted over the logo above it. The type scale tops out at 700
+              // for display for exactly this reason.
+              // 64 at the top end, the documented Display step. 72 overflowed
+              // the hero column into four lines and stranded "limits." on its
+              // own — a headline that big stops being emphasis and starts being
+              // a layout problem.
+              className="mt-6 text-[40px] font-bold leading-[1.05] tracking-tight text-white sm:text-[52px] lg:text-[54px]"
             >
               Build your AI workforce.
               <br />
@@ -113,7 +121,7 @@ export function DarkHero() {
           custom={4}
           className="mt-20 text-center"
         >
-          <p className="text-sm font-medium text-zinc-500">Trusted by forward-thinking companies</p>
+          <p className="text-sm font-medium text-fg-muted">Trusted by forward-thinking companies</p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-4 opacity-70 grayscale">
             {LOGOS.map((logo) => (
               <span key={logo} className="text-xl font-semibold text-zinc-300">

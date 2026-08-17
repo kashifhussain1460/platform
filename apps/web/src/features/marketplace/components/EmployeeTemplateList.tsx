@@ -24,7 +24,7 @@ function EmployeeTemplateCard({ template }: { template: EmployeeTemplateDto }) {
   const Icon = categoryIcon(template.category);
 
   return (
-    <li className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 transition-colors hover:border-white/[0.14]">
+    <li className="rounded-2xl border border-app-border bg-app-surface p-5 transition-colors hover:border-app-border-strong">
       <div className="flex items-start gap-3">
         <span
           className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${categoryBadgeClass(template.category)}`}
@@ -32,21 +32,21 @@ function EmployeeTemplateCard({ template }: { template: EmployeeTemplateDto }) {
           <Icon className="h-5 w-5" strokeWidth={2} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-bold text-white">{template.name}</p>
+          <p className="font-bold text-app-ink">{template.name}</p>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <span
               className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_STYLES[template.role]}`}
             >
               {formatRole(template.role)}
             </span>
-            <span className="text-xs text-zinc-500">{template.category}</span>
+            <span className="text-xs text-app-ink-3">{template.category}</span>
           </div>
         </div>
       </div>
 
-      <p className="mt-3 text-sm text-zinc-400">{template.description}</p>
+      <p className="mt-3 text-sm text-app-ink-2">{template.description}</p>
       {template.suggestedSkills.length > 0 && (
-        <p className="mt-2 text-xs text-zinc-600">
+        <p className="mt-2 text-xs text-app-ink-3">
           Suggested skills: {template.suggestedSkills.join(', ')}
         </p>
       )}
@@ -65,11 +65,11 @@ function EmployeeTemplateCard({ template }: { template: EmployeeTemplateDto }) {
       </div>
 
       {created && !created.id.startsWith('temp_') && (
-        <p className="mt-3 text-xs text-green-400">
+        <p className="mt-3 text-xs text-green-700">
           Hired {created.name}.{' '}
           <Link
             href={`/employees/${created.id}`}
-            className="font-medium text-violet-secondary underline hover:text-white"
+            className="font-medium text-violet underline hover:text-app-ink"
           >
             Open employee →
           </Link>
@@ -86,7 +86,7 @@ export function EmployeeTemplateList() {
   const [category, setCategory] = useState('All');
 
   if (isLoading) {
-    return <p className="text-sm text-zinc-500">Loading templates…</p>;
+    return <p className="text-sm text-app-ink-3">Loading templates…</p>;
   }
 
   const employees = data?.employees ?? [];
@@ -104,7 +104,7 @@ export function EmployeeTemplateList() {
   return (
     <div>
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-app-ink-3" />
         <input
           type="text"
           value={query}
@@ -125,7 +125,7 @@ export function EmployeeTemplateList() {
             className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
               category === c
                 ? 'bg-violet text-white'
-                : 'border border-white/[0.1] text-zinc-400 hover:text-white'
+                : 'border border-app-border text-app-ink-2 hover:text-app-ink'
             }`}
           >
             {c}
@@ -134,7 +134,7 @@ export function EmployeeTemplateList() {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">
+        <p className="mt-6 text-sm text-app-ink-3">
           {employees.length === 0 ? 'No templates available.' : 'No templates match your search.'}
         </p>
       ) : (

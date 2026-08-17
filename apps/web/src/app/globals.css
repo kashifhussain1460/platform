@@ -16,8 +16,16 @@ html {
   scroll-behavior: smooth;
 }
 
+/* The product is dark everywhere — marketing, auth, onboarding and the app all
+ * paint a near-black surface. `body` nonetheless carried the LIGHT "Workforce
+ * Ledger" canvas (bg-paper #FAFAF8 + text-ink), so every screen was a dark sheet
+ * laid over a white page. Anything that failed to paint its own background —
+ * a mis-sized container, a slow route transition, an overscroll bounce —
+ * showed white, and any text that inherited `color` arrived near-black on
+ * near-black. Making the canvas match what the product actually is removes a
+ * whole class of "why did it flash white" without touching a single screen. */
 body {
-  @apply bg-paper font-sans text-ink antialiased;
+  @apply bg-void font-sans text-white antialiased;
   font-variant-numeric: tabular-nums;
 }
 
@@ -41,8 +49,22 @@ body {
   color: #ffffff;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
+/* Room for a leading icon.
+ *
+ * A Tailwind `pl-11` cannot do this: `.field-modern` is declared outside any
+ * `@layer`, so it is emitted AFTER the utilities and its shorthand `padding`
+ * wins the cascade — the icon rendered on top of the text. Two classes beat one,
+ * so this holds regardless of source order. */
+.field-modern.field-with-icon {
+  padding-left: 2.75rem;
+}
+
+/* #6B7280 measures 4.19 on these surfaces — under AA, and a placeholder is
+ * often the only hint of what a field wants. The contrast sweep could not catch
+ * it because a placeholder is an attribute, not a text node. `fg.subtle` is
+ * readable at 6.00 while staying clearly lighter than a real entered value. */
 .field-modern::placeholder {
-  color: #6b7280;
+  color: #8b8b94;
 }
 .field-modern:hover {
   border-color: rgba(139, 110, 242, 0.55);
@@ -58,6 +80,33 @@ body {
 /* native select popup options stay readable (dark-on-light OS menu) */
 .field-modern option {
   color: #111318;
+}
+
+/* ── The same control on the LIGHT app canvas.
+ *
+ * `.field-modern` above is built for the dark auth/marketing panels: a 3%-white
+ * fill and a 10%-white border. Put it on a white card and both vanish — a
+ * browser sweep found 26 controls across 7 screens whose fill AND border were
+ * both 1.00 against the surface behind them, i.e. no visible box at all. Only
+ * the surface treatment changes here; radius, padding and focus behaviour are
+ * inherited so the two themes stay one component. */
+.app-light .field-modern {
+  border-color: #d9d9e5;
+  background: #ffffff;
+  color: #14141c;
+}
+/* `ink-4` (#8A8AA0) measures 3.19 on white — under AA, and the same reasoning
+ * as the dark rule above applies: a placeholder is often the only hint of what
+ * a field wants. `ink-3` clears it at 4.91 while staying obviously lighter than
+ * an entered value (17.29). */
+.app-light .field-modern::placeholder {
+  color: #6b6b80;
+}
+.app-light .field-modern:focus,
+.app-light .field-modern:focus-visible {
+  border-color: #5e3ce8;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(94, 60, 232, 0.16);
 }
 
 /* Focus ring — paper gap + indigo. */

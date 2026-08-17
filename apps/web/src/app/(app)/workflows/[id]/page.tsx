@@ -108,14 +108,14 @@ export default function WorkflowEditorPage({
     <AppShell {...shellProps}>
       <div className="mb-6 flex items-center justify-between gap-4 pt-2">
         <div>
-          <p className="text-sm text-zinc-500">Workflow</p>
-          <h1 className="text-2xl font-bold text-white">
+          <p className="text-sm text-app-ink-3">Workflow</p>
+          <h1 className="text-2xl font-bold text-app-ink">
             {workflow?.name ?? 'Loading…'}
           </h1>
         </div>
         <Link
           href="/workflows"
-          className="text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+          className="text-sm font-medium text-app-ink-2 transition-colors hover:text-app-ink"
         >
           ← Workflows
         </Link>
@@ -123,7 +123,7 @@ export default function WorkflowEditorPage({
 
       {!dismissed && unresolvedIds.length > 0 && workflow && (
         <div className="mb-6 flex items-start justify-between gap-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
-          <p className="text-sm text-amber-400">
+          <p className="text-sm text-amber-700">
             AI couldn&apos;t confidently fill in{' '}
             {unresolvedIds
               .map((id) => workflow.definition.nodes.find((n) => n.id === id)?.name ?? id)
@@ -133,7 +133,7 @@ export default function WorkflowEditorPage({
           <button
             type="button"
             onClick={() => setDismissed(true)}
-            className="shrink-0 text-sm text-amber-400 hover:text-amber-300"
+            className="shrink-0 text-sm text-amber-700 hover:text-amber-700"
           >
             Dismiss
           </button>
@@ -141,7 +141,7 @@ export default function WorkflowEditorPage({
       )}
 
       {isLoading || !workflow ? (
-        <p className="text-sm text-zinc-500">Loading workflow…</p>
+        <p className="text-sm text-app-ink-3">Loading workflow…</p>
       ) : showOverview ? (
         <WorkflowOverview
           workflow={workflow}
@@ -195,17 +195,17 @@ export default function WorkflowEditorPage({
               className="mb-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3"
               role="status"
             >
-              <p className="text-sm font-medium text-amber-400">
+              <p className="text-sm font-medium text-amber-700">
                 {warnings.length === 1
                   ? 'One step isn’t connected yet'
                   : `${warnings.length} steps aren’t connected yet`}
               </p>
-              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-amber-400/90">
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-amber-700/90">
                 {warnings.map((w) => (
                   <li key={w}>{w}</li>
                 ))}
               </ul>
-              <p className="mt-1.5 text-xs text-amber-400/70">
+              <p className="mt-1.5 text-xs text-amber-700/70">
                 Drag a connection from the previous step. Until then this
                 workflow can’t be published or run.
               </p>
@@ -232,7 +232,7 @@ export default function WorkflowEditorPage({
 
           {!watching && (
             <div
-              className="mb-5 inline-flex rounded-lg border border-wf-hairline p-0.5"
+              className="mb-5 inline-flex rounded-lg border border-app-border p-0.5"
               role="tablist"
               aria-label="Workflow view"
             >
@@ -244,7 +244,7 @@ export default function WorkflowEditorPage({
                 aria-selected={view === v}
                 onClick={() => setView(v)}
                 className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                  view === v ? 'bg-violet text-white' : 'text-wf-ink-2 hover:text-wf-ink'
+                  view === v ? 'bg-violet text-white' : 'text-app-ink-2 hover:text-app-ink'
                 }`}
               >
                 {v === 'canvas' ? 'Canvas' : 'Steps'}

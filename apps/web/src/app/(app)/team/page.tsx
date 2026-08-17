@@ -29,7 +29,7 @@ export default function TeamPage() {
   return (
     <AppShell {...shellProps}>
       <div className="pt-2">
-        <h1 className="mb-6 text-2xl font-bold text-white">Team Members</h1>
+        <h1 className="mb-6 text-2xl font-bold text-app-ink">Team Members</h1>
 
         <div className="space-y-6">
           {/* Mutating controls are OWNER/ADMIN only; members see a read-only roster. */}

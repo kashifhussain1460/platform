@@ -67,10 +67,10 @@ export function ChatPanel({
   const onSubmit = handleSubmit((values) => submit(values.content));
 
   return (
-    <section className="flex h-[70vh] flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02]">
+    <section className="flex h-[70vh] flex-col rounded-2xl border border-app-border bg-app-surface">
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
         {(messages ?? []).length === 0 && !send.isPending ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-app-ink-3">
             No messages yet. Say hello to get started.
           </p>
         ) : (
@@ -84,11 +84,11 @@ export function ChatPanel({
 
       <form
         onSubmit={onSubmit}
-        className="border-t border-white/[0.07] p-3"
+        className="border-t border-app-border p-3"
         noValidate
       >
         {disabled && (
-          <p className="mb-2 text-sm text-amber-400">
+          <p className="mb-2 text-sm text-amber-700">
             This employee is {employee.status.toLowerCase()}. Resume it to chat.
           </p>
         )}
@@ -106,16 +106,16 @@ export function ChatPanel({
           </Button>
         </div>
         {errors.content && (
-          <p className="mt-1 text-sm text-red-400">{errors.content.message}</p>
+          <p className="mt-1 text-sm text-red-600">{errors.content.message}</p>
         )}
         {failedText && !send.isPending && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-red-400">
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-red-600">
             <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
             <span>{send.error?.message ?? 'Message failed'}</span>
             <button
               type="button"
               onClick={() => submit(failedText)}
-              className="inline-flex items-center gap-1 rounded-lg border border-white/[0.12] px-2 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06]"
+              className="inline-flex items-center gap-1 rounded-lg border border-app-border-strong px-2 py-1 text-xs font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised"
             >
               <RotateCcw className="h-3 w-3" aria-hidden />
               Try again

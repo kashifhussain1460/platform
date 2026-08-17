@@ -37,24 +37,24 @@ export function LearningPanel({ employeeId }: { employeeId: string }) {
   const recent = learning?.recentFeedback ?? [];
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      <h2 className="mb-4 text-sm font-medium text-white">Learning</h2>
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-4 text-sm font-medium text-app-ink">Learning</h2>
 
       {/* Feedback summary */}
       <div className="mb-5 grid grid-cols-3 gap-3">
-        <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 text-center">
-          <p className="text-lg font-semibold text-green-400">{fb?.up ?? 0}</p>
-          <p className="text-xs text-zinc-500">👍 Helpful</p>
+        <div className="rounded-xl border border-app-border bg-app-surface p-3 text-center">
+          <p className="text-lg font-semibold text-green-700">{fb?.up ?? 0}</p>
+          <p className="text-xs text-app-ink-3">👍 Helpful</p>
         </div>
-        <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 text-center">
-          <p className="text-lg font-semibold text-red-400">{fb?.down ?? 0}</p>
-          <p className="text-xs text-zinc-500">👎 Needs work</p>
+        <div className="rounded-xl border border-app-border bg-app-surface p-3 text-center">
+          <p className="text-lg font-semibold text-red-600">{fb?.down ?? 0}</p>
+          <p className="text-xs text-app-ink-3">👎 Needs work</p>
         </div>
-        <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 text-center">
-          <p className="text-lg font-semibold text-white">
+        <div className="rounded-xl border border-app-border bg-app-surface p-3 text-center">
+          <p className="text-lg font-semibold text-app-ink">
             {learning?.memories.total ?? 0}
           </p>
-          <p className="text-xs text-zinc-500">Memories</p>
+          <p className="text-xs text-app-ink-3">Memories</p>
         </div>
       </div>
 
@@ -78,11 +78,11 @@ export function LearningPanel({ employeeId }: { employeeId: string }) {
       </div>
 
       {/* Memories list */}
-      <h3 className="mb-2 text-xs font-medium text-zinc-500">
+      <h3 className="mb-2 text-xs font-medium text-app-ink-3">
         What this employee has learned
       </h3>
       {(memories ?? []).length === 0 ? (
-        <p className="mb-4 text-sm text-zinc-500">
+        <p className="mb-4 text-sm text-app-ink-3">
           Nothing learned yet. Teach a fact or leave feedback in chat.
         </p>
       ) : (
@@ -90,18 +90,18 @@ export function LearningPanel({ employeeId }: { employeeId: string }) {
           {(memories ?? []).map((m) => (
             <li
               key={m.id}
-              className="flex items-start justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2"
+              className="flex items-start justify-between gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2"
             >
               <div className="min-w-0">
-                <p className="break-words text-sm text-zinc-200">{m.content}</p>
-                <p className="mt-0.5 text-xs text-zinc-500">
+                <p className="break-words text-sm text-app-ink">{m.content}</p>
+                <p className="mt-0.5 text-xs text-app-ink-3">
                   {m.kind}
                   {m.source ? ` · ${SOURCE_LABELS[m.source] ?? m.source}` : ''}
                 </p>
               </div>
               <button
                 type="button"
-                className="shrink-0 text-xs text-zinc-500 hover:text-red-400"
+                className="shrink-0 text-xs text-app-ink-3 hover:text-red-600"
                 disabled={forget.isPending}
                 onClick={() => forget.mutate(m.id)}
               >
@@ -115,16 +115,16 @@ export function LearningPanel({ employeeId }: { employeeId: string }) {
       {/* Recent feedback */}
       {recent.length > 0 && (
         <>
-          <h3 className="mb-2 text-xs font-medium text-zinc-500">
+          <h3 className="mb-2 text-xs font-medium text-app-ink-3">
             Recent feedback
           </h3>
           <ul className="space-y-1">
             {recent.map((f) => (
               <li key={f.id} className="flex items-start gap-2 text-sm">
                 <span>{f.rating === 'UP' ? '👍' : '👎'}</span>
-                <span className="text-zinc-400">
+                <span className="text-app-ink-2">
                   {f.correction || f.note || (
-                    <span className="text-zinc-600">(no note)</span>
+                    <span className="text-app-ink-3">(no note)</span>
                   )}
                 </span>
               </li>

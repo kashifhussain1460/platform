@@ -82,12 +82,12 @@ export function ReviewPublishDialog({
   return (
     <Modal open={open} onClose={close} title="Review and publish" size="lg">
       {readiness.isLoading ? (
-        <p className="flex items-center gap-2 text-sm text-wf-ink-2">
+        <p className="flex items-center gap-2 text-sm text-app-ink-2">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           Checking this workflow…
         </p>
       ) : readiness.isError ? (
-        <p className="text-sm text-status-failed">
+        <p className="text-sm text-sl-failed">
           Couldn&apos;t check this workflow: {readiness.error.message}
         </p>
       ) : !readiness.data ? null : result ? (
@@ -101,8 +101,8 @@ export function ReviewPublishDialog({
       ) : (
         <div className="space-y-5">
           {/* ── What is about to be published ───────────────────────────── */}
-          <section className="rounded-xl border border-wf-hairline bg-void-card p-4">
-            <h3 className="mb-3 font-display text-sm font-semibold text-wf-ink">
+          <section className="rounded-xl border border-app-border bg-app-surface p-4">
+            <h3 className="mb-3 font-display text-sm font-semibold text-app-ink">
               {readiness.data.summary.name}
             </h3>
             <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
@@ -142,7 +142,7 @@ export function ReviewPublishDialog({
               className="rounded-xl border border-status-failed/25 bg-status-failed/[0.07] p-4"
               role="alert"
             >
-              <h3 className="mb-1 flex items-center gap-2 font-display text-sm font-semibold text-status-failed">
+              <h3 className="mb-1 flex items-center gap-2 font-display text-sm font-semibold text-sl-failed">
                 <CircleAlert className="h-4 w-4" aria-hidden />
                 {blockers.length === 1
                   ? 'One thing to fix first'
@@ -170,7 +170,7 @@ export function ReviewPublishDialog({
           {/* ── Advisory notes ──────────────────────────────────────────── */}
           {warnings.length > 0 && (
             <section className="rounded-xl border border-status-waiting/25 bg-status-waiting/[0.07] p-4">
-              <h3 className="mb-1 flex items-center gap-2 font-display text-sm font-semibold text-status-waiting">
+              <h3 className="mb-1 flex items-center gap-2 font-display text-sm font-semibold text-sl-waiting">
                 <AlertTriangle className="h-4 w-4" aria-hidden />
                 Worth knowing
               </h3>
@@ -196,7 +196,7 @@ export function ReviewPublishDialog({
 
           {/* ── The checks that ran ─────────────────────────────────────── */}
           <section>
-            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-wf-ink-3">
+            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-app-ink-3">
               Checks
             </h3>
             <ul className="grid gap-1.5 sm:grid-cols-2">
@@ -209,24 +209,24 @@ export function ReviewPublishDialog({
           {readiness.data.ready && (
             <>
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-wf-ink-2">
+                <span className="mb-1 block text-xs font-medium text-app-ink-2">
                   What changed? (optional — it goes in the version history)
                 </span>
                 <input
                   value={changeNote}
                   onChange={(e) => setChangeNote(e.target.value)}
                   placeholder="e.g. Added the recruiter approval step"
-                  className="w-full rounded-lg border border-wf-hairline bg-void-section px-3 py-2 text-sm text-wf-ink outline-none placeholder:text-wf-ink-3 focus-visible:ring-2 focus-visible:ring-wf-focus"
+                  className="w-full rounded-lg border border-app-border bg-app-raised px-3 py-2 text-sm text-app-ink outline-none placeholder:text-app-ink-3 focus-visible:ring-2 focus-visible:ring-wf-focus"
                 />
               </label>
 
-              <p className="text-sm text-wf-ink-2">
+              <p className="text-sm text-app-ink-2">
                 Publishing saves this as a new version. Runs that are already
                 going keep using the version they started with.
                 {readiness.data.summary.hasExternalActions && (
                   <>
                     {' '}
-                    <span className="text-status-waiting">
+                    <span className="text-sl-waiting">
                       Once it&apos;s live, this workflow can send messages and
                       change things in the tools it&apos;s connected to.
                     </span>
@@ -237,7 +237,7 @@ export function ReviewPublishDialog({
           )}
 
           {error && (
-            <div className="rounded-xl border border-status-failed/25 bg-status-failed/[0.07] p-3 text-sm text-status-failed">
+            <div className="rounded-xl border border-status-failed/25 bg-status-failed/[0.07] p-3 text-sm text-sl-failed">
               <p className="font-medium">Couldn&apos;t publish.</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4">
                 {splitPublishIssues(error.message).map((line, i) => (
@@ -247,11 +247,11 @@ export function ReviewPublishDialog({
             </div>
           )}
 
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-wf-hairline pt-4">
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-app-border pt-4">
             <button
               type="button"
               onClick={close}
-              className="rounded-lg border border-wf-hairline px-4 py-2 text-sm font-medium text-wf-ink-2 transition-colors hover:border-wf-hairline-hover hover:text-wf-ink"
+              className="rounded-lg border border-app-border px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:text-app-ink"
             >
               {readiness.data.ready ? 'Cancel' : 'Back to the builder'}
             </button>
@@ -267,7 +267,7 @@ export function ReviewPublishDialog({
                     publishOnly.mutate({ changeNote: changeNote.trim() || undefined })
                   }
                   disabled={pending}
-                  className="rounded-lg border border-wf-hairline px-4 py-2 text-sm font-medium text-wf-ink-2 transition-colors hover:border-wf-hairline-hover hover:text-wf-ink disabled:opacity-50"
+                  className="rounded-lg border border-app-border px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:text-app-ink disabled:opacity-50"
                 >
                   Publish without turning it on
                 </button>
@@ -295,8 +295,8 @@ export function ReviewPublishDialog({
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex gap-2">
-      <dt className="shrink-0 text-wf-ink-3">{label}:</dt>
-      <dd className="min-w-0 break-words text-wf-ink">{value}</dd>
+      <dt className="shrink-0 text-app-ink-3">{label}:</dt>
+      <dd className="min-w-0 break-words text-app-ink">{value}</dd>
     </div>
   );
 }
@@ -304,15 +304,15 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 function CheckRow({ check }: { check: WorkflowReadinessCheckDto }) {
   const icon =
     check.status === 'PASS' ? (
-      <Check className="h-4 w-4 shrink-0 text-status-succeeded" aria-hidden />
+      <Check className="h-4 w-4 shrink-0 text-sl-succeeded" aria-hidden />
     ) : check.status === 'WARN' ? (
-      <AlertTriangle className="h-4 w-4 shrink-0 text-status-waiting" aria-hidden />
+      <AlertTriangle className="h-4 w-4 shrink-0 text-sl-waiting" aria-hidden />
     ) : (
-      <X className="h-4 w-4 shrink-0 text-status-failed" aria-hidden />
+      <X className="h-4 w-4 shrink-0 text-sl-failed" aria-hidden />
     );
 
   return (
-    <li className="flex items-center gap-2 text-sm text-wf-ink-2">
+    <li className="flex items-center gap-2 text-sm text-app-ink-2">
       {icon}
       {check.label}
     </li>
@@ -330,7 +330,7 @@ function IssueRow({
   onFocusNode: (nodeId: string) => void;
   onOpenTrigger: () => void;
 }) {
-  const colour = tone === 'bad' ? 'text-status-failed' : 'text-status-waiting';
+  const colour = tone === 'bad' ? 'text-sl-failed' : 'text-sl-waiting';
 
   return (
     <li className={`text-sm ${colour}`}>
@@ -387,24 +387,24 @@ function PublishOutcome({
     <div className="space-y-4">
       {activationError ? (
         <div className="rounded-xl border border-status-waiting/25 bg-status-waiting/[0.07] p-4">
-          <p className="font-display text-sm font-semibold text-status-waiting">
+          <p className="font-display text-sm font-semibold text-sl-waiting">
             Published v{versionNumber}, but it isn&apos;t live yet
           </p>
-          <p className="mt-1 text-sm text-wf-ink-2">{activationError}</p>
-          <p className="mt-1 text-sm text-wf-ink-3">
+          <p className="mt-1 text-sm text-app-ink-2">{activationError}</p>
+          <p className="mt-1 text-sm text-app-ink-3">
             Fix that and turn it on from the workflow page — you don&apos;t need
             to publish again.
           </p>
         </div>
       ) : (
         <div className="rounded-xl border border-status-succeeded/25 bg-status-succeeded/[0.07] p-4">
-          <p className="flex items-center gap-2 font-display text-sm font-semibold text-status-succeeded">
+          <p className="flex items-center gap-2 font-display text-sm font-semibold text-sl-succeeded">
             <Check className="h-4 w-4" aria-hidden />
             {unchanged
               ? `Already up to date — v${versionNumber} is the live version`
               : `Published v${versionNumber}`}
           </p>
-          <p className="mt-1 text-sm text-wf-ink-2">
+          <p className="mt-1 text-sm text-app-ink-2">
             {activated
               ? 'It’s on. New runs will use this version; runs already going keep the version they started with.'
               : 'It’s saved as a version but not turned on yet.'}

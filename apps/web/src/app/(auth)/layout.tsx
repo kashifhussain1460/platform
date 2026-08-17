@@ -46,7 +46,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
 
   if (status === 'loading') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#02030a] text-sm text-zinc-500">
+      <div className="flex min-h-screen items-center justify-center bg-[#02030a] text-sm text-fg-muted">
         Loading…
       </div>
     );

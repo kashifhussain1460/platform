@@ -124,7 +124,7 @@ export default function AssistSessionPage() {
   if (isLoading || !session) {
     return (
       <AppShell {...shellProps}>
-        <div className="p-6 text-sm text-zinc-500">Loading the conversation…</div>
+        <div className="p-6 text-sm text-app-ink-3">Loading the conversation…</div>
       </AppShell>
     );
   }
@@ -147,23 +147,27 @@ export default function AssistSessionPage() {
 
   return (
     <AppShell {...shellProps}>
-      <div className="flex h-[calc(100vh-6rem)] flex-col px-4 py-4">
+      {/* `min-w-0` + `overflow-x-hidden`: at 390px this workspace pushed the
+          document to 571px wide, so the whole page — nav included — slid
+          sideways. The stage rail is its own scroll box and the canvas pans
+          internally, so nothing here needs to spill the page to stay usable. */}
+      <div className="flex h-[calc(100vh-6rem)] min-w-0 flex-col overflow-x-hidden px-4 py-4">
         <header className="mb-3 flex shrink-0 items-center gap-3">
           <Link
             href="/assist"
-            className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-200"
+            className="flex items-center gap-1.5 text-sm text-app-ink-2 hover:text-app-ink"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden />
             AI Assist
           </Link>
           <span className="text-zinc-700">/</span>
-          <h1 className="truncate font-display text-lg font-semibold text-white">
+          <h1 className="truncate font-display text-lg font-semibold text-app-ink">
             {session.title}
           </h1>
           {session.createdWorkflowId ? (
             <Link
               href={`/workflows/${session.createdWorkflowId}`}
-              className="ml-auto rounded-lg border border-white/[0.12] px-3 py-1.5 text-sm text-zinc-300 hover:bg-white/[0.06]"
+              className="ml-auto rounded-lg border border-app-border-strong px-3 py-1.5 text-sm text-app-ink-2 hover:bg-app-raised"
             >
               Open the workflow
             </Link>
@@ -174,8 +178,8 @@ export default function AssistSessionPage() {
           <div
             className={`mb-3 shrink-0 rounded-xl border px-3 py-2 text-sm ${
               connResult.error
-                ? 'border-status-failed/30 bg-status-failed/10 text-status-failed'
-                : 'border-status-succeeded/25 bg-status-succeeded/10 text-status-succeeded'
+                ? 'border-status-failed/30 bg-status-failed/10 text-sl-failed'
+                : 'border-status-succeeded/25 bg-status-succeeded/10 text-sl-succeeded'
             }`}
             role="status"
           >
@@ -218,13 +222,13 @@ export default function AssistSessionPage() {
           >
             {nodeCount === 0 ? (
               // `relative` so the busy overlay can cover exactly this panel.
-              <div className="relative flex flex-1 items-center justify-center rounded-2xl border border-white/[0.07] bg-white/[0.02] p-8 text-center">
+              <div className="relative flex flex-1 items-center justify-center rounded-2xl border border-app-border bg-app-surface p-8 text-center">
                 <div>
                   <WandSparkles
-                    className="mx-auto mb-3 h-6 w-6 text-zinc-600"
+                    className="mx-auto mb-3 h-6 w-6 text-app-ink-3"
                     aria-hidden
                   />
-                  <p className="text-sm text-zinc-400">
+                  <p className="text-sm text-app-ink-2">
                     Your workflow will appear here as Orlixa builds it.
                   </p>
                 </div>
@@ -249,7 +253,7 @@ export default function AssistSessionPage() {
                     agent couldn't fill a step in, so a human decides before a
                     workflow row exists. */}
                 {unresolvedCount > 0 ? (
-                  <p className="mt-3 shrink-0 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
+                  <p className="mt-3 shrink-0 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
                     Orlixa couldn&apos;t finish{' '}
                     {unresolvedCount === 1 ? '1 step' : `${unresolvedCount} steps`}.
                     Create it anyway and finish those in the builder, or tell
@@ -341,20 +345,20 @@ function AcceptBar({
 
   if (alreadyCreated) {
     return (
-      <p className="mt-3 shrink-0 rounded-xl border border-status-succeeded/25 bg-status-succeeded/10 px-3 py-2.5 text-sm text-status-succeeded">
+      <p className="mt-3 shrink-0 rounded-xl border border-status-succeeded/25 bg-status-succeeded/10 px-3 py-2.5 text-sm text-sl-succeeded">
         Created. It&apos;s in your workflows now.
       </p>
     );
   }
 
   return (
-    <div className="mt-3 shrink-0 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-3">
+    <div className="mt-3 shrink-0 rounded-2xl border border-app-border bg-app-surface p-3">
       <div className="flex items-center gap-2">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           aria-label="Workflow name"
-          className="min-w-0 flex-1 rounded-lg border border-white/[0.1] bg-void px-2.5 py-1.5 text-sm text-zinc-200 focus:border-wf-focus focus:outline-none"
+          className="min-w-0 flex-1 rounded-lg border border-app-border bg-app-raised px-2.5 py-1.5 text-sm text-app-ink focus:border-violet focus:outline-none"
         />
         <button
           type="button"
@@ -368,10 +372,10 @@ function AcceptBar({
         </button>
       </div>
       {disabled ? (
-        <p className="mt-1.5 text-xs text-zinc-500">{disabledReason}</p>
+        <p className="mt-1.5 text-xs text-app-ink-3">{disabledReason}</p>
       ) : null}
       {error ? (
-        <p className="mt-1.5 text-xs text-status-failed">{error}</p>
+        <p className="mt-1.5 text-xs text-sl-failed">{error}</p>
       ) : null}
     </div>
   );

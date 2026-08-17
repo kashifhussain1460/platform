@@ -56,10 +56,10 @@ export function CreateWorkflowChooser() {
         {/* ── Build with AI ──────────────────────────────────────────────── */}
         <section className="flex flex-col rounded-2xl border border-violet/25 bg-violet/[0.06] p-6">
           <div className="mb-1 flex items-center gap-2">
-            <WandSparkles className="h-5 w-5 text-violet-secondary" aria-hidden />
-            <h2 className="text-lg font-semibold text-white">Build with AI</h2>
+            <WandSparkles className="h-5 w-5 text-violet" aria-hidden />
+            <h2 className="text-lg font-semibold text-app-ink">Build with AI</h2>
           </div>
-          <p className="mb-4 text-sm text-zinc-400">
+          <p className="mb-4 text-sm text-app-ink-2">
             Describe what you want to happen. Orlixa builds the workflow and
             opens it so you can check it.
           </p>
@@ -78,16 +78,16 @@ export function CreateWorkflowChooser() {
           />
 
           {!canUseAi && (
-            <p className="mb-3 text-sm text-amber-400">
+            <p className="mb-3 text-sm text-amber-700">
               Building with AI is part of the Business and Enterprise plans.{' '}
-              <Link href="/billing" className="underline hover:text-amber-300">
+              <Link href="/billing" className="underline hover:text-amber-700">
                 See plans
               </Link>
             </p>
           )}
 
           {createSession.isError && (
-            <p className="mb-3 text-sm text-status-failed">
+            <p className="mb-3 text-sm text-sl-failed">
               {createSession.error?.message ?? 'Could not start the conversation.'}
             </p>
           )}
@@ -104,19 +104,19 @@ export function CreateWorkflowChooser() {
         </section>
 
         {/* ── Start from scratch ─────────────────────────────────────────── */}
-        <section className="flex flex-col rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6">
+        <section className="flex flex-col rounded-2xl border border-app-border bg-app-surface p-6">
           <div className="mb-1 flex items-center gap-2">
-            <PencilRuler className="h-5 w-5 text-zinc-400" aria-hidden />
-            <h2 className="text-lg font-semibold text-white">Start from scratch</h2>
+            <PencilRuler className="h-5 w-5 text-app-ink-2" aria-hidden />
+            <h2 className="text-lg font-semibold text-app-ink">Start from scratch</h2>
           </div>
-          <p className="mb-4 text-sm text-zinc-400">
+          <p className="mb-4 text-sm text-app-ink-2">
             Draw the steps yourself in the builder. Same editor, same workflow —
             you just start with a blank canvas.
           </p>
 
           <label
             htmlFor="workflow-name"
-            className="mb-1 block text-sm font-medium text-zinc-300"
+            className="mb-1 block text-sm font-medium text-app-ink-2"
           >
             Name
           </label>
@@ -132,7 +132,7 @@ export function CreateWorkflowChooser() {
           />
 
           {createWorkflow.isError && (
-            <p className="mb-3 text-sm text-status-failed">
+            <p className="mb-3 text-sm text-sl-failed">
               {createWorkflow.error?.message ?? 'Could not create the workflow.'}
             </p>
           )}
@@ -141,7 +141,7 @@ export function CreateWorkflowChooser() {
             type="button"
             onClick={buildIt}
             disabled={createWorkflow.isPending}
-            className="mt-auto inline-flex items-center justify-center gap-2 rounded-xl border border-white/[0.14] bg-white/[0.04] px-5 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-white/30 hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-auto inline-flex items-center justify-center gap-2 rounded-xl border border-app-border-strong bg-app-raised px-5 py-2.5 text-sm font-semibold text-app-ink transition-colors hover:border-app-border hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50"
           >
             {createWorkflow.isPending ? 'Creating…' : 'Open builder'}
             <ArrowRight className="h-4 w-4" aria-hidden />
@@ -151,18 +151,18 @@ export function CreateWorkflowChooser() {
 
       <Link
         href="/workflows/templates"
-        className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4 transition-colors hover:border-white/[0.14] hover:bg-white/[0.04]"
+        className="flex items-center gap-3 rounded-2xl border border-app-border bg-app-surface px-5 py-4 transition-colors hover:border-app-border-strong hover:bg-app-raised"
       >
-        <LayoutTemplate className="h-5 w-5 shrink-0 text-zinc-400" aria-hidden />
+        <LayoutTemplate className="h-5 w-5 shrink-0 text-app-ink-2" aria-hidden />
         <span className="min-w-0">
-          <span className="block text-sm font-medium text-zinc-200">
+          <span className="block text-sm font-medium text-app-ink">
             Or start from a template
           </span>
-          <span className="block text-sm text-zinc-500">
+          <span className="block text-sm text-app-ink-3">
             Ready-made HR and marketing workflows you can adjust.
           </span>
         </span>
-        <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+        <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-app-ink-3" aria-hidden />
       </Link>
     </div>
   );

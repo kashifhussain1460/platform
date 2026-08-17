@@ -32,10 +32,10 @@ export const STATUS_LABEL: Record<SubscriptionStatus, string> = {
 
 /** Tailwind badge classes per status. */
 export const STATUS_BADGE: Record<SubscriptionStatus, string> = {
-  ACTIVE: 'bg-green-500/15 text-green-400',
-  PAST_DUE: 'bg-amber-500/15 text-amber-400',
-  CANCELLED: 'bg-white/[0.06] text-zinc-500',
-  CANCELED: 'bg-white/[0.06] text-zinc-500',
+  ACTIVE: 'bg-green-500/15 text-green-800',
+  PAST_DUE: 'bg-amber-500/15 text-amber-800',
+  CANCELLED: 'bg-app-raised text-app-ink-3',
+  CANCELED: 'bg-app-raised text-app-ink-3',
 };
 
 /** Ordering used for the "Upgrade / Downgrade / Current" button label. */

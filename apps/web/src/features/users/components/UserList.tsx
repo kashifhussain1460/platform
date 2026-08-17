@@ -36,15 +36,15 @@ export function UserList() {
 
   if (isLoading) {
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-        <p className="text-sm text-zinc-500">Loading team…</p>
+      <div className="rounded-2xl border border-app-border bg-app-surface p-6">
+        <p className="text-sm text-app-ink-3">Loading team…</p>
       </div>
     );
   }
   if (isError) {
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-        <p className="text-sm text-red-400">
+      <div className="rounded-2xl border border-app-border bg-app-surface p-6">
+        <p className="text-sm text-red-600">
           {error?.message ?? 'Could not load users'}
         </p>
       </div>
@@ -70,7 +70,7 @@ export function UserList() {
   return (
     <div>
       <div className="relative mb-4 max-w-sm">
-        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-app-ink-3" />
         <input
           type="text"
           value={query}
@@ -82,9 +82,9 @@ export function UserList() {
         />
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-        <table className="min-w-full divide-y divide-white/[0.06] text-sm">
-          <thead className="bg-white/[0.03] text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
+      <div className="overflow-x-auto rounded-2xl border border-app-border bg-app-surface">
+        <table className="min-w-full divide-y divide-app-border text-sm">
+          <thead className="bg-app-surface text-left text-xs font-medium uppercase tracking-wide text-app-ink-3">
             <tr>
               <th className="px-4 py-3">Member</th>
               <th className="px-4 py-3">Role</th>
@@ -92,27 +92,27 @@ export function UserList() {
               {canManage && <th className="px-4 py-3 text-right">Actions</th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/[0.06]">
+          <tbody className="divide-y divide-app-border">
             {rows.map((u) => {
               const editable = canEditRow(u);
               const isSelf = u.id === meId;
               return (
-                <tr key={u.id} className="transition-colors hover:bg-white/[0.02]">
+                <tr key={u.id} className="transition-colors hover:bg-app-raised">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] text-xs font-semibold text-white">
                         {initials(u.name)}
                       </span>
                       <div className="min-w-0">
-                        <div className="truncate font-medium text-white">
+                        <div className="truncate font-medium text-app-ink">
                           {u.name}
                           {isSelf && (
-                            <span className="ml-2 text-xs font-normal text-zinc-500">
+                            <span className="ml-2 text-xs font-normal text-app-ink-3">
                               (you)
                             </span>
                           )}
                         </div>
-                        <div className="truncate text-xs text-zinc-500">{u.email}</div>
+                        <div className="truncate text-xs text-app-ink-3">{u.email}</div>
                       </div>
                     </div>
                   </td>
@@ -121,7 +121,7 @@ export function UserList() {
                     {editable ? (
                       <select
                         aria-label={`Role for ${u.name}`}
-                        className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-xs text-white transition-colors hover:border-white/20 focus:border-[#7c5cf0] focus:outline-none"
+                        className="rounded-lg border border-app-border bg-app-surface px-2 py-1.5 text-xs text-app-ink transition-colors hover:border-app-border-strong focus:border-[#7c5cf0] focus:outline-none"
                         value={u.role}
                         disabled={update.isPending}
                         onChange={(e) =>
@@ -173,7 +173,7 @@ export function UserList() {
                                   },
                                 })
                               }
-                              className="rounded-lg border border-white/10 px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-lg border border-app-border px-2.5 py-1 text-xs font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {u.status === 'ACTIVE' ? 'Disable' : 'Enable'}
                             </button>
@@ -189,7 +189,7 @@ export function UserList() {
                                 }
                                 del.mutate(u.id);
                               }}
-                              className="rounded-lg border border-red-500/30 px-2.5 py-1 text-xs font-medium text-red-400 transition-colors hover:border-red-500/50 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-lg border border-red-500/30 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:border-red-500/50 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               Remove
                             </button>
@@ -205,7 +205,7 @@ export function UserList() {
               <tr>
                 <td
                   colSpan={canManage ? 4 : 3}
-                  className="px-4 py-6 text-center text-sm text-zinc-500"
+                  className="px-4 py-6 text-center text-sm text-app-ink-3"
                 >
                   {query ? 'No members match your search.' : 'No team members yet.'}
                 </td>
@@ -215,7 +215,7 @@ export function UserList() {
         </table>
 
         {(update.isError || del.isError) && (
-          <p className="border-t border-white/[0.06] px-4 py-3 text-sm text-red-400">
+          <p className="border-t border-app-border px-4 py-3 text-sm text-red-600">
             {update.error?.message ?? del.error?.message ?? 'Action failed'}
           </p>
         )}

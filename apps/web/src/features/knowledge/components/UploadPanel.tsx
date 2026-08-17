@@ -63,15 +63,15 @@ export function UploadPanel({
   };
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5 transition-colors hover:border-white/[0.14]">
-      <h2 className="mb-1 text-sm font-medium text-zinc-400">Upload documents</h2>
-      <p className="mb-4 text-sm text-zinc-500">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5 transition-colors hover:border-app-border-strong">
+      <h2 className="mb-1 text-sm font-medium text-app-ink-2">Upload documents</h2>
+      <p className="mb-4 text-sm text-app-ink-3">
         Upload .txt, .md, or .pdf files to add them to your knowledge base. You
         can also drag them onto the list.
       </p>
 
-      <label htmlFor="upload-category" className="mb-1 block text-xs font-medium text-zinc-500">
-        Visible to{requireChoice ? <span className="text-status-failed"> *</span> : null}
+      <label htmlFor="upload-category" className="mb-1 block text-xs font-medium text-app-ink-3">
+        Visible to{requireChoice ? <span className="text-sl-failed"> *</span> : null}
       </label>
       <select
         id="upload-category"
@@ -93,7 +93,7 @@ export function UploadPanel({
       <p
         id="upload-category-help"
         className={`mb-4 mt-1.5 text-xs ${
-          choice === 'SHARED' ? 'text-status-warning' : 'text-zinc-500'
+          choice === 'SHARED' ? 'text-sl-warning' : 'text-app-ink-3'
         }`}
       >
         {visibilityHelp(choice)}
@@ -101,7 +101,7 @@ export function UploadPanel({
 
       {confirmWiden ? (
         <div className="mb-4 rounded-xl border border-status-warning/40 bg-status-warning/10 p-3">
-          <p className="flex items-start gap-1.5 text-xs text-status-warning">
+          <p className="flex items-start gap-1.5 text-xs text-sl-warning">
             <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             <span>
               Sharing with everyone means every AI Employee — Sales, Marketing,
@@ -115,14 +115,14 @@ export function UploadPanel({
                 onChoiceChange(confirmWiden);
                 setConfirmWiden(null);
               }}
-              className="rounded-lg bg-status-warning/20 px-2.5 py-1 text-xs font-medium text-status-warning hover:bg-status-warning/30"
+              className="rounded-lg bg-status-warning/20 px-2.5 py-1 text-xs font-medium text-sl-warning hover:bg-status-warning/30"
             >
               Share with everyone
             </button>
             <button
               type="button"
               onClick={() => setConfirmWiden(null)}
-              className="text-xs text-zinc-400 hover:text-zinc-200"
+              className="text-xs text-app-ink-2 hover:text-app-ink"
             >
               Keep it restricted
             </button>
@@ -149,7 +149,7 @@ export function UploadPanel({
       </label>
 
       {upload.isError && (
-        <p className="mt-2 text-sm text-red-400">
+        <p className="mt-2 text-sm text-red-600">
           {upload.error?.message ?? 'Upload failed'}
         </p>
       )}

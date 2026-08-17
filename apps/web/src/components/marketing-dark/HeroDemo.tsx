@@ -29,7 +29,7 @@ function HireViz() {
             r.hired ? 'border-violet/60 bg-violet/[0.12]' : 'border-white/[0.1] bg-void-card/80'
           }`}
         >
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet/20 text-violet-secondary">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet/20 text-violet-bright">
             <r.Icon className="h-5 w-5" strokeWidth={2} />
           </span>
           <span className="text-[15px] font-medium text-white">{r.label}</span>
@@ -124,7 +124,7 @@ function WorkflowViz() {
 function ApprovalViz() {
   return (
     <motion.div variants={pop} className="w-full max-w-[360px] rounded-3xl border border-white/[0.1] bg-void-card/90 p-6">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Approval needed</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-fg-muted">Approval needed</p>
       <p className="mt-3 text-lg font-semibold text-white">AI Finance · Send invoice</p>
       <p className="text-[15px] text-zinc-400">$12,000 → Acme Co.</p>
       <div className="mt-5 flex gap-3">
@@ -149,7 +149,7 @@ function MeasureViz() {
       {stats.map(([v, l, d]) => (
         <motion.div key={l} variants={rise} className="rounded-2xl border border-white/[0.1] bg-void-card/80 p-5">
           <p className="text-3xl font-bold text-white">{v}</p>
-          <p className="mt-1 text-xs text-zinc-500">{l}</p>
+          <p className="mt-1 text-xs text-fg-muted">{l}</p>
           {d && <p className="mt-1.5 text-xs font-medium text-emerald-400">{d}</p>}
         </motion.div>
       ))}

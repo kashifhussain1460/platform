@@ -18,7 +18,7 @@ import { VersionHistoryPanel } from './VersionHistoryPanel';
 import { formatRelativeTime } from '@/lib/time';
 
 const secondaryBtn =
-  'inline-flex items-center gap-1.5 rounded-lg border border-wf-hairline px-3 py-1.5 text-sm font-medium text-wf-ink-2 transition-colors hover:border-wf-hairline-hover hover:text-wf-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus';
+  'inline-flex items-center gap-1.5 rounded-lg border border-app-border px-3 py-1.5 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus';
 
 /**
  * BuilderLifecycleBar — the publish / version-history controls (doc 29 §3.E).
@@ -85,10 +85,10 @@ export function BuilderLifecycleBar({
   };
 
   return (
-    <div className="rounded-2xl border border-wf-hairline bg-void-section p-3">
+    <div className="rounded-2xl border border-app-border bg-app-raised p-3">
       <div className="flex flex-wrap items-center gap-3">
         <LifecycleBadge workflow={workflow} />
-        <span className="rounded-md bg-white/[0.04] px-2 py-1 font-mono text-[11px] text-wf-ink-3">
+        <span className="rounded-md bg-app-raised px-2 py-1 font-mono text-[11px] text-app-ink-3">
           {activeVersionNumber ? `v${activeVersionNumber}` : 'draft'}
           {/* Without a live save state there is nothing truthful to say about
               "when" — a relative time computed from the cached workflow goes
@@ -137,7 +137,7 @@ export function BuilderLifecycleBar({
             ) : (
               <>
                 <span className="flex items-center gap-2">
-                  <span className="text-sm text-wf-ink-2">Active</span>
+                  <span className="text-sm text-app-ink-2">Active</span>
                   <button
                     type="button"
                     role="switch"
@@ -149,7 +149,7 @@ export function BuilderLifecycleBar({
                     disabled={togglePending || (!isActive && !canActivate)}
                     title={!isActive && !canActivate ? 'Add at least one step first.' : undefined}
                     className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                      isActive ? 'bg-status-succeeded' : 'bg-white/10'
+                      isActive ? 'bg-status-succeeded' : 'bg-app-raised'
                     }`}
                   >
                     <span
@@ -176,16 +176,16 @@ export function BuilderLifecycleBar({
 
       {/* Legacy publish panel (flag off) */}
       {!simplifiedWorkflowUX && showPublish && canManage && (
-        <div className="mt-3 rounded-xl border border-wf-hairline bg-void-card p-3">
+        <div className="mt-3 rounded-xl border border-app-border bg-app-surface p-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-wf-ink-2">
+            <span className="mb-1 block text-xs font-medium text-app-ink-2">
               What changed? (optional)
             </span>
             <input
               value={changeNote}
               onChange={(e) => setChangeNote(e.target.value)}
               placeholder="e.g. Added the recruiter approval step"
-              className="w-full rounded-lg border border-wf-hairline bg-void-section px-3 py-2 text-sm text-wf-ink outline-none placeholder:text-wf-ink-3 focus-visible:ring-2 focus-visible:ring-wf-focus"
+              className="w-full rounded-lg border border-app-border bg-app-raised px-3 py-2 text-sm text-app-ink outline-none placeholder:text-app-ink-3 focus-visible:ring-2 focus-visible:ring-wf-focus"
             />
           </label>
           <div className="mt-2 flex items-center justify-end gap-2">
@@ -213,7 +213,7 @@ export function BuilderLifecycleBar({
         <div className="mt-2 text-xs" aria-live="polite">
           {publish.isError ? (
             publishIssues.length > 1 ? (
-              <div className="text-status-failed">
+              <div className="text-sl-failed">
                 <p className="font-medium">This workflow isn&apos;t ready to publish:</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
                   {publishIssues.map((issue, i) => (
@@ -222,14 +222,14 @@ export function BuilderLifecycleBar({
                 </ul>
               </div>
             ) : (
-              <span className="text-status-failed">
+              <span className="text-sl-failed">
                 {publishIssues[0] ?? publish.error.message}
               </span>
             )
           ) : publish.data?.unchanged ? (
-            <span className="text-wf-ink-3">No changes to publish — the live version already matches.</span>
+            <span className="text-app-ink-3">No changes to publish — the live version already matches.</span>
           ) : (
-            <span className="text-status-succeeded">
+            <span className="text-sl-succeeded">
               Published v{publish.data?.version.version}.
             </span>
           )}

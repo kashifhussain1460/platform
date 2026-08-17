@@ -32,22 +32,22 @@ export function EmployeeForm() {
   });
 
   return (
-    <section id="hire-employee" className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      <h2 className="mb-4 text-sm font-medium text-white">Hire an AI employee</h2>
+    <section id="hire-employee" className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-4 text-sm font-medium text-app-ink">Hire an AI employee</h2>
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label htmlFor="name" className="mb-1.5 block text-sm font-medium text-zinc-300">
+            <label htmlFor="name" className="mb-1.5 block text-sm font-medium text-app-ink-2">
               Name
             </label>
             <input id="name" className="field-modern" placeholder="e.g. Ada" {...register('name')} />
             {errors.name && (
-              <p className="mt-1 text-sm text-red-400">{errors.name.message}</p>
+              <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
             )}
           </div>
 
           <div>
-            <label htmlFor="role" className="mb-1.5 block text-sm font-medium text-zinc-300">
+            <label htmlFor="role" className="mb-1.5 block text-sm font-medium text-app-ink-2">
               Role
             </label>
             <select id="role" className="field-modern" {...register('role')}>
@@ -58,14 +58,14 @@ export function EmployeeForm() {
               ))}
             </select>
             {errors.role && (
-              <p className="mt-1 text-sm text-red-400">{errors.role.message}</p>
+              <p className="mt-1 text-sm text-red-600">{errors.role.message}</p>
             )}
           </div>
         </div>
 
         <div>
-          <label htmlFor="persona" className="mb-1.5 block text-sm font-medium text-zinc-300">
-            Persona <span className="text-zinc-500">(optional)</span>
+          <label htmlFor="persona" className="mb-1.5 block text-sm font-medium text-app-ink-2">
+            Persona <span className="text-app-ink-3">(optional)</span>
           </label>
           <textarea
             id="persona"
@@ -75,12 +75,12 @@ export function EmployeeForm() {
             {...register('persona')}
           />
           {errors.persona && (
-            <p className="mt-1 text-sm text-red-400">{errors.persona.message}</p>
+            <p className="mt-1 text-sm text-red-600">{errors.persona.message}</p>
           )}
         </div>
 
         {create.isError && (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-red-600">
             {create.error?.message ?? 'Could not create employee'}
           </p>
         )}

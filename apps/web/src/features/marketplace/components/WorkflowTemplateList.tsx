@@ -24,7 +24,7 @@ function WorkflowTemplateCard({ template }: { template: WorkflowTemplateDto }) {
   const Icon = categoryIcon(template.category);
 
   return (
-    <li className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 transition-colors hover:border-white/[0.14]">
+    <li className="rounded-2xl border border-app-border bg-app-surface p-5 transition-colors hover:border-app-border-strong">
       <div className="flex items-start gap-3">
         <span
           className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${categoryBadgeClass(template.category)}`}
@@ -32,13 +32,13 @@ function WorkflowTemplateCard({ template }: { template: WorkflowTemplateDto }) {
           <Icon className="h-5 w-5" strokeWidth={2} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-bold text-white">{template.name}</p>
-          <p className="text-xs text-zinc-500">{template.category}</p>
+          <p className="font-bold text-app-ink">{template.name}</p>
+          <p className="text-xs text-app-ink-3">{template.category}</p>
         </div>
       </div>
 
-      <p className="mt-3 text-sm text-zinc-400">{template.description}</p>
-      <p className="mt-2 text-xs text-zinc-600">
+      <p className="mt-3 text-sm text-app-ink-2">{template.description}</p>
+      <p className="mt-2 text-xs text-app-ink-3">
         {stepCount} steps: {template.definition.nodes.map((n) => n.type).join(' → ')}
       </p>
 
@@ -49,11 +49,11 @@ function WorkflowTemplateCard({ template }: { template: WorkflowTemplateDto }) {
       </div>
 
       {created && !created.id.startsWith('temp_') && (
-        <p className="mt-3 text-xs text-green-400">
+        <p className="mt-3 text-xs text-green-700">
           Installed.{' '}
           <Link
             href={`/workflows/${created.id}`}
-            className="font-medium text-violet-secondary underline hover:text-white"
+            className="font-medium text-violet underline hover:text-app-ink"
           >
             Open workflow →
           </Link>
@@ -68,7 +68,7 @@ export function WorkflowTemplateList() {
   const { data, isLoading } = useMarketplace();
 
   if (isLoading) {
-    return <p className="text-sm text-zinc-500">Loading templates…</p>;
+    return <p className="text-sm text-app-ink-3">Loading templates…</p>;
   }
 
   return (

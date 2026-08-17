@@ -32,12 +32,12 @@ export function ThinkingBubble({ name }: { name: string }) {
 
   return (
     <div className="flex items-start justify-start gap-2.5">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet/20 text-violet-secondary">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet/20 text-violet">
         <Bot className="h-4 w-4" />
       </span>
       <div className="max-w-[85%]">
         <div
-          className="flex items-center gap-2 rounded-2xl border border-white/[0.07] bg-white/[0.04] px-3.5 py-3"
+          className="flex items-center gap-2 rounded-2xl border border-app-border bg-app-raised px-3.5 py-3"
           role="status"
           aria-live="polite"
         >
@@ -46,13 +46,13 @@ export function ThinkingBubble({ name }: { name: string }) {
             <Dot delay="150ms" />
             <Dot delay="300ms" />
           </span>
-          <span className="text-sm text-zinc-400">
+          <span className="text-sm text-app-ink-2">
             {name} is thinking
             {seconds >= 1 ? ` · ${seconds}s` : ''}
           </span>
         </div>
         {seconds >= REASSURE_AFTER_S ? (
-          <p className="mt-1.5 text-xs text-zinc-500">
+          <p className="mt-1.5 text-xs text-app-ink-3">
             Still working. A turn that reads documents or uses a skill takes
             longer than a plain reply.
           </p>

@@ -25,12 +25,16 @@ import { SkillRequirementCard } from './SkillRequirementCard';
 const MARKDOWN_PLUGINS = [remarkGfm];
 
 const PROSE =
-  'space-y-2 text-sm leading-relaxed text-zinc-200 [&_a]:text-violet-secondary [&_a]:underline [&_code]:rounded [&_code]:bg-white/[0.08] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em] [&_li]:ml-4 [&_li]:list-disc [&_strong]:font-semibold [&_strong]:text-white';
+  'space-y-2 text-sm leading-relaxed text-app-ink [&_a]:text-violet [&_a]:underline [&_code]:rounded [&_code]:bg-app-raised [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em] [&_li]:ml-4 [&_li]:list-disc [&_strong]:font-semibold [&_strong]:text-app-ink';
 
 export function UserBubble({ text }: { text: string }) {
   return (
     <div className="flex justify-end">
-      <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-violet/25 px-3.5 py-2.5 text-sm text-white">
+      {/* Solid violet, not `violet/25`. At 25% over the light canvas the bubble
+          is pale lavender, and the white text on it measured 1.06 — the user's
+          own message was very nearly invisible. Full strength keeps the "this
+          one is mine" cue and carries white at 6.39. */}
+      <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-violet px-3.5 py-2.5 text-sm text-white">
         {text}
       </p>
     </div>
@@ -80,12 +84,12 @@ export function ThinkingBlock({
     : `Did ${trace.length} thing${trace.length === 1 ? '' : 's'}`;
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02]">
+    <div className="rounded-xl border border-app-border bg-app-surface">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-zinc-400 hover:text-zinc-200"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-app-ink-2 hover:text-app-ink"
       >
         <ChevronRight
           className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
@@ -99,15 +103,15 @@ export function ThinkingBlock({
         <span className="flex-1 truncate">{headline}</span>
       </button>
       {open && trace.length > 0 ? (
-        <ul className="space-y-1 border-t border-white/[0.06] px-3 py-2">
+        <ul className="space-y-1 border-t border-app-border px-3 py-2">
           {trace.map((t, i) => (
             <li key={`${t.name}-${i}`} className="flex items-start gap-2 text-xs">
               {t.ok ? (
-                <Check className="mt-0.5 h-3 w-3 shrink-0 text-status-succeeded" aria-hidden />
+                <Check className="mt-0.5 h-3 w-3 shrink-0 text-sl-succeeded" aria-hidden />
               ) : (
-                <X className="mt-0.5 h-3 w-3 shrink-0 text-status-failed" aria-hidden />
+                <X className="mt-0.5 h-3 w-3 shrink-0 text-sl-failed" aria-hidden />
               )}
-              <span className="text-zinc-400">{t.summary}</span>
+              <span className="text-app-ink-2">{t.summary}</span>
             </li>
           ))}
         </ul>
@@ -125,13 +129,13 @@ export function UnresolvedList({
   if (items.length === 0) return null;
   return (
     <div className="rounded-xl border border-status-warning/30 bg-status-warning/10 p-3">
-      <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-status-warning">
+      <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-sl-warning">
         <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
         Needs you before this can run
       </p>
       <ul className="space-y-1">
         {items.map((u) => (
-          <li key={u.nodeId} className="text-xs text-zinc-300">
+          <li key={u.nodeId} className="text-xs text-app-ink-2">
             {u.reason}
           </li>
         ))}

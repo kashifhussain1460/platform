@@ -3,13 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { allowedGoalsForRoles } from '@vaep/types';
+import { ArrowRight, Building2, Globe, LayoutGrid, ShieldCheck, Users } from 'lucide-react';
 import { OnboardingShell } from '@/components/onboarding/OnboardingShell';
-import { ToggleCard } from '@/components/onboarding/fields';
-import {
-  AstronautIllustration,
-  LaunchIllustration,
-  SkylineIllustration,
-} from '@/components/onboarding/illustrations';
+import { IconField, ToggleCard } from '@/components/onboarding/fields';
 import { useSubscription } from '@/features/billing/hooks';
 import { COMPANY_SIZES, INDUSTRIES } from '../labels';
 import {
@@ -32,7 +28,6 @@ const ROLE_META: Record<string, { title: string; blurb: string }> = {
 };
 const ROLES = ['HR', 'MARKETING'] as const;
 
-const labelClass = 'mb-1.5 block text-sm font-medium text-zinc-300';
 const backBtn =
   'rounded-xl border border-white/[0.12] bg-white/[0.03] px-5 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 disabled:opacity-50';
 const primaryBtn =
@@ -119,36 +114,78 @@ export function OnboardingWizard() {
         step={1}
         heading="Set up your workspace"
         subtitle="Tell us a little about your company."
-        illustration={<SkylineIllustration />}
       >
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="co-name" className={labelClass}>Company name</label>
-            <input id="co-name" className="field-modern" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Inc." />
-          </div>
-          <div>
-            <label htmlFor="co-industry" className={labelClass}>Industry</label>
-            <select id="co-industry" className="field-modern" value={industry} onChange={(e) => setIndustry(e.target.value)}>
+        <div className="space-y-5">
+          <IconField id="co-name" label="Company name" icon={<Building2 className="h-[18px] w-[18px]" />}>
+            <input
+              id="co-name"
+              className="field-modern field-with-icon"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Acme Inc."
+            />
+          </IconField>
+
+          <IconField
+            id="co-industry"
+            label="Industry"
+            icon={<LayoutGrid className="h-[18px] w-[18px]" />}
+            hint="Select the industry that best describes your business."
+          >
+            <select
+              id="co-industry"
+              aria-describedby="co-industry-hint"
+              className="field-modern field-with-icon"
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value)}
+            >
               <option value="" disabled>Select an industry</option>
               {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
             </select>
-          </div>
-          <div>
-            <label htmlFor="co-size" className={labelClass}>Company size</label>
-            <select id="co-size" className="field-modern" value={size} onChange={(e) => setSize(e.target.value)}>
+          </IconField>
+
+          <IconField
+            id="co-size"
+            label="Company size"
+            icon={<Users className="h-[18px] w-[18px]" />}
+            hint="This helps us tailor your experience."
+          >
+            <select
+              id="co-size"
+              aria-describedby="co-size-hint"
+              className="field-modern field-with-icon"
+              value={size}
+              onChange={(e) => setSize(e.target.value)}
+            >
               <option value="" disabled>Select a size</option>
               {COMPANY_SIZES.map((s) => <option key={s} value={s}>{s} employees</option>)}
             </select>
-          </div>
-          <div>
-            <label htmlFor="co-website" className={labelClass}>Website <span className="text-zinc-500">(optional)</span></label>
-            <input id="co-website" className="field-modern" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://acme.com" />
-          </div>
+          </IconField>
+
+          <IconField id="co-website" label="Website" optional icon={<Globe className="h-[18px] w-[18px]" />}>
+            <input
+              id="co-website"
+              className="field-modern field-with-icon"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              placeholder="https://acme.com"
+            />
+          </IconField>
+
           <div className="flex justify-end pt-2">
             <button type="button" className={primaryBtn} disabled={!valid || saveCompany.isPending} onClick={submitCompany}>
               {saveCompany.isPending ? 'Saving…' : 'Continue'}
+              {!saveCompany.isPending && <ArrowRight className="h-4 w-4" aria-hidden />}
             </button>
           </div>
+
+          {/* Says what happens to what they just typed, at the moment they are
+              deciding whether to type it. */}
+          <p className="flex items-center justify-center gap-2 pt-1 text-center text-[13px] text-fg-muted">
+            <ShieldCheck className="h-4 w-4 shrink-0 text-violet-secondary" aria-hidden />
+            Your details stay in your workspace. You can change them any time.
+          </p>
         </div>
       </OnboardingShell>
     );
@@ -161,7 +198,6 @@ export function OnboardingWizard() {
         step={2}
         heading="Choose your AI Employee"
         subtitle="Pick one or both — you can add more later."
-        illustration={<AstronautIllustration />}
       >
         <div className="space-y-3">
           {ROLES.map((role) => (
@@ -190,7 +226,6 @@ export function OnboardingWizard() {
       step={3}
       heading="What should your AI workforce help with?"
       subtitle="Choose any that apply — these tailor your assistant."
-      illustration={<LaunchIllustration />}
     >
       <div className="space-y-3">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

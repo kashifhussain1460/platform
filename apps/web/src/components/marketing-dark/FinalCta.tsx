@@ -91,7 +91,7 @@ export function FinalCta() {
               <h2 className="text-[30px] font-bold leading-tight tracking-tight text-white sm:text-[40px]">
                 Ready to build your AI workforce?
               </h2>
-              <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/80">
+              <p className="mt-4 max-w-md text-[15px] leading-relaxed text-white/90">
                 Join thousands of companies already automating work with AI employees.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">

@@ -10,12 +10,15 @@ import {
 } from '../hooks';
 import { STATUS_STYLES, formatStatus } from '../labels';
 
+// `green-600/90` over the white card composites to rgb(45,172,92), and white on
+// that is 2.93 — under AA on the one button in the product that commits a real,
+// irreversible action. Solid `green-700` carries white at 5.02.
 const APPROVE_CLASS =
-  'rounded-lg bg-green-600/90 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-60';
+  'rounded-lg bg-green-700 px-4 py-1.5 text-sm font-medium text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-60';
 const REJECT_CLASS =
-  'rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-1.5 text-sm font-medium text-red-400 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60';
+  'rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-1.5 text-sm font-medium text-red-800 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60';
 const GHOST_CLASS =
-  'rounded-lg border border-white/[0.1] px-4 py-1.5 text-sm font-medium text-zinc-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-60';
+  'rounded-lg border border-app-border px-4 py-1.5 text-sm font-medium text-app-ink-2 hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-60';
 
 /** A single approval request row with Approve / Reject / Modify controls. */
 export function ApprovalCard({ request }: { request: ApprovalRequestDto }) {
@@ -56,16 +59,16 @@ export function ApprovalCard({ request }: { request: ApprovalRequestDto }) {
   };
 
   return (
-    <li className="flex flex-wrap items-start justify-between gap-4 p-4 transition-colors hover:bg-white/[0.02]">
+    <li className="flex flex-wrap items-start justify-between gap-4 p-4 transition-colors hover:bg-app-raised">
       <div className="flex min-w-0 flex-1 items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet/20 text-violet-secondary">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet/20 text-violet">
           <Bot className="h-[18px] w-[18px]" />
         </span>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-bold text-white">{headline}</p>
-            <span className="inline-block rounded-full bg-white/[0.06] px-2 py-0.5 text-xs font-medium text-zinc-400">
+            <p className="text-sm font-bold text-app-ink">{headline}</p>
+            <span className="inline-block rounded-full bg-app-raised px-2 py-0.5 text-xs font-medium text-app-ink-2">
               {isWorkflow ? 'Workflow' : 'Tool'}
             </span>
             <span
@@ -74,37 +77,37 @@ export function ApprovalCard({ request }: { request: ApprovalRequestDto }) {
               {formatStatus(request.status)}
             </span>
           </div>
-          <p className="mt-1 text-xs text-zinc-400">{metaLine}</p>
+          <p className="mt-1 text-xs text-app-ink-2">{metaLine}</p>
 
           {/* Tool args block: only TOOL-kind requests gate a tool call. */}
           {!isWorkflow &&
             (editing ? (
               <div className="mt-2">
                 <textarea
-                  className="h-40 w-full rounded-lg border border-white/[0.1] bg-white/[0.02] p-2 font-mono text-xs text-zinc-300 focus:border-violet focus:outline-none"
+                  className="h-40 w-full rounded-lg border border-app-border bg-app-surface p-2 font-mono text-xs text-app-ink-2 focus:border-violet focus:outline-none"
                   value={argsText}
                   onChange={(e) => setArgsText(e.target.value)}
                 />
                 {parseError && (
-                  <p className="mt-1 text-xs text-red-400">{parseError}</p>
+                  <p className="mt-1 text-xs text-red-600">{parseError}</p>
                 )}
               </div>
             ) : (
-              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-white/[0.07] bg-white/[0.02] p-2 text-xs text-zinc-400">
+              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-app-border bg-app-surface p-2 text-xs text-app-ink-2">
                 {JSON.stringify(request.args, null, 2)}
               </pre>
             ))}
 
           {request.result != null && (
             <div className="mt-2">
-              <p className="mb-1 text-xs font-medium text-zinc-500">Result</p>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-white/[0.07] bg-white/[0.02] p-2 text-xs text-zinc-400">
+              <p className="mb-1 text-xs font-medium text-app-ink-3">Result</p>
+              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-app-border bg-app-surface p-2 text-xs text-app-ink-2">
                 {JSON.stringify(request.result, null, 2)}
               </pre>
             </div>
           )}
           {request.note && (
-            <p className="mt-2 text-xs text-zinc-500">Note: {request.note}</p>
+            <p className="mt-2 text-xs text-app-ink-3">Note: {request.note}</p>
           )}
         </div>
       </div>

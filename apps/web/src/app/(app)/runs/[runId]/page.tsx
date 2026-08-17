@@ -53,7 +53,7 @@ export default function RunDetailPage({
   if (isLoading || !run) {
     return (
       <AppShell {...shellProps}>
-        <p className="pt-4 text-sm text-zinc-500">
+        <p className="pt-4 text-sm text-app-ink-3">
           {isLoading ? 'Loading this run…' : 'That run doesn’t exist.'}
         </p>
       </AppShell>
@@ -67,11 +67,11 @@ export default function RunDetailPage({
     <AppShell {...shellProps}>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4 pt-2">
         <div className="min-w-0">
-          <p className="text-sm text-zinc-500">Run</p>
-          <h1 className="truncate text-2xl font-bold text-white">
+          <p className="text-sm text-app-ink-3">Run</p>
+          <h1 className="truncate text-2xl font-bold text-app-ink">
             {run.workflowName ?? workflow?.name ?? 'Workflow run'}
           </h1>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-400">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-app-ink-2">
             <RunStatusPill status={run.status} />
             <span>Started {triggerSourceLabel(run.source).toLowerCase()}</span>
             <span>·</span>
@@ -79,7 +79,7 @@ export default function RunDetailPage({
             <span>·</span>
             <span>took {formatDuration(run)}</span>
             {run.dryRun && (
-              <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-xs uppercase tracking-wide text-zinc-400">
+              <span className="rounded-full bg-app-raised px-2 py-0.5 text-xs uppercase tracking-wide text-app-ink-2">
                 Test run — nothing was really sent
               </span>
             )}
@@ -87,7 +87,7 @@ export default function RunDetailPage({
         </div>
         <Link
           href="/runs"
-          className="text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+          className="text-sm font-medium text-app-ink-2 transition-colors hover:text-app-ink"
         >
           ← All runs
         </Link>
@@ -112,8 +112,8 @@ export default function RunDetailPage({
       )}
 
       {isRunInFlight(run.status) && canManage && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
-          <p className="text-sm text-zinc-400">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-4 py-3">
+          <p className="text-sm text-app-ink-2">
             {run.status === 'WAITING'
               ? 'This run is paused until someone decides on the approval.'
               : 'This run is still going. Updates appear here automatically.'}
@@ -122,7 +122,7 @@ export default function RunDetailPage({
             {run.status === 'WAITING' && (
               <Link
                 href="/approvals"
-                className="rounded-lg border border-white/[0.14] px-3 py-1.5 text-sm font-medium text-zinc-200 hover:bg-white/[0.06]"
+                className="rounded-lg border border-app-border-strong px-3 py-1.5 text-sm font-medium text-app-ink hover:bg-app-raised"
               >
                 Go to approvals
               </Link>
@@ -131,7 +131,7 @@ export default function RunDetailPage({
               type="button"
               onClick={() => cancel.mutate(run.id)}
               disabled={cancel.isPending}
-              className="rounded-lg border border-status-failed/30 px-3 py-1.5 text-sm font-medium text-status-failed transition-colors hover:bg-status-failed/10 disabled:opacity-50"
+              className="rounded-lg border border-status-failed/30 px-3 py-1.5 text-sm font-medium text-sl-failed transition-colors hover:bg-status-failed/10 disabled:opacity-50"
             >
               {cancel.isPending ? 'Stopping…' : 'Stop this run'}
             </button>
@@ -139,10 +139,10 @@ export default function RunDetailPage({
         </div>
       )}
       {cancel.isError && (
-        <p className="mb-4 text-sm text-status-failed">{cancel.error.message}</p>
+        <p className="mb-4 text-sm text-sl-failed">{cancel.error.message}</p>
       )}
 
-      <h2 className="mb-3 font-display text-base font-semibold text-white">
+      <h2 className="mb-3 font-display text-base font-semibold text-app-ink">
         What happened
       </h2>
       <RunTimeline run={run} />
@@ -150,11 +150,11 @@ export default function RunDetailPage({
       {/* Advanced/debug identifiers (UX plan §37) — present for the people who
           need them when raising a support ticket, invisible to everyone else. */}
       {canManage && (
-        <details className="mt-6 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
-          <summary className="cursor-pointer text-sm text-zinc-400 hover:text-zinc-200">
+        <details className="mt-6 rounded-2xl border border-app-border bg-app-surface p-4">
+          <summary className="cursor-pointer text-sm text-app-ink-2 hover:text-app-ink">
             Technical details
           </summary>
-          <dl className="mt-3 grid gap-2 font-mono text-xs text-zinc-500 sm:grid-cols-2">
+          <dl className="mt-3 grid gap-2 font-mono text-xs text-app-ink-3 sm:grid-cols-2">
             <DebugRow label="runId" value={run.id} />
             <DebugRow label="workflowId" value={run.workflowId} />
             <DebugRow label="workflowVersionId" value={run.workflowVersionId} />
@@ -173,8 +173,8 @@ export default function RunDetailPage({
 function DebugRow({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="flex gap-2">
-      <dt className="shrink-0 text-zinc-600">{label}:</dt>
-      <dd className="min-w-0 break-all text-zinc-400">{value ?? '—'}</dd>
+      <dt className="shrink-0 text-app-ink-3">{label}:</dt>
+      <dd className="min-w-0 break-all text-app-ink-2">{value ?? '—'}</dd>
     </div>
   );
 }

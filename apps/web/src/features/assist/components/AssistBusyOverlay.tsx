@@ -51,22 +51,22 @@ export function AssistBusyOverlay({
       // not interrupt a screen reader mid-sentence every time the label changes.
       role="status"
       aria-live="polite"
-      className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-void/75 backdrop-blur-[2px]"
+      className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-app-bg/80 backdrop-blur-[2px]"
     >
       <div className="mx-6 max-w-xs text-center">
         <Loader2
-          className="mx-auto mb-3 h-7 w-7 animate-spin text-violet-secondary"
+          className="mx-auto mb-3 h-7 w-7 animate-spin text-violet"
           aria-hidden
         />
-        <p className="text-sm font-medium text-zinc-100">
+        <p className="text-sm font-medium text-app-ink">
           {label ?? 'Orlixa is working on this…'}
         </p>
-        <p className="mt-1.5 text-xs text-zinc-400">
+        <p className="mt-1.5 text-xs text-app-ink-2">
           {nodeCount > 0
             ? `${nodeCount} ${nodeCount === 1 ? 'step' : 'steps'} so far · ${formatElapsed(elapsed)}`
             : `This can take a minute · ${formatElapsed(elapsed)}`}
         </p>
-        <p className="mt-3 text-xs text-zinc-500">
+        <p className="mt-3 text-xs text-app-ink-3">
           You don&apos;t need to send anything else — it will carry on by itself.
         </p>
       </div>

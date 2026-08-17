@@ -146,27 +146,27 @@ export function KnowledgeDropzone({
           disabled={closed}
           className={`flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-16 text-center transition-colors ${
             closed
-              ? 'cursor-not-allowed border-white/[0.08] bg-white/[0.01]'
+              ? 'cursor-not-allowed border-app-border bg-app-raised'
               : dragging
                 ? 'border-violet bg-violet/10'
-                : 'border-white/[0.12] bg-white/[0.02] hover:border-white/25 hover:bg-white/[0.04]'
+                : 'border-app-border-strong bg-app-surface hover:border-app-border-strong hover:bg-app-raised'
           }`}
         >
           <FileUp
-            className={`mb-3 h-8 w-8 ${dragging && !closed ? 'text-violet-secondary' : 'text-zinc-600'}`}
+            className={`mb-3 h-8 w-8 ${dragging && !closed ? 'text-violet' : 'text-app-ink-3'}`}
             aria-hidden
           />
-          <p className="text-sm font-medium text-zinc-200">
+          <p className="text-sm font-medium text-app-ink">
             {blocked
               ? 'Choose who can read these documents first'
               : dragging
                 ? 'Drop to upload'
                 : 'Drag files here, or click to choose'}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-app-ink-3">
             {blocked ? visibilityHelp(choice) : limitNote}
           </p>
-          {!blocked ? <p className="mt-3 text-xs text-zinc-500">{scopeNote}</p> : null}
+          {!blocked ? <p className="mt-3 text-xs text-app-ink-3">{scopeNote}</p> : null}
         </button>
       ) : (
         <>
@@ -180,15 +180,15 @@ export function KnowledgeDropzone({
             disabled={closed}
             className={`mt-3 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed px-4 py-4 text-center transition-colors ${
               closed
-                ? 'cursor-not-allowed border-white/[0.08] bg-white/[0.01]'
-                : 'border-white/[0.12] bg-white/[0.02] hover:border-white/25 hover:bg-white/[0.04]'
+                ? 'cursor-not-allowed border-app-border bg-app-raised'
+                : 'border-app-border-strong bg-app-surface hover:border-app-border-strong hover:bg-app-raised'
             }`}
           >
-            <Plus className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
-            <span className="text-sm text-zinc-300">
+            <Plus className="h-4 w-4 shrink-0 text-app-ink-3" aria-hidden />
+            <span className="text-sm text-app-ink-2">
               {blocked ? 'Choose who can read these first' : 'Drag more files here, or click to choose'}
             </span>
-            <span className="hidden text-xs text-zinc-500 sm:inline">{limitNote}</span>
+            <span className="hidden text-xs text-app-ink-3 sm:inline">{limitNote}</span>
           </button>
         </>
       )}
@@ -205,17 +205,17 @@ export function KnowledgeDropzone({
         >
           {closed ? (
             <>
-              <AlertTriangle className="mb-2 h-6 w-6 text-status-warning" aria-hidden />
-              <p className="text-sm font-medium text-status-warning">
+              <AlertTriangle className="mb-2 h-6 w-6 text-sl-warning" aria-hidden />
+              <p className="text-sm font-medium text-sl-warning">
                 {blocked ? 'Choose who can read these first' : 'Still uploading — wait for this batch'}
               </p>
             </>
           ) : (
             <>
-              <Upload className="mb-2 h-6 w-6 text-violet-secondary" aria-hidden />
-              <p className="text-sm font-medium text-zinc-100">Drop to upload</p>
-              <p className="mt-1 text-xs text-zinc-400">{scopeNote}</p>
-              <p className="mt-1 text-xs text-zinc-500">{limitNote}</p>
+              <Upload className="mb-2 h-6 w-6 text-violet" aria-hidden />
+              <p className="text-sm font-medium text-app-ink">Drop to upload</p>
+              <p className="mt-1 text-xs text-app-ink-2">{scopeNote}</p>
+              <p className="mt-1 text-xs text-app-ink-3">{limitNote}</p>
             </>
           )}
         </div>
@@ -235,7 +235,7 @@ export function KnowledgeDropzone({
       />
 
       {progress ? (
-        <p className="mt-3 flex items-center gap-1.5 text-xs text-zinc-400" role="status">
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-app-ink-2" role="status">
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
           Uploading {Math.min(progress.done + 1, progress.total)} of {progress.total}…
         </p>
@@ -245,7 +245,7 @@ export function KnowledgeDropzone({
           one and why. The two lists stay apart because one can never work and
           the other works on the very next drop. */}
       {unreadable.length > 0 ? (
-        <p className="mt-3 flex items-start gap-1.5 text-xs text-status-warning">
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-sl-warning">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             Skipped {unreadable.join(', ')} — only {ACCEPTED_EXTENSIONS.join(', ')} can be read.
@@ -254,7 +254,7 @@ export function KnowledgeDropzone({
       ) : null}
 
       {deferred.length > 0 ? (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-zinc-400">
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-app-ink-2">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             {MAX_FILES_PER_UPLOAD} at a time — {deferred.join(', ')} {deferred.length === 1 ? 'was' : 'were'}{' '}
@@ -264,7 +264,7 @@ export function KnowledgeDropzone({
       ) : null}
 
       {upload.isError ? (
-        <p className="mt-2 text-xs text-status-failed">
+        <p className="mt-2 text-xs text-sl-failed">
           {upload.error?.message ?? 'Upload failed'}
         </p>
       ) : null}

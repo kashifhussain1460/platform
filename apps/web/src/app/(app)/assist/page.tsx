@@ -3,7 +3,16 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Clock, LayoutTemplate, Plus, WandSparkles } from 'lucide-react';
+import {
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  MessageSquareText,
+  Plug,
+  Plus,
+  Rocket,
+  WandSparkles,
+} from 'lucide-react';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
 import { useSessionStore } from '@/stores/session.store';
@@ -25,6 +34,35 @@ import { useWorkflowTemplates } from '@/features/workflows/hooks';
  * about to leave.
  */
 const RECENT_PROMPTS_KEY = 'orlixa.assist.recentPrompts';
+
+/**
+ * What the assistant actually does, in the order you meet it. Each line maps to
+ * a capability that exists today — the connection card really does appear
+ * mid-chat, and publish really is the last step — so nothing here promises a
+ * screen the user won't reach.
+ */
+const HOW_IT_WORKS = [
+  {
+    icon: MessageSquareText,
+    title: 'Describe it in plain English',
+    body: 'Say what the job is. Orlixa asks for anything it still needs before it plans a thing.',
+  },
+  {
+    icon: CheckCircle2,
+    title: 'Review before anything runs',
+    body: 'Every step, the tools it touches, and who has to approve — all visible up front.',
+  },
+  {
+    icon: Plug,
+    title: 'Connect tools as you go',
+    body: 'Missing a Gmail or Slack connection? Connect it right in the chat and carry on.',
+  },
+  {
+    icon: Rocket,
+    title: 'Publish when you say so',
+    body: 'Turn it on, watch each run, and pause it any time. Nothing goes live on its own.',
+  },
+];
 
 function loadRecentPrompts(): string[] {
   if (typeof window === 'undefined') return [];
@@ -91,80 +129,82 @@ export default function AssistPage() {
 
   const firstPartyTemplates = (templates ?? [])
     .filter((t) => t.companyId === null)
-    .slice(0, 5);
+    .slice(0, 6);
 
   return (
     <AppShell {...shellProps}>
-      <main className="mx-auto flex w-full max-w-3xl flex-col px-4 py-14">
-        {/* Hero — the ask */}
-        <div className="mb-7 flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet/20 text-violet-secondary shadow-[0_0_24px_rgba(124,92,255,0.25)]">
-            <WandSparkles className="h-5 w-5" />
+      <main className="mx-auto flex w-full max-w-5xl flex-col px-4 pb-16 pt-10">
+        {/* Hero — the ask. Centred, because the composer below it is the only
+            thing on this page anyone has to use. */}
+        <div className="flex flex-col items-center text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] text-white shadow-[0_16px_40px_-12px_rgba(94,60,232,0.55)]">
+            <WandSparkles className="h-6 w-6" />
           </span>
-          <div>
-            <h1 className="font-display text-2xl font-semibold text-white">
-              {firstName
-                ? `What should your AI employees do, ${firstName}?`
-                : 'What should your AI employees do?'}
-            </h1>
-            <p className="text-sm text-zinc-400">
-              Describe it in plain English. Orlixa plans it with you before anything is built.
-            </p>
-          </div>
+          <h1 className="mt-5 font-display text-3xl font-semibold tracking-tight text-app-ink sm:text-4xl">
+            {firstName
+              ? `What should your AI employees do, ${firstName}?`
+              : 'What should your AI employees do?'}
+          </h1>
+          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-app-ink-2">
+            Describe it in plain English. Orlixa plans it with you before anything is built.
+          </p>
         </div>
 
-        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 transition-colors focus-within:border-violet/40 focus-within:shadow-[0_0_32px_rgba(124,92,255,0.12)]">
-          <textarea
-            ref={textareaRef}
-            rows={4}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={onComposerKeyDown}
-            placeholder="e.g. When HR uploads a new-hire spreadsheet, verify documents, send a welcome email, create accounts, notify Slack, and ask a manager to approve if mandatory documents are missing."
-            aria-label="Describe the workflow you want to build"
-            aria-describedby="assist-composer-hint"
-            className="w-full resize-none bg-transparent text-sm leading-relaxed text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
-          />
-          <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-3">
-            <p id="assist-composer-hint" className="text-xs text-zinc-500">
-              Nothing runs until you say so.{' '}
-              <span className="text-zinc-600">Enter to start · Shift+Enter for a new line</span>
-            </p>
-            <button
-              type="button"
-              onClick={() => start(prompt)}
-              disabled={!prompt.trim() || create.isPending}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-violet px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-violet/90 disabled:cursor-not-allowed disabled:bg-violet/30 disabled:text-white/50"
-            >
-              {create.isPending ? 'Starting…' : 'Generate'}
-              {!create.isPending ? <ArrowRight className="h-3.5 w-3.5" aria-hidden /> : null}
-            </button>
+        {/* Composer. The gradient sits on a 1px padding wrapper so the border
+            itself is the gradient — a `border-image` would lose the radius. */}
+        <div className="mt-8 rounded-[1.15rem] bg-[linear-gradient(135deg,rgba(106,48,236,0.55),rgba(139,110,242,0.25)_45%,rgba(232,232,240,0.9))] p-px shadow-[0_24px_60px_-30px_rgba(94,60,232,0.45)]">
+          <div className="rounded-2xl bg-app-surface p-4 sm:p-5">
+            <textarea
+              ref={textareaRef}
+              rows={4}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={onComposerKeyDown}
+              placeholder="e.g. When HR uploads a new-hire spreadsheet, verify documents, send a welcome email, create accounts, notify Slack, and ask a manager to approve if mandatory documents are missing."
+              aria-label="Describe the workflow you want to build"
+              aria-describedby="assist-composer-hint"
+              className="w-full resize-none bg-transparent text-[15px] leading-relaxed text-app-ink placeholder:text-app-ink-4 focus:outline-none"
+            />
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-4">
+              <p id="assist-composer-hint" className="text-xs text-app-ink-3">
+                Nothing runs until you say so. Enter to start · Shift+Enter for a new line
+              </p>
+              <button
+                type="button"
+                onClick={() => start(prompt)}
+                disabled={!prompt.trim() || create.isPending}
+                className="inline-flex items-center gap-2 rounded-xl bg-violet px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-violet-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet disabled:cursor-not-allowed disabled:bg-violet/30 disabled:text-white/60"
+              >
+                {create.isPending ? 'Starting…' : 'Generate plan'}
+                {!create.isPending ? <ArrowRight className="h-4 w-4" aria-hidden /> : null}
+              </button>
+            </div>
           </div>
         </div>
 
         {create.isError ? (
-          <p className="mt-3 text-sm text-status-failed" role="alert">
+          <p className="mt-3 text-sm text-red-600" role="alert">
             {create.error?.message ?? "Couldn't start that. Try again."}
           </p>
         ) : null}
 
         {/* Suggested prompts — role-aware, from the hired roster */}
-        <section className="mt-7" aria-labelledby="assist-ideas">
-          <p id="assist-ideas" className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
+        <section className="mt-6" aria-labelledby="assist-ideas">
+          <p id="assist-ideas" className="mb-3 text-center text-xs font-medium uppercase tracking-wide text-app-ink-3">
             Ideas for your team
           </p>
           {isLoading ? (
-            <div className="flex flex-wrap gap-2" aria-busy="true" aria-label="Loading ideas">
+            <div className="flex flex-wrap justify-center gap-2" aria-busy="true" aria-label="Loading ideas">
               {[0, 1, 2, 3].map((i) => (
-                <span key={i} className="h-8 w-40 animate-pulse rounded-full bg-white/[0.05]" />
+                <span key={i} className="h-8 w-40 animate-pulse rounded-full bg-app-raised" />
               ))}
             </div>
           ) : isError ? (
-            <p className="text-sm text-zinc-500">
+            <p className="text-center text-sm text-app-ink-3">
               Couldn&apos;t load ideas right now — you can still describe your own.
             </p>
           ) : (
-            <ul className="flex flex-wrap gap-2">
+            <ul className="flex flex-wrap justify-center gap-2">
               {(suggestions ?? []).map((s) => (
                 <li key={s.id}>
                   <button
@@ -172,7 +212,7 @@ export default function AssistPage() {
                     onClick={() => start(s.prompt)}
                     disabled={create.isPending}
                     title={s.prompt}
-                    className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:border-violet/40 hover:bg-violet/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-full border border-app-border bg-app-surface px-3.5 py-1.5 text-sm text-app-ink-2 transition-colors hover:border-violet/40 hover:bg-violet/[0.06] hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {s.label}
                   </button>
@@ -182,37 +222,49 @@ export default function AssistPage() {
           )}
         </section>
 
+        {/* How it works — four beats, in the order you meet them */}
+        <section className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="How AI Assist works">
+          {HOW_IT_WORKS.map(({ icon: Icon, title, body }) => (
+            <div
+              key={title}
+              className="rounded-2xl border border-app-border bg-app-surface p-5 transition-colors hover:border-app-border-strong"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet/10 text-violet">
+                <Icon className="h-[18px] w-[18px]" aria-hidden />
+              </span>
+              <h3 className="mt-4 text-sm font-semibold text-app-ink">{title}</h3>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-app-ink-2">{body}</p>
+            </div>
+          ))}
+        </section>
+
         {/* Templates — start from a proven workflow */}
         {firstPartyTemplates.length > 0 ? (
-          <section className="mt-8" aria-labelledby="assist-templates">
-            <div className="mb-3 flex items-center justify-between">
-              <p id="assist-templates" className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          <section className="mt-12" aria-labelledby="assist-templates">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 id="assist-templates" className="text-base font-semibold text-app-ink">
                 Start from a template
-              </p>
+              </h2>
               <Link
                 href="/workflows/templates"
-                className="text-xs text-violet-secondary transition-colors hover:text-violet"
+                className="text-sm font-medium text-violet transition-colors hover:text-violet-hover"
               >
                 View all
               </Link>
             </div>
-            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {firstPartyTemplates.map((t) => (
                 <li key={t.id}>
                   <Link
                     href="/workflows/templates"
-                    className="flex items-start gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3 transition-colors hover:border-violet/30 hover:bg-violet/[0.06]"
+                    className="flex h-full flex-col rounded-2xl border border-app-border bg-app-surface p-4 transition-colors hover:border-violet/40 hover:bg-violet/[0.04]"
                   >
-                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.05] text-violet-secondary">
-                      <LayoutTemplate className="h-4 w-4" aria-hidden />
+                    <span className="self-start rounded-full bg-app-tint px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet">
+                      {t.category}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-zinc-200">
-                        {t.name}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs text-zinc-500">
-                        {t.description ?? t.category}
-                      </span>
+                    <span className="mt-3 block text-sm font-semibold text-app-ink">{t.name}</span>
+                    <span className="mt-1.5 line-clamp-2 block text-[13px] leading-relaxed text-app-ink-2">
+                      {t.description ?? 'Ready to install and edit.'}
                     </span>
                   </Link>
                 </li>
@@ -223,10 +275,10 @@ export default function AssistPage() {
 
         {/* Recent prompts (this browser) */}
         {recentPrompts.length > 0 ? (
-          <section className="mt-8" aria-labelledby="assist-recent-prompts">
-            <p id="assist-recent-prompts" className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          <section className="mt-12" aria-labelledby="assist-recent-prompts">
+            <h2 id="assist-recent-prompts" className="mb-3 text-base font-semibold text-app-ink">
               Recent prompts
-            </p>
+            </h2>
             <ul className="flex flex-wrap gap-2">
               {recentPrompts.map((p) => (
                 <li key={p}>
@@ -234,7 +286,7 @@ export default function AssistPage() {
                     type="button"
                     onClick={() => setPrompt(p)}
                     title={p}
-                    className="max-w-xs truncate rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-sm text-zinc-400 transition-colors hover:border-white/[0.14] hover:text-zinc-200"
+                    className="max-w-xs truncate rounded-full border border-app-border bg-app-surface px-3.5 py-1.5 text-sm text-app-ink-2 transition-colors hover:border-app-border-strong hover:text-app-ink"
                   >
                     {p}
                   </button>
@@ -246,20 +298,20 @@ export default function AssistPage() {
 
         {/* Resume prior sessions */}
         {sessions && sessions.length > 0 ? (
-          <section className="mt-10" aria-labelledby="assist-sessions">
-            <p id="assist-sessions" className="mb-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          <section className="mt-12" aria-labelledby="assist-sessions">
+            <h2 id="assist-sessions" className="mb-3 text-base font-semibold text-app-ink">
               Carry on where you left off
-            </p>
-            <ul className="space-y-1.5">
+            </h2>
+            <ul className="space-y-2">
               {sessions.slice(0, 6).map((s) => (
                 <li key={s.id}>
                   <Link
                     href={`/assist/${s.id}`}
-                    className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.12]"
+                    className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface px-4 py-3 transition-colors hover:border-app-border-strong"
                   >
-                    <Clock className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">{s.title}</span>
-                    <span className="shrink-0 text-xs text-zinc-600">
+                    <Clock className="h-4 w-4 shrink-0 text-app-ink-3" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-sm text-app-ink">{s.title}</span>
+                    <span className="shrink-0 text-xs text-app-ink-3">
                       {s.draftNodeCount > 0 ? `${s.draftNodeCount} steps` : 'not started'}
                       {' · '}
                       {formatRelativeTime(s.updatedAt)}
@@ -272,13 +324,21 @@ export default function AssistPage() {
         ) : null}
 
         {/* Power-user exit — skip the assistant */}
-        <Link
-          href="/workflows"
-          className="mt-10 inline-flex items-center gap-2 text-sm text-zinc-500 transition-colors hover:text-zinc-300"
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden />
-          Prefer to build it yourself? Open the workflow builder
-        </Link>
+        <section className="mt-12 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-violet/20 bg-app-tint px-6 py-5">
+          <div>
+            <h2 className="text-base font-semibold text-app-ink">Prefer to build it yourself?</h2>
+            <p className="mt-1 text-sm text-app-ink-2">
+              Open the workflow builder and place every step by hand.
+            </p>
+          </div>
+          <Link
+            href="/workflows"
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-violet/30 bg-app-surface px-4 py-2 text-sm font-semibold text-violet transition-colors hover:border-violet/50 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet"
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            Open workflow builder
+          </Link>
+        </section>
       </main>
     </AppShell>
   );

@@ -26,7 +26,9 @@ interface EmployeeRow {
 }
 
 const EMPLOYEES: EmployeeRow[] = [
-  { name: 'AI Recruiter', task: 'Screening candidates', initials: 'AR', ring: 'bg-violet/30 text-violet-secondary' },
+  // `violet/30` is the heaviest tint of the four, so `secondary` drops to 3.68
+  // on it while the amber/sky/emerald siblings clear AA on their /20.
+  { name: 'AI Recruiter', task: 'Screening candidates', initials: 'AR', ring: 'bg-violet/30 text-violet-bright' },
   { name: 'AI Sales Executive', task: 'Following up with leads', initials: 'SE', ring: 'bg-amber-400/20 text-amber-300' },
   { name: 'AI Support Agent', task: 'Answering tickets', initials: 'SA', ring: 'bg-sky-400/20 text-sky-300' },
   { name: 'AI Accountant', task: 'Processing invoices', initials: 'AC', ring: 'bg-emerald-400/20 text-emerald-300' },
@@ -81,7 +83,7 @@ export function DashboardMock() {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[13px] font-medium text-white">{e.name}</p>
-                <p className="truncate text-xs text-zinc-500">{e.task}</p>
+                <p className="truncate text-xs text-fg-muted">{e.task}</p>
               </div>
               <span className="shrink-0 rounded-full bg-emerald-400/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400">
                 Active
@@ -94,14 +96,14 @@ export function DashboardMock() {
       {/* Stat cards */}
       <div className="hidden w-40 shrink-0 flex-col gap-3 md:flex">
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-          <p className="text-xs text-zinc-500">Tasks Completed</p>
+          <p className="text-xs text-fg-muted">Tasks Completed</p>
           <p className="mt-1.5 text-2xl font-bold text-white">1,248</p>
           <p className="mt-1 text-xs font-medium text-emerald-400">+18.6%</p>
           <Sparkline />
         </div>
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
           <div className="flex items-baseline justify-between">
-            <p className="text-xs text-zinc-500">Success Rate</p>
+            <p className="text-xs text-fg-muted">Success Rate</p>
             <p className="text-xs font-medium text-emerald-400">+3.2%</p>
           </div>
           <p className="mt-1.5 text-2xl font-bold text-white">98.6%</p>

@@ -8,7 +8,7 @@ import { useCreateWorkflow, useGenerateWorkflowDraft } from '../hooks';
 const primaryBtnClass =
   'inline-flex items-center justify-center rounded-xl bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_14px_34px_-12px_rgba(91,33,230,0.85)] transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60';
 const secondaryBtnClass =
-  'rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50';
+  'rounded-xl border border-app-border-strong bg-app-surface px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 
 /**
  * "Generate with AI" chat: a short back-and-forth (AI may ask up to a few
@@ -54,10 +54,10 @@ export function GenerateWorkflowChat({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-zinc-400">Generate with AI</h2>
-        <button type="button" onClick={onClose} className="text-sm text-zinc-500 hover:text-zinc-300">
+        <h2 className="text-sm font-medium text-app-ink-2">Generate with AI</h2>
+        <button type="button" onClick={onClose} className="text-sm text-app-ink-3 hover:text-app-ink-2">
           Close
         </button>
       </div>
@@ -70,7 +70,7 @@ export function GenerateWorkflowChat({ onClose }: { onClose: () => void }) {
               className={`max-w-[85%] rounded-xl px-3.5 py-2 text-sm ${
                 m.role === 'user'
                   ? 'ml-auto bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] text-white'
-                  : 'bg-white/[0.05] text-zinc-300'
+                  : 'bg-app-raised text-app-ink-2'
               }`}
             >
               {m.content}
@@ -80,12 +80,12 @@ export function GenerateWorkflowChat({ onClose }: { onClose: () => void }) {
       )}
 
       {generate.isError && (
-        <p className="mb-3 text-sm text-red-400">
+        <p className="mb-3 text-sm text-red-600">
           {generate.error?.message ?? 'Could not generate a draft'}
         </p>
       )}
       {create.isError && (
-        <p className="mb-3 text-sm text-red-400">
+        <p className="mb-3 text-sm text-red-600">
           {create.error?.message ?? 'Could not save the draft'}
         </p>
       )}

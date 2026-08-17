@@ -23,7 +23,7 @@ import { type NodeActions, NodeActionsContext } from './nodeActions';
 
 // Literal badge classes per tone (Tailwind JIT can't see `bg-${tone}`).
 const TONE_BADGE: Record<string, string> = {
-  'cat-employee': 'bg-cat-employee/15 text-cat-employee',
+  'cat-employee': 'bg-cat-employee/15 text-violet-bright',
   'cat-trigger': 'bg-cat-trigger/15 text-cat-trigger',
   'cat-approval': 'bg-cat-approval/15 text-cat-approval',
   'cat-tool': 'bg-cat-tool/15 text-cat-tool',
@@ -441,7 +441,7 @@ function WorkflowNodeCardImpl({ id, data, selected, isConnectable }: NodeProps<W
           <span
             className={[
               'flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-              emp.unresolved ? 'bg-white/[0.06] text-wf-ink-3' : 'bg-cat-employee/20 text-cat-employee',
+              emp.unresolved ? 'bg-white/[0.06] text-wf-ink-3' : 'bg-cat-employee/20 text-violet-bright',
             ].join(' ')}
           >
             {emp.unresolved ? '?' : initials(emp.name)}
@@ -451,7 +451,7 @@ function WorkflowNodeCardImpl({ id, data, selected, isConnectable }: NodeProps<W
               <p className="truncate font-display text-sm font-semibold text-wf-ink">{data.title}</p>
             )}
             {emp.role ? (
-              <span className="mt-0.5 inline-block rounded-full bg-cat-employee/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cat-employee">
+              <span className="mt-0.5 inline-block rounded-full bg-cat-employee/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-bright">
                 {emp.role}
               </span>
             ) : null}

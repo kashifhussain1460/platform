@@ -52,7 +52,7 @@ export function HowItWorks() {
               <p className="mt-4 text-[15px] font-semibold text-white">
                 {n} {title}
               </p>
-              <p className="mt-1.5 max-w-[220px] text-sm text-zinc-500">{body}</p>
+              <p className="mt-1.5 max-w-[220px] text-sm text-fg-muted">{body}</p>
             </div>
           ))}
         </div>

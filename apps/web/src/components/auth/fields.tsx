@@ -25,7 +25,7 @@ export const IconInput = forwardRef<HTMLInputElement, IconInputProps>(function I
 ) {
   return (
     <div className="relative">
-      <span className="pointer-events-none absolute left-3.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-zinc-500">
+      <span className="pointer-events-none absolute left-3.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center text-fg-muted">
         <Icon className="h-4 w-4" />
       </span>
       <input
@@ -53,7 +53,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HT
             type="button"
             aria-label={show ? 'Hide password' : 'Show password'}
             onClick={() => setShow((s) => !s)}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition-colors hover:text-zinc-200"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-fg-muted transition-colors hover:text-zinc-200"
           >
             {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
@@ -72,7 +72,12 @@ export function AuthButton({
 }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
-      className={`w-full rounded-xl bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_34px_-12px_rgba(91,33,230,0.85)] transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+      // A keyboard user tabbing to "Sign In" had no way to tell they were on it:
+      // the button defined a hover lift and a glow but nothing at all for focus,
+      // so the whole form was navigable and invisible. The ring sits OUTSIDE the
+      // button (offset) because the button's own surface is a saturated violet
+      // gradient — a ring drawn on top of it would be the thing that disappears.
+      className={`w-full rounded-xl bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_34px_-12px_rgba(91,33,230,0.85)] transition-all duration-200 hover:-translate-y-0.5 hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-secondary disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
       {...rest}
     >
       {children}
@@ -94,7 +99,7 @@ export function Divider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3">
       <span className="h-px flex-1 bg-white/[0.08]" />
-      <span className="text-xs text-zinc-500">{label}</span>
+      <span className="text-xs text-fg-muted">{label}</span>
       <span className="h-px flex-1 bg-white/[0.08]" />
     </div>
   );

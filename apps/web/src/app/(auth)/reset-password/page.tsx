@@ -95,9 +95,9 @@ export default function ResetPasswordPage() {
                   <span
                     className={`flex h-4 w-4 items-center justify-center rounded-full ${ok ? 'bg-emerald-500/90' : 'bg-white/[0.08]'}`}
                   >
-                    <Check className={`h-3 w-3 ${ok ? 'text-white' : 'text-zinc-600'}`} strokeWidth={3} />
+                    <Check className={`h-3 w-3 ${ok ? 'text-white' : 'text-fg-subtle'}`} strokeWidth={3} />
                   </span>
-                  <span className={ok ? 'text-zinc-200' : 'text-zinc-500'}>{r.label}</span>
+                  <span className={ok ? 'text-zinc-200' : 'text-fg-muted'}>{r.label}</span>
                 </li>
               );
             })}

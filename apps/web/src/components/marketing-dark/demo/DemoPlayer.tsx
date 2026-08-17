@@ -85,7 +85,7 @@ export function DemoPlayer() {
         <OrlixaMark size={26} />
         <span className="text-sm font-bold tracking-tight text-white">Orlixa</span>
       </div>
-      <span className="absolute right-8 top-8 z-20 text-xs font-medium tracking-wide text-zinc-500">orlixa.io</span>
+      <span className="absolute right-8 top-8 z-20 text-xs font-medium tracking-wide text-fg-muted">orlixa.io</span>
 
       {/* stage */}
       <div className="absolute inset-0 flex items-center justify-center px-10">

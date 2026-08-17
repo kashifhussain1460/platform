@@ -2,9 +2,9 @@ import type { SlotStatus } from '@vaep/types';
 
 /** Tailwind classes for the status badge, keyed by status. */
 export const STATUS_STYLES: Record<SlotStatus, string> = {
-  OPEN: 'bg-blue-500/15 text-blue-400',
-  BOOKED: 'bg-green-500/15 text-green-400',
-  CANCELLED: 'bg-white/[0.06] text-zinc-500',
+  OPEN: 'bg-blue-500/15 text-blue-800',
+  BOOKED: 'bg-green-500/15 text-green-800',
+  CANCELLED: 'bg-app-raised text-app-ink-3',
 };
 
 /** "OPEN" → "Open". */

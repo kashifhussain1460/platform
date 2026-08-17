@@ -1,4 +1,5 @@
 import { DarkSectionHeading, DarkHl } from './DarkSectionHeading';
+import { MacWindowVideo } from './MacWindowVideo';
 
 const PAIN_POINTS = ['Sending Emails', 'Sales Outreach', 'Recruitment', 'Accounting', 'CRM Updates', 'Report Generation'];
 
@@ -27,12 +28,9 @@ export function MarketGapSection() {
         </div>
 
         <div className="mx-auto mt-12 max-w-4xl">
-          <video
-            controls
-            playsInline
-            preload="metadata"
-            className="w-full rounded-dark-lg shadow-dark-card"
+          <MacWindowVideo
             src="/market-gap.mp4"
+            label="Why repetitive work stops scaling before your headcount does"
           />
         </div>
       </div>

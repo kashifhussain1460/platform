@@ -13,7 +13,7 @@ import {
 } from '../../schedule';
 
 const inputCls =
-  'w-full rounded-lg border border-wf-hairline bg-void-card px-3 py-2 text-sm text-wf-ink outline-none placeholder:text-wf-ink-3 focus-visible:ring-2 focus-visible:ring-wf-focus disabled:opacity-60';
+  'w-full rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-ink outline-none placeholder:text-app-ink-3 focus-visible:ring-2 focus-visible:ring-wf-focus disabled:opacity-60';
 
 const FREQUENCIES: { value: ScheduleFrequency; label: string }[] = [
   { value: 'DAILY', label: 'Every day' },
@@ -91,7 +91,7 @@ export function ScheduleFields({
   return (
     <div className="space-y-3">
       <label className="block">
-        <span className="mb-1 block text-xs font-medium text-wf-ink-2">
+        <span className="mb-1 block text-xs font-medium text-app-ink-2">
           How often?
         </span>
         <select
@@ -110,7 +110,7 @@ export function ScheduleFields({
 
       {schedule.frequency === 'WEEKLY' && (
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-wf-ink-2">Day</span>
+          <span className="mb-1 block text-xs font-medium text-app-ink-2">Day</span>
           <select
             className={inputCls}
             value={schedule.weekday}
@@ -130,7 +130,7 @@ export function ScheduleFields({
 
       {schedule.frequency === 'MONTHLY' && (
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-wf-ink-2">
+          <span className="mb-1 block text-xs font-medium text-app-ink-2">
             Day of the month
           </span>
           <select
@@ -145,7 +145,7 @@ export function ScheduleFields({
               </option>
             ))}
           </select>
-          <span className="mt-1 block text-xs text-wf-ink-3">
+          <span className="mt-1 block text-xs text-app-ink-3">
             Days 29–31 aren&apos;t offered — they&apos;d skip short months.
           </span>
         </label>
@@ -153,7 +153,7 @@ export function ScheduleFields({
 
       {schedule.frequency === 'HOURLY' && (
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-wf-ink-2">
+          <span className="mb-1 block text-xs font-medium text-app-ink-2">
             Minutes past the hour
           </span>
           <input
@@ -178,7 +178,7 @@ export function ScheduleFields({
         schedule.frequency === 'WEEKLY' ||
         schedule.frequency === 'MONTHLY') && (
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-wf-ink-2">
+          <span className="mb-1 block text-xs font-medium text-app-ink-2">
             Time
           </span>
           <input
@@ -197,7 +197,7 @@ export function ScheduleFields({
 
       {schedule.frequency === 'INTERVAL' && (
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-wf-ink-2">
+          <span className="mb-1 block text-xs font-medium text-app-ink-2">
             Every how many minutes?
           </span>
           <input
@@ -213,7 +213,7 @@ export function ScheduleFields({
               })
             }
           />
-          <span className="mt-1 block text-xs text-wf-ink-3">
+          <span className="mt-1 block text-xs text-app-ink-3">
             The shortest allowed gap is 15 seconds.
           </span>
         </label>
@@ -221,7 +221,7 @@ export function ScheduleFields({
 
       {schedule.frequency === 'CUSTOM' && (
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-wf-ink-2">
+          <span className="mb-1 block text-xs font-medium text-app-ink-2">
             Cron expression
           </span>
           <input
@@ -235,14 +235,14 @@ export function ScheduleFields({
         </label>
       )}
 
-      <div className="rounded-lg border border-wf-hairline bg-void-card px-3 py-2">
-        <p className="text-xs text-wf-ink-3">
-          Times are read in <span className="text-wf-ink-2">{zone}</span>.
+      <div className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
+        <p className="text-xs text-app-ink-3">
+          Times are read in <span className="text-app-ink-2">{zone}</span>.
         </p>
-        <p className="mt-0.5 text-xs text-wf-ink-2">
+        <p className="mt-0.5 text-xs text-app-ink-2">
           Next run:{' '}
           {next ? (
-            <span className="text-wf-ink">
+            <span className="text-app-ink">
               {next.toLocaleString(undefined, {
                 weekday: 'short',
                 day: 'numeric',
@@ -253,14 +253,14 @@ export function ScheduleFields({
             </span>
           ) : schedule.frequency === 'CUSTOM' ? (
             // Refusing to guess beats a confidently wrong prediction.
-            <span className="text-wf-ink-3">
+            <span className="text-app-ink-3">
               can&apos;t be worked out from a custom expression
             </span>
           ) : (
-            <span className="text-wf-ink-3">—</span>
+            <span className="text-app-ink-3">—</span>
           )}
           {schedule.frequency === 'INTERVAL' && (
-            <span className="text-wf-ink-3">
+            <span className="text-app-ink-3">
               {' '}
               (then every {describeInterval(schedule.everyMs)})
             </span>

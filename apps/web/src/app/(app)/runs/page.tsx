@@ -50,8 +50,8 @@ export default function RunsPage() {
   return (
     <AppShell {...shellProps}>
       <div className="mb-6 pt-2">
-        <h1 className="text-2xl font-bold text-white">Runs</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="text-2xl font-bold text-app-ink">Runs</h1>
+        <p className="mt-1 text-sm text-app-ink-3">
           Every time one of your workflows has run.
           {inFlight > 0 && ` ${inFlight} going right now.`}
         </p>

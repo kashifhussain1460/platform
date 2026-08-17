@@ -11,7 +11,7 @@ import { createUserSchema, type CreateUserDto, type Role } from '../schemas';
 const ADMIN_ASSIGNABLE: Role[] = ['MEMBER', 'ADMIN'];
 const OWNER_ASSIGNABLE: Role[] = ['MEMBER', 'ADMIN', 'OWNER'];
 
-const labelClass = 'mb-1.5 block text-sm font-medium text-zinc-300';
+const labelClass = 'mb-1.5 block text-sm font-medium text-app-ink-2';
 
 /** Invite/add-user form: email, name, role select, and a temporary password. */
 export function UserForm() {
@@ -34,8 +34,8 @@ export function UserForm() {
   });
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5">
-      <h2 className="mb-3 text-sm font-medium text-zinc-400">Invite a team member</h2>
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-3 text-sm font-medium text-app-ink-2">Invite a team member</h2>
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -49,7 +49,7 @@ export function UserForm() {
               {...register('name')}
             />
             {errors.name && (
-              <p className="mt-1.5 text-sm text-red-400">{errors.name.message}</p>
+              <p className="mt-1.5 text-sm text-red-600">{errors.name.message}</p>
             )}
           </div>
 
@@ -65,7 +65,7 @@ export function UserForm() {
               {...register('email')}
             />
             {errors.email && (
-              <p className="mt-1.5 text-sm text-red-400">{errors.email.message}</p>
+              <p className="mt-1.5 text-sm text-red-600">{errors.email.message}</p>
             )}
           </div>
 
@@ -81,7 +81,7 @@ export function UserForm() {
               ))}
             </select>
             {errors.role && (
-              <p className="mt-1.5 text-sm text-red-400">{errors.role.message}</p>
+              <p className="mt-1.5 text-sm text-red-600">{errors.role.message}</p>
             )}
           </div>
 
@@ -97,13 +97,13 @@ export function UserForm() {
               {...register('password')}
             />
             {errors.password && (
-              <p className="mt-1.5 text-sm text-red-400">{errors.password.message}</p>
+              <p className="mt-1.5 text-sm text-red-600">{errors.password.message}</p>
             )}
           </div>
         </div>
 
         {create.isError && (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-red-600">
             {create.error?.message ?? 'Could not add user'}
           </p>
         )}

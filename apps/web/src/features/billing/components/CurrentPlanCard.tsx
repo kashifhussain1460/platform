@@ -13,8 +13,8 @@ export function CurrentPlanCard() {
 
   if (isLoading || !subscription) {
     return (
-      <div className="flex h-full flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-        <p className="text-sm text-zinc-500">Loading subscription…</p>
+      <div className="flex h-full flex-col rounded-2xl border border-app-border bg-app-surface p-6">
+        <p className="text-sm text-app-ink-3">Loading subscription…</p>
       </div>
     );
   }
@@ -23,9 +23,9 @@ export function CurrentPlanCard() {
   const name = plan?.name ?? subscription.plan;
 
   return (
-    <div className="flex h-full flex-col rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
+    <div className="flex h-full flex-col rounded-2xl border border-app-border bg-app-surface p-6">
       <div className="flex items-start justify-between">
-        <p className="text-sm font-medium text-zinc-400">Current Plan</p>
+        <p className="text-sm font-medium text-app-ink-2">Current Plan</p>
         <span
           className={`rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_BADGE[subscription.status]}`}
         >
@@ -33,28 +33,28 @@ export function CurrentPlanCard() {
         </span>
       </div>
 
-      <h2 className="mt-1 text-xl font-bold text-white">{name}</h2>
+      <h2 className="mt-1 text-xl font-bold text-app-ink">{name}</h2>
       {plan && (
-        <p className="mt-1 text-3xl font-bold text-white">
+        <p className="mt-1 text-3xl font-bold text-app-ink">
           {formatPrice(plan.priceMonthlyUsd)}
           {plan.priceMonthlyUsd !== null && plan.priceMonthlyUsd > 0 && (
-            <span className="text-sm font-normal text-zinc-500"> / month</span>
+            <span className="text-sm font-normal text-app-ink-3"> / month</span>
           )}
         </p>
       )}
 
       {plan && plan.features.length > 0 && (
-        <ul className="mt-5 flex-1 space-y-2.5 text-sm text-zinc-300">
+        <ul className="mt-5 flex-1 space-y-2.5 text-sm text-app-ink-2">
           {plan.features.map((f) => (
             <li key={f} className="flex items-start gap-2.5">
-              <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet-secondary" strokeWidth={2.5} />
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet" strokeWidth={2.5} />
               <span>{f}</span>
             </li>
           ))}
         </ul>
       )}
 
-      <p className="mt-4 text-xs text-zinc-600">
+      <p className="mt-4 text-xs text-app-ink-3">
         Billed via {subscription.provider}. Prices are illustrative.
       </p>
 
@@ -71,12 +71,12 @@ export function CurrentPlanCard() {
         type="button"
         onClick={() => portal.mutate()}
         disabled={portal.isPending}
-        className="mt-2.5 w-full rounded-xl border border-white/[0.12] bg-white/[0.03] px-5 py-2.5 text-center text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-2.5 w-full rounded-xl border border-app-border-strong bg-app-surface px-5 py-2.5 text-center text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50"
       >
         {portal.isPending ? 'Opening…' : 'Manage Billing (payment method, invoices, cancel)'}
       </button>
       {portal.isSuccess && !portal.data.url && (
-        <p className="mt-2 text-xs text-zinc-600">
+        <p className="mt-2 text-xs text-app-ink-3">
           Billing management isn&rsquo;t available in mock mode.
         </p>
       )}

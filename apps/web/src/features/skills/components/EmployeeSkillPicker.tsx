@@ -14,10 +14,10 @@ import {
 } from '../hooks';
 
 const CONNECTION_LABELS: Record<SkillConnectionStatus, { text: string; className: string }> = {
-  CONNECTED: { text: 'Connected', className: 'bg-green-500/15 text-green-400' },
-  NOT_CONNECTED: { text: 'Not connected', className: 'bg-white/[0.06] text-zinc-400' },
-  DEGRADED: { text: 'Degraded', className: 'bg-amber-500/15 text-amber-400' },
-  DISCONNECTED: { text: 'Disconnected', className: 'bg-red-500/15 text-red-400' },
+  CONNECTED: { text: 'Connected', className: 'bg-green-500/15 text-green-800' },
+  NOT_CONNECTED: { text: 'Not connected', className: 'bg-app-raised text-app-ink-2' },
+  DEGRADED: { text: 'Degraded', className: 'bg-amber-500/15 text-amber-800' },
+  DISCONNECTED: { text: 'Disconnected', className: 'bg-red-500/15 text-red-600' },
 };
 
 function ConnectionBadge({ status }: { status: SkillConnectionStatus }) {
@@ -78,31 +78,31 @@ export function EmployeeSkillPicker({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-        <h2 className="mb-1 text-sm font-medium text-zinc-400">Skills</h2>
+      <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+        <h2 className="mb-1 text-sm font-medium text-app-ink-2">Skills</h2>
         {/* Without this line the screen looks broken: a skill shows as
             connected on the Skills page and still offers "Assign" here, and
             nothing says those are two different things. Connecting is done
             once for the company; assigning is per AI Employee, and an employee
             can only use what it has been given. */}
-        <p className="mb-3 text-xs text-zinc-500">
+        <p className="mb-3 text-xs text-app-ink-3">
           Connecting a skill is done once for the whole company. Assigning
           decides which AI Employee may use it — {who} can only use the skills
           assigned here.
         </p>
 
         {isLoading ? (
-          <p className="text-sm text-zinc-500">Loading skills…</p>
+          <p className="text-sm text-app-ink-3">Loading skills…</p>
         ) : assignableInstalled.length === 0 ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-app-ink-3">
             No skills installed.{' '}
-            <Link href="/skills" className="font-medium text-violet-secondary hover:text-white">
+            <Link href="/skills" className="font-medium text-violet hover:text-app-ink">
               Install skills
             </Link>{' '}
             to assign them here.
           </p>
         ) : (
-          <ul className="divide-y divide-white/[0.06]">
+          <ul className="divide-y divide-app-border">
             {assignableInstalled.map((skill) => {
               const isAssigned = assignedIds.has(skill.id);
               return (
@@ -112,17 +112,17 @@ export function EmployeeSkillPicker({
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-sm font-medium text-white">
+                      <p className="truncate text-sm font-medium text-app-ink">
                         {skill.displayName}
                       </p>
                       <ConnectionBadge status={skill.connectionStatus} />
                       {isAssigned ? (
-                        <span className="rounded-full bg-violet/20 px-2 py-0.5 text-xs font-medium text-violet-secondary">
+                        <span className="rounded-full bg-violet/20 px-2 py-0.5 text-xs font-medium text-violet">
                           {who} can use this
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-app-ink-3">
                       {skill.skillKey}
                       {!skill.enabled && ' · disabled'}
                     </p>
@@ -131,10 +131,10 @@ export function EmployeeSkillPicker({
                         the failure surfaces mid-conversation rather than
                         here. */}
                     {skill.connectionStatus !== 'CONNECTED' ? (
-                      <p className="mt-1 text-xs text-status-warning">
+                      <p className="mt-1 text-xs text-sl-warning">
                         Not connected yet — actions will fail until someone
                         connects it on the{' '}
-                        <Link href="/skills" className="underline hover:text-white">
+                        <Link href="/skills" className="underline hover:text-app-ink">
                           Skills page
                         </Link>
                         .
@@ -146,7 +146,7 @@ export function EmployeeSkillPicker({
                       type="button"
                       onClick={() => unassign.mutate({ installedSkillId: skill.id })}
                       disabled={busy}
-                      className="rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-xl border border-app-border-strong bg-app-surface px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Unassign
                     </button>
@@ -167,11 +167,11 @@ export function EmployeeSkillPicker({
       </section>
 
       {connectableForEmployee.length > 0 && (
-        <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-          <h2 className="mb-1 text-sm font-medium text-zinc-400">
+        <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+          <h2 className="mb-1 text-sm font-medium text-app-ink-2">
             Connect a skill for this employee
           </h2>
-          <p className="mb-3 text-xs text-zinc-500">
+          <p className="mb-3 text-xs text-app-ink-3">
             Gives this employee its own connection (e.g. its own mailbox), separate
             from any company-wide connection on the Skills page.
           </p>
@@ -183,7 +183,7 @@ export function EmployeeSkillPicker({
                   key={def.key}
                   className="flex items-center justify-between gap-4"
                 >
-                  <span className="text-sm text-zinc-300">{def.name}</span>
+                  <span className="text-sm text-app-ink-2">{def.name}</span>
                   {ownRow ? (
                     <ConnectSkillControl installed={ownRow} def={def} />
                   ) : (

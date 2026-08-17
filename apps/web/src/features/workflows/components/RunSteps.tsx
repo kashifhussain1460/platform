@@ -13,7 +13,7 @@ function preview(value: unknown): string {
 /** One WorkflowRun's step-by-step trace — shared by the live run log and the past-runs detail view. */
 export function RunSteps({ steps }: { steps: WorkflowStepRunDto[] }) {
   if (steps.length === 0) {
-    return <p className="text-sm text-zinc-500">Waiting for steps…</p>;
+    return <p className="text-sm text-app-ink-3">Waiting for steps…</p>;
   }
   return (
     <ol className="space-y-2">
@@ -23,13 +23,13 @@ export function RunSteps({ steps }: { steps: WorkflowStepRunDto[] }) {
         return (
           <li
             key={step.id}
-            className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3"
+            className="rounded-xl border border-app-border bg-app-surface p-3"
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 text-sm font-medium text-white">
+              <span className="flex items-center gap-2 text-sm font-medium text-app-ink">
                 {Icon && (
                   <span
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${tone ?? 'bg-white/[0.06] text-zinc-400'}`}
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${tone ?? 'bg-app-raised text-app-ink-2'}`}
                   >
                     <Icon className="h-3.5 w-3.5" />
                   </span>
@@ -43,10 +43,10 @@ export function RunSteps({ steps }: { steps: WorkflowStepRunDto[] }) {
               </span>
             </div>
             {step.error ? (
-              <p className="mt-1 text-xs text-red-400">{step.error}</p>
+              <p className="mt-1 text-xs text-red-600">{step.error}</p>
             ) : (
               step.output != null && (
-                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs text-zinc-400">
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs text-app-ink-2">
                   {preview(step.output)}
                 </pre>
               )

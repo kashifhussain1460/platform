@@ -81,7 +81,7 @@ export function SecuritySection() {
           <ul className="space-y-4">
             {GUARANTEES.map((g) => (
               <li key={g} className="flex items-center gap-3 text-[15px] text-zinc-200">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet/20 text-violet-secondary">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet/20 text-violet-bright">
                   <Check className="h-3.5 w-3.5" strokeWidth={3} />
                 </span>
                 {g}

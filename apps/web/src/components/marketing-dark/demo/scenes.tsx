@@ -65,7 +65,7 @@ function SceneShell({
           {desc}
         </motion.p>
         <motion.div variants={rise} className="mt-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">You configure</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-muted">You configure</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {config.map((c) => (
               <span
@@ -126,7 +126,7 @@ export function HireScene() {
               r.hired ? 'border-violet/60 bg-violet/[0.1]' : 'border-white/[0.08] bg-void-card'
             }`}
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet/20 text-violet-secondary">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet/20 text-violet-bright">
               <r.Icon className="h-4 w-4" strokeWidth={2} />
             </span>
             <span className="text-sm font-medium text-white">{r.label}</span>
@@ -274,7 +274,7 @@ export function ApprovalScene() {
       config={['Spend limits', 'Risky tools', 'Reviewers']}
     >
       <div className="w-full max-w-xs rounded-2xl border border-white/[0.1] bg-void-card p-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Approval needed</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">Approval needed</p>
         <p className="mt-2 text-[15px] font-semibold text-white">AI Finance · Send invoice</p>
         <p className="text-sm text-zinc-400">$12,000 → Acme Co.</p>
         <div className="mt-4 flex gap-3">
@@ -327,7 +327,7 @@ export function MeasureScene() {
             className="rounded-xl border border-white/[0.08] bg-void-card p-4"
           >
             <p className="text-2xl font-bold text-white">{v}</p>
-            <p className="mt-0.5 text-xs text-zinc-500">{l}</p>
+            <p className="mt-0.5 text-xs text-fg-muted">{l}</p>
             {d && <p className="mt-1 text-xs font-medium text-emerald-400">{d}</p>}
           </motion.div>
         ))}

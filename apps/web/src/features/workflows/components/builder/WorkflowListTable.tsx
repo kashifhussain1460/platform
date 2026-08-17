@@ -234,7 +234,7 @@ export function WorkflowListTable() {
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="h-[76px] animate-pulse rounded-2xl border border-wf-hairline bg-void-card"
+            className="h-[76px] animate-pulse rounded-2xl border border-app-border bg-app-surface"
           />
         ))}
       </div>
@@ -251,7 +251,7 @@ export function WorkflowListTable() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="rounded-lg border border-wf-hairline bg-void-card px-4 py-2 text-sm font-medium text-wf-ink transition-colors hover:border-wf-hairline-hover"
+            className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-sm font-medium text-app-ink transition-colors hover:border-app-border-strong"
           >
             Try again
           </button>
@@ -278,7 +278,7 @@ export function WorkflowListTable() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-[200px] flex-1">
           <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-wf-ink-3"
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-ink-3"
             aria-hidden
           />
           <input
@@ -294,11 +294,11 @@ export function WorkflowListTable() {
             }}
             placeholder="Search workflows or people…  ( / )"
             aria-label="Search workflows"
-            className="w-full rounded-lg border border-wf-hairline bg-void-card py-2 pl-9 pr-3 text-sm text-wf-ink outline-none placeholder:text-wf-ink-3 focus-visible:ring-2 focus-visible:ring-wf-focus"
+            className="w-full rounded-lg border border-app-border bg-app-surface py-2 pl-9 pr-3 text-sm text-app-ink outline-none placeholder:text-app-ink-3 focus-visible:ring-2 focus-visible:ring-wf-focus"
           />
         </div>
 
-        <div className="flex rounded-lg border border-wf-hairline p-0.5" role="group" aria-label="Filter by status">
+        <div className="flex rounded-lg border border-app-border p-0.5" role="group" aria-label="Filter by status">
           {STATUS_SEGMENTS.map((seg) => (
             <button
               key={seg.value}
@@ -308,7 +308,7 @@ export function WorkflowListTable() {
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                 statusFilter === seg.value
                   ? 'bg-violet text-white'
-                  : 'text-wf-ink-2 hover:text-wf-ink'
+                  : 'text-app-ink-2 hover:text-app-ink'
               }`}
             >
               {seg.label}
@@ -316,12 +316,12 @@ export function WorkflowListTable() {
           ))}
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-wf-ink-2">
+        <label className="flex items-center gap-2 text-sm text-app-ink-2">
           <span className="sr-only">Sort by</span>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
-            className="rounded-lg border border-wf-hairline bg-void-card px-3 py-2 text-sm text-wf-ink outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
+            className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
             aria-label="Sort workflows"
           >
             <option value="updated">Recently updated</option>
@@ -343,8 +343,8 @@ export function WorkflowListTable() {
             }}
             className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
               showArchived
-                ? 'border-violet-secondary bg-violet/10 text-wf-ink'
-                : 'border-wf-hairline text-wf-ink-3 hover:text-wf-ink-2'
+                ? 'border-violet-secondary bg-violet/10 text-app-ink'
+                : 'border-app-border text-app-ink-3 hover:text-app-ink-2'
             }`}
           >
             {showArchived ? 'Hide archived' : 'Show archived'}
@@ -358,16 +358,16 @@ export function WorkflowListTable() {
         role="row"
         aria-hidden
       >
-        <span role="columnheader" className="text-xs font-medium uppercase tracking-wider text-wf-ink-3">
+        <span role="columnheader" className="text-xs font-medium uppercase tracking-wider text-app-ink-3">
           Workflow
         </span>
-        <span role="columnheader" className="text-xs font-medium uppercase tracking-wider text-wf-ink-3">
+        <span role="columnheader" className="text-xs font-medium uppercase tracking-wider text-app-ink-3">
           Status
         </span>
-        <span role="columnheader" className="text-xs font-medium uppercase tracking-wider text-wf-ink-3">
+        <span role="columnheader" className="text-xs font-medium uppercase tracking-wider text-app-ink-3">
           Trigger
         </span>
-        <span role="columnheader" className="text-xs font-medium uppercase tracking-wider text-wf-ink-3">
+        <span role="columnheader" className="text-xs font-medium uppercase tracking-wider text-app-ink-3">
           Updated
         </span>
         <span role="columnheader" className="sr-only">
@@ -377,8 +377,8 @@ export function WorkflowListTable() {
 
       {/* Rows */}
       {visible.length === 0 ? (
-        <div className="rounded-2xl border border-wf-hairline bg-void-card p-8 text-center">
-          <p className="text-sm text-wf-ink-2">
+        <div className="rounded-2xl border border-app-border bg-app-surface p-8 text-center">
+          <p className="text-sm text-app-ink-2">
             No workflows match “{debouncedQuery || 'this filter'}”.
           </p>
           <button
@@ -387,7 +387,7 @@ export function WorkflowListTable() {
               setQuery('');
               setStatusFilter('ALL');
             }}
-            className="mt-3 text-sm font-medium text-violet-secondary hover:text-violet"
+            className="mt-3 text-sm font-medium text-violet hover:text-violet"
           >
             Clear search &amp; filters to see all {workflows.length}
           </button>

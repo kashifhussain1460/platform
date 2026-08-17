@@ -32,9 +32,9 @@ export default function AdminHealthPage() {
   return (
     <AppShell {...shellProps}>
       <header className="mb-8 pt-2">
-        <p className="text-sm text-zinc-500">Account</p>
-        <h1 className="text-2xl font-bold text-white">System health</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="text-sm text-app-ink-3">Account</p>
+        <h1 className="text-2xl font-bold text-app-ink">System health</h1>
+        <p className="mt-1 text-sm text-app-ink-3">
           Background-job dead-letter queue and connector circuit breakers.
         </p>
       </header>
@@ -42,7 +42,7 @@ export default function AdminHealthPage() {
       {canManage ? (
         <DlqPanel />
       ) : (
-        <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+        <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
           You need an OWNER or ADMIN role to view system health.
         </p>
       )}

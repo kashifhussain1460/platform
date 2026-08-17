@@ -4,52 +4,20 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MARKETING_PLANS, priceFor } from '@/features/marketing/plans';
 import { DarkSectionHeading, DarkHl } from './DarkSectionHeading';
 
-interface Plan {
-  name: string;
-  monthly: number | null; // null = "Custom"
-  blurb: string;
-  features: string[];
-  cta: string;
-  popular?: boolean;
-}
-
-const PLANS: Plan[] = [
-  {
-    name: 'Starter',
-    monthly: 29,
-    blurb: 'For small teams getting started',
-    features: ['2 AI Employees', 'Limited Workflows', 'Core Integrations', 'Community Support'],
-    cta: 'Get Started',
-  },
-  {
-    name: 'Pro',
-    monthly: 99,
-    blurb: 'For growing businesses',
-    features: ['10 AI Employees', 'Advanced Workflows', 'All Integrations', 'Priority Support'],
-    cta: 'Get Started',
-    popular: true,
-  },
-  {
-    name: 'Business',
-    monthly: 249,
-    blurb: 'For scaling teams',
-    features: ['Unlimited AI Employees', 'Advanced Analytics', 'Custom Workflows', 'Priority Support'],
-    cta: 'Get Started',
-  },
-  {
-    name: 'Enterprise',
-    monthly: null,
-    blurb: 'For large organizations',
-    // SSO & SAML removed (founder-market-readiness-audit.md §3/§4): not
-    // built anywhere in the codebase. Re-add once it exists.
-    features: ['Everything in Business', 'Audit logs', 'On-premise option', 'Dedicated Support'],
-    cta: 'Contact Sales',
-  },
-];
-
-/** Pricing — Monthly/Annual toggle + 4 plan cards (Pro highlighted). */
+/**
+ * Pricing — Monthly/Annual toggle + 4 plan cards (Business highlighted).
+ *
+ * The plans come from `features/marketing/plans.ts`, the same list the /pricing
+ * page renders. They used to be written out here as well and had drifted: this
+ * section sold "Pro $99" while the pricing page sold "Business $99", so which
+ * one a visitor believed depended on where they landed.
+ *
+ * This is the SHORT version — the top four features per plan. The full list,
+ * the FAQ and the trial terms live on /pricing.
+ */
 export function PricingSection() {
   const [annual, setAnnual] = useState(true);
 
@@ -88,14 +56,9 @@ export function PricingSection() {
 
         {/* plan cards */}
         <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {PLANS.map((plan) => {
-            // Listed price is the annual-billing /mo rate; monthly billing costs ~20% more.
-            const price =
-              plan.monthly == null
-                ? 'Custom'
-                : annual
-                  ? `$${plan.monthly}`
-                  : `$${Math.round(plan.monthly / 0.8)}`;
+          {MARKETING_PLANS.map((plan) => {
+            const amount = priceFor(plan, annual);
+            const price = amount == null ? 'Custom' : `$${amount}`;
             return (
               <div
                 key={plan.name}
@@ -114,12 +77,13 @@ export function PricingSection() {
                 <p className="text-[15px] font-semibold text-white">{plan.name}</p>
                 <p className="mt-2 flex items-baseline gap-1">
                   <span className="text-3xl font-bold text-white">{price}</span>
-                  {plan.monthly != null && <span className="text-sm text-zinc-500">/mo</span>}
+                  {amount != null && <span className="text-sm text-fg-muted">/mo</span>}
                 </p>
-                <p className="mt-2 text-sm text-zinc-500">{plan.blurb}</p>
+                <p className="mt-2 text-sm text-fg-muted">{plan.blurb}</p>
 
+                {/* Four, not all of them — the full list is the job of /pricing. */}
                 <ul className="mt-6 space-y-3">
-                  {plan.features.map((f) => (
+                  {plan.features.slice(0, 4).map((f) => (
                     <li key={f} className="flex items-center gap-2.5 text-sm text-zinc-300">
                       <Check className="h-4 w-4 shrink-0 text-violet-secondary" strokeWidth={2.5} />
                       {f}
@@ -128,7 +92,7 @@ export function PricingSection() {
                 </ul>
 
                 <Link
-                  href={plan.cta === 'Contact Sales' ? '#' : '/register'}
+                  href={plan.ctaHref}
                   className={cn(
                     'mt-8 inline-flex items-center justify-center rounded-full py-2.5 text-sm font-semibold transition-all',
                     plan.popular
@@ -143,8 +107,11 @@ export function PricingSection() {
           })}
         </div>
 
-        <p className="mt-10 text-center text-sm text-zinc-500">
-          All plans include usage-based billing for tokens, voice &amp; automation runs.
+        <p className="mt-10 text-center text-sm text-fg-muted">
+          <Link href="/pricing" className="font-medium text-violet-secondary hover:text-white">
+            Compare every plan
+          </Link>{' '}
+          — full feature lists, trial terms and refunds.
         </p>
       </div>
     </section>

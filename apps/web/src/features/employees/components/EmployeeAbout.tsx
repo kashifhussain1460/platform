@@ -4,8 +4,8 @@ import { formatRole } from '../labels';
 function AboutRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p className="mt-0.5 text-sm font-medium text-white">{value}</p>
+      <p className="text-xs text-app-ink-3">{label}</p>
+      <p className="mt-0.5 text-sm font-medium text-app-ink">{value}</p>
     </div>
   );
 }
@@ -32,8 +32,8 @@ export function EmployeeAbout({ employee }: { employee: AiEmployeeDto }) {
   });
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      <h2 className="mb-4 text-sm font-medium text-white">About</h2>
+    <div className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-4 text-sm font-medium text-app-ink">About</h2>
       <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
         <AboutRow label="Role" value={formatRole(employee.role)} />
         <AboutRow label="Department" value={employee.department ?? '—'} />
@@ -47,9 +47,9 @@ export function EmployeeAbout({ employee }: { employee: AiEmployeeDto }) {
         <AboutRow label="Created" value={created} />
       </div>
       {employee.persona && (
-        <div className="mt-5 border-t border-white/[0.06] pt-4">
-          <p className="text-xs text-zinc-500">Persona</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-300">{employee.persona}</p>
+        <div className="mt-5 border-t border-app-border pt-4">
+          <p className="text-xs text-app-ink-3">Persona</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-app-ink-2">{employee.persona}</p>
         </div>
       )}
     </div>

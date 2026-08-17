@@ -29,8 +29,8 @@ export default function SchedulingPage() {
   return (
     <AppShell {...shellProps}>
       <header className="mb-8 pt-2">
-        <p className="text-sm text-zinc-500">Interviews</p>
-        <h1 className="text-2xl font-bold text-white">Scheduling</h1>
+        <p className="text-sm text-app-ink-3">Interviews</p>
+        <h1 className="text-2xl font-bold text-app-ink">Scheduling</h1>
       </header>
 
       <div className="space-y-6">

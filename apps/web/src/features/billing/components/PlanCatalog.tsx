@@ -13,7 +13,7 @@ export function PlanCatalog() {
   const changePlan = useChangePlan();
 
   if (isLoading || !plans) {
-    return <p className="text-sm text-zinc-500">Loading plans…</p>;
+    return <p className="text-sm text-app-ink-3">Loading plans…</p>;
   }
 
   const current = subscription?.plan;
@@ -32,7 +32,7 @@ export function PlanCatalog() {
             className={`relative flex flex-col rounded-2xl border p-5 transition-colors ${
               isCurrent
                 ? 'border-violet/60 bg-violet/[0.06] shadow-[0_0_40px_-12px_rgba(94,60,232,0.6)]'
-                : 'border-white/[0.07] bg-white/[0.02] hover:border-white/[0.14]'
+                : 'border-app-border bg-app-surface hover:border-app-border-strong'
             }`}
           >
             {isCurrent && (
@@ -41,21 +41,21 @@ export function PlanCatalog() {
               </span>
             )}
 
-            <h3 className="text-lg font-bold text-white">{plan.name}</h3>
-            <p className="mt-2 text-2xl font-bold text-white">
+            <h3 className="text-lg font-bold text-app-ink">{plan.name}</h3>
+            <p className="mt-2 text-2xl font-bold text-app-ink">
               {formatPrice(plan.priceMonthlyUsd)}
               {plan.priceMonthlyUsd !== null && plan.priceMonthlyUsd > 0 && (
-                <span className="text-sm font-normal text-zinc-500"> /mo</span>
+                <span className="text-sm font-normal text-app-ink-2"> /mo</span>
               )}
             </p>
-            <p className="mt-1 text-xs text-zinc-500">
+            <p className="mt-1 text-xs text-app-ink-2">
               {formatLimit(plan.maxEmployees)} AI employees
             </p>
 
-            <ul className="mt-4 flex-1 space-y-2 text-sm text-zinc-300">
+            <ul className="mt-4 flex-1 space-y-2 text-sm text-app-ink-2">
               {plan.features.map((f) => (
                 <li key={f} className="flex items-start gap-2">
-                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet-secondary" strokeWidth={2.5} />
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-violet" strokeWidth={2.5} />
                   <span>{f}</span>
                 </li>
               ))}

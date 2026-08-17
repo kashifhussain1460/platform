@@ -190,19 +190,19 @@ export function TriggerPanel({
     (triggerType === 'EVENT' && eventType.trim().length === 0);
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium text-zinc-400">Trigger</h2>
+        <h2 className="text-sm font-medium text-app-ink-2">Trigger</h2>
         <span
           className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            isActive ? 'bg-green-500/15 text-green-400' : 'bg-white/[0.06] text-zinc-400'
+            isActive ? 'bg-green-500/15 text-green-800' : 'bg-app-raised text-app-ink-2'
           }`}
         >
           {workflow.status}
         </span>
       </div>
 
-      <label className="mb-1 block text-xs font-medium text-zinc-400">
+      <label className="mb-1 block text-xs font-medium text-app-ink-2">
         How should this workflow start?
       </label>
       <select
@@ -216,7 +216,7 @@ export function TriggerPanel({
           </option>
         ))}
       </select>
-      <p className="mt-1 text-xs text-zinc-500">
+      <p className="mt-1 text-xs text-app-ink-3">
         {TRIGGER_OPTIONS.find((o) => o.value === triggerType)?.hint}
       </p>
 
@@ -232,7 +232,7 @@ export function TriggerPanel({
 
       {triggerType === 'EVENT' && (
         <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-zinc-400">
+          <label className="mb-1 block text-xs font-medium text-app-ink-2">
             Event type
           </label>
           <input
@@ -245,7 +245,7 @@ export function TriggerPanel({
 
           {connectableMailboxes.length > 0 && (
             <div className="mt-3">
-              <label className="mb-1 block text-xs font-medium text-zinc-400">
+              <label className="mb-1 block text-xs font-medium text-app-ink-2">
                 Only for this connected mailbox
               </label>
               <select
@@ -265,22 +265,22 @@ export function TriggerPanel({
 
           <div className="mt-3">
             <div className="mb-1 flex items-center justify-between">
-              <label className="block text-xs font-medium text-zinc-400">
+              <label className="block text-xs font-medium text-app-ink-2">
                 Conditions (all must pass)
               </label>
               <button
                 type="button"
                 onClick={addCondition}
-                className="rounded-lg border border-white/[0.1] px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-white/[0.2] hover:text-white"
+                className="rounded-lg border border-app-border px-2.5 py-1 text-xs font-medium text-app-ink-2 transition-colors hover:border-app-border hover:text-app-ink"
               >
                 + Add condition
               </button>
             </div>
             {conditions.length === 0 ? (
-              <p className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-xs text-zinc-500">
+              <p className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-app-ink-3">
                 No conditions — fires on every matching event. Add a filter such
-                as <code className="font-mono text-zinc-400">data.amount</code> gt{' '}
-                <code className="font-mono text-zinc-400">1000</code>.
+                as <code className="font-mono text-app-ink-2">data.amount</code> gt{' '}
+                <code className="font-mono text-app-ink-2">1000</code>.
               </p>
             ) : (
               <div className="space-y-2">
@@ -328,7 +328,7 @@ export function TriggerPanel({
                     <button
                       type="button"
                       aria-label="Remove condition"
-                      className="rounded-lg p-1.5 text-zinc-500 transition-colors hover:text-red-400"
+                      className="rounded-lg p-1.5 text-app-ink-3 transition-colors hover:text-red-600"
                       onClick={() => removeCondition(index)}
                     >
                       <X className="h-4 w-4" />
@@ -343,24 +343,24 @@ export function TriggerPanel({
 
       {triggerType === 'WEBHOOK' && (
         <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-zinc-400">
+          <label className="mb-1 block text-xs font-medium text-app-ink-2">
             Webhook URL
           </label>
           {webhookUrl ? (
             <div className="flex items-center gap-2">
-              <code className="flex-1 overflow-x-auto rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-xs text-zinc-300">
+              <code className="flex-1 overflow-x-auto rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-app-ink-2">
                 {webhookUrl}
               </code>
               <button
                 type="button"
                 onClick={onCopy}
-                className="rounded-lg border border-white/[0.1] px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-white/[0.2] hover:text-white"
+                className="rounded-lg border border-app-border px-3 py-1.5 text-xs font-medium text-app-ink-2 transition-colors hover:border-app-border hover:text-app-ink"
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
           ) : (
-            <p className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-xs text-zinc-500">
+            <p className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-app-ink-3">
               Save the webhook trigger and Activate to generate a secret URL.
             </p>
           )}
@@ -372,7 +372,7 @@ export function TriggerPanel({
           type="button"
           onClick={onSaveTrigger}
           disabled={saveDisabled}
-          className="rounded-lg border border-white/[0.1] px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/[0.2] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg border border-app-border px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border hover:text-app-ink disabled:cursor-not-allowed disabled:opacity-40"
         >
           {update.isPending ? 'Saving…' : 'Save trigger'}
         </button>
@@ -396,17 +396,17 @@ export function TriggerPanel({
       </div>
 
       {!canActivate && !isActive && (
-        <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">
+        <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
           Add at least one step and <strong>Save</strong> it before activating.
         </p>
       )}
       {activate.isError && (
-        <p className="mt-2 text-sm text-red-400">
+        <p className="mt-2 text-sm text-red-600">
           {activate.error?.message ?? 'Could not activate'}
         </p>
       )}
       {update.isError && (
-        <p className="mt-2 text-sm text-red-400">
+        <p className="mt-2 text-sm text-red-600">
           {update.error?.message ?? 'Could not save trigger'}
         </p>
       )}

@@ -85,15 +85,15 @@ export function Modal({ open, onClose, title, children, size = 'lg' }: ModalProp
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className={`relative flex max-h-[90vh] w-full ${SIZE[size]} flex-col overflow-hidden rounded-2xl border border-wf-hairline bg-void-section shadow-2xl focus:outline-none`}
+        className={`relative flex max-h-[90vh] w-full ${SIZE[size]} flex-col overflow-hidden rounded-2xl border border-app-border bg-app-raised shadow-2xl focus:outline-none`}
       >
-        <div className="flex items-center justify-between border-b border-wf-hairline px-5 py-3">
-          <h2 className="font-display text-base font-semibold text-wf-ink">{title}</h2>
+        <div className="flex items-center justify-between border-b border-app-border px-5 py-3">
+          <h2 className="font-display text-base font-semibold text-app-ink">{title}</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded-lg p-1 text-wf-ink-3 transition-colors hover:bg-white/[0.06] hover:text-wf-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
+            className="rounded-lg p-1 text-app-ink-3 transition-colors hover:bg-app-raised hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
           >
             <X className="h-4 w-4" />
           </button>

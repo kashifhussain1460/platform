@@ -3335,7 +3335,14 @@ export interface AssistQuestionForm {
 export interface AssistTestStep {
   nodeId: string;
   name: string;
-  status: 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'RUNNING';
+  /**
+   * A narrowed view of `StepRunStatus`, which has eight members. `WAITING` is
+   * here because a dry run that stops at an approval gate is the gate WORKING,
+   * and the panel already says so at the run level — collapsing it into
+   * "running" would hide the one outcome the user most needs to recognise.
+   * The remaining engine states are folded in `assist-test-tool.ts`.
+   */
+  status: 'COMPLETED' | 'FAILED' | 'SKIPPED' | 'RUNNING' | 'WAITING';
   ms: number;
   /**
    * True when the engine short-circuited a real side effect because the run was

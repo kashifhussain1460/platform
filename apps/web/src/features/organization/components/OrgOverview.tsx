@@ -51,29 +51,29 @@ export function OrgOverview() {
     (teams ?? []).filter((t) => t.departmentId === departmentId).length;
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 sm:p-8">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-6 sm:p-8">
       <div className="flex justify-center">
-        <div className="inline-flex items-center gap-3 rounded-2xl border border-white/[0.1] bg-white/[0.04] px-5 py-3.5">
+        <div className="inline-flex items-center gap-3 rounded-2xl border border-app-border bg-app-raised px-5 py-3.5">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] shadow-[0_10px_24px_-8px_rgba(91,33,230,0.75)]">
-            <Crown className="h-5 w-5 text-white" />
+            <Crown className="h-5 w-5 text-app-ink" />
           </span>
           <div>
-            <p className="font-bold text-white">
+            <p className="font-bold text-app-ink">
               {owner?.name ?? company?.name ?? 'Owner'}
             </p>
-            <p className="text-xs text-zinc-500">Owner</p>
+            <p className="text-xs text-app-ink-3">Owner</p>
           </div>
         </div>
       </div>
 
       {isLoading ? (
-        <p className="mt-8 text-center text-sm text-zinc-500">Loading organization…</p>
+        <p className="mt-8 text-center text-sm text-app-ink-3">Loading organization…</p>
       ) : isError ? (
-        <p className="mt-8 text-center text-sm text-red-400">
+        <p className="mt-8 text-center text-sm text-red-600">
           {error?.message ?? 'Could not load departments'}
         </p>
       ) : depts.length === 0 ? (
-        <p className="mt-8 text-center text-sm text-zinc-500">
+        <p className="mt-8 text-center text-sm text-app-ink-3">
           No departments yet — add one from the Departments tab.
         </p>
       ) : (
@@ -93,13 +93,13 @@ export function OrgOverview() {
               return (
                 <div
                   key={dept.id}
-                  className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-4 transition-colors hover:border-white/[0.14]"
+                  className="rounded-xl border border-app-border bg-app-surface p-4 transition-colors hover:border-app-border-strong"
                 >
                   <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-violet/15">
-                    <Icon className="h-4 w-4 text-violet-secondary" />
+                    <Icon className="h-4 w-4 text-violet" />
                   </div>
-                  <p className="font-bold text-white">{dept.name}</p>
-                  <p className="text-xs text-zinc-500">
+                  <p className="font-bold text-app-ink">{dept.name}</p>
+                  <p className="text-xs text-app-ink-3">
                     {count === 0 ? 'No teams' : count === 1 ? '1 team' : `${count} teams`}
                   </p>
                 </div>

@@ -25,13 +25,13 @@ export function SearchPanel() {
   const results = search.data;
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5 transition-colors hover:border-white/[0.14]">
-      <h2 className="mb-3 text-sm font-medium text-zinc-400">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5 transition-colors hover:border-app-border-strong">
+      <h2 className="mb-3 text-sm font-medium text-app-ink-2">
         Search knowledge base
       </h2>
       <form onSubmit={onSubmit} className="flex gap-2" noValidate>
         <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-app-ink-3" />
           <input
             type="text"
             placeholder="Ask a question…"
@@ -45,10 +45,10 @@ export function SearchPanel() {
         </Button>
       </form>
       {errors.query && (
-        <p className="mt-1 text-sm text-red-400">{errors.query.message}</p>
+        <p className="mt-1 text-sm text-red-600">{errors.query.message}</p>
       )}
       {search.isError && (
-        <p className="mt-2 text-sm text-red-400">
+        <p className="mt-2 text-sm text-red-600">
           {search.error?.message ?? 'Search failed'}
         </p>
       )}
@@ -56,22 +56,22 @@ export function SearchPanel() {
       {results && (
         <div className="mt-4 space-y-3">
           {results.length === 0 ? (
-            <p className="text-sm text-zinc-500">No matches found.</p>
+            <p className="text-sm text-app-ink-3">No matches found.</p>
           ) : (
             results.map((r) => (
               <div
                 key={r.chunkId}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+                className="rounded-xl border border-app-border bg-app-surface p-3"
               >
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-xs font-medium text-zinc-500">
+                  <span className="text-xs font-medium text-app-ink-3">
                     doc {r.documentId.slice(0, 8)}
                   </span>
-                  <span className="text-xs font-medium text-violet-secondary">
+                  <span className="text-xs font-medium text-violet">
                     {(r.score * 100).toFixed(1)}%
                   </span>
                 </div>
-                <p className="text-sm text-zinc-300">{r.content}</p>
+                <p className="text-sm text-app-ink-2">{r.content}</p>
               </div>
             ))
           )}

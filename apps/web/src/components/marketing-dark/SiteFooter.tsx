@@ -52,10 +52,10 @@ export function SiteFooter() {
               <OrlixaMark size={32} />
               <span className="flex flex-col leading-none">
                 <span className="text-base font-extrabold tracking-tight text-white">Orlixa</span>
-                <span className="text-[10px] font-medium tracking-wide text-zinc-500">AI Workforce Platform</span>
+                <span className="text-[10px] font-medium tracking-wide text-fg-muted">AI Workforce Platform</span>
               </span>
             </div>
-            <p className="mt-5 text-xs text-zinc-600">© 2026 Orlixa. All rights reserved.</p>
+            <p className="mt-5 text-xs text-fg-subtle">© 2026 Orlixa. All rights reserved.</p>
           </div>
 
           {/* link columns */}
@@ -84,7 +84,7 @@ export function SiteFooter() {
                 required
                 placeholder="Enter your email"
                 aria-label="Email address"
-                className="min-w-0 flex-1 rounded-lg border border-white/[0.1] bg-void-card px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-500 focus:border-violet/50"
+                className="min-w-0 flex-1 rounded-lg border border-white/[0.1] bg-void-card px-3.5 py-2.5 text-sm text-white placeholder:text-fg-muted focus:border-violet/50"
               />
               <button
                 type="submit"

@@ -303,7 +303,7 @@ async function buildResult(
     return {
       nodeId: row.nodeId,
       name: nameOf.get(row.nodeId) ?? row.nodeId,
-      status: row.status as AssistTestStep['status'],
+      status: stepStatusFor(row.status),
       ms:
         row.finishedAt && row.startedAt
           ? row.finishedAt.getTime() - row.startedAt.getTime()
@@ -325,6 +325,36 @@ async function buildResult(
     steps,
     headline: headlineFor(status, steps),
   };
+}
+
+/**
+ * `StepRunStatus` has eight members; `AssistTestStep['status']` has five. This
+ * used to be a bare `as` cast, which is not a conversion — it just told the
+ * compiler to stop asking. A step in any of the three unlisted states reached
+ * the browser as a string the UI had no icon for, and rendering `undefined` as
+ * a component took the whole assist workspace down with "Element type is
+ * invalid". An approval gate leaves its step `WAITING`, so this was on the
+ * happy path of the feature the panel exists to explain.
+ */
+function stepStatusFor(status: string): AssistTestStep['status'] {
+  switch (status) {
+    case 'COMPLETED':
+    case 'FAILED':
+    case 'SKIPPED':
+    case 'WAITING':
+      return status;
+    // Still in flight from the reader's point of view — the distinction between
+    // "not picked up yet" and "on its second attempt" is engine detail.
+    case 'PENDING':
+    case 'RUNNING':
+    case 'RETRYING':
+      return 'RUNNING';
+    // The step ran and was then rolled back, so its effect did not stand.
+    case 'COMPENSATED':
+      return 'SKIPPED';
+    default:
+      return 'RUNNING';
+  }
 }
 
 function normaliseStatus(status: string): AssistTestResult['status'] {

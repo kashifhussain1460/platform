@@ -30,13 +30,13 @@ export function WorkflowForm() {
   });
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5">
-      <h2 className="mb-3 text-sm font-medium text-zinc-400">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-3 text-sm font-medium text-app-ink-2">
         Create a workflow
       </h2>
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <div>
-          <label htmlFor="name" className="mb-1 block text-sm font-medium text-zinc-300">
+          <label htmlFor="name" className="mb-1 block text-sm font-medium text-app-ink-2">
             Name
           </label>
           <input
@@ -46,16 +46,16 @@ export function WorkflowForm() {
             {...register('name')}
           />
           {errors.name && (
-            <p className="mt-1 text-sm text-red-400">{errors.name.message}</p>
+            <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
           )}
         </div>
 
         <div>
           <label
             htmlFor="description"
-            className="mb-1 block text-sm font-medium text-zinc-300"
+            className="mb-1 block text-sm font-medium text-app-ink-2"
           >
-            Description <span className="text-zinc-500">(optional)</span>
+            Description <span className="text-app-ink-3">(optional)</span>
           </label>
           <textarea
             id="description"
@@ -65,14 +65,14 @@ export function WorkflowForm() {
             {...register('description')}
           />
           {errors.description && (
-            <p className="mt-1 text-sm text-red-400">
+            <p className="mt-1 text-sm text-red-600">
               {errors.description.message}
             </p>
           )}
         </div>
 
         {create.isError && (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-red-600">
             {create.error?.message ?? 'Could not create workflow'}
           </p>
         )}

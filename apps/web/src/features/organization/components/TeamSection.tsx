@@ -20,10 +20,10 @@ import {
 } from '../schemas';
 
 const secondaryBtnClass =
-  'rounded-lg border border-white/[0.12] bg-white/[0.03] px-3.5 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50';
+  'rounded-lg border border-app-border-strong bg-app-surface px-3.5 py-1.5 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 const dangerBtnClass =
-  'rounded-lg border border-white/[0.12] bg-white/[0.03] px-3.5 py-1.5 text-sm font-medium text-red-400 transition-colors hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50';
-const labelClass = 'mb-1 block text-sm font-medium text-zinc-300';
+  'rounded-lg border border-app-border-strong bg-app-surface px-3.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50';
+const labelClass = 'mb-1 block text-sm font-medium text-app-ink-2';
 
 /** '' (no selection) → null so the nullable schema/API accept "no department". */
 const toDeptId = (v: unknown): string | null =>
@@ -102,9 +102,9 @@ function TeamRow({
   return (
     <li className="flex items-center justify-between gap-3 px-4 py-3">
       <div>
-        <div className="font-medium text-white">{team.name}</div>
-        <div className="text-xs text-zinc-500">
-          {deptName ? deptName : <span className="text-zinc-600">No department</span>}
+        <div className="font-medium text-app-ink">{team.name}</div>
+        <div className="text-xs text-app-ink-3">
+          {deptName ? deptName : <span className="text-app-ink-3">No department</span>}
         </div>
       </div>
       {canManage && (
@@ -162,8 +162,8 @@ export function TeamSection() {
   const rows = teams ?? [];
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
-      <h2 className="mb-4 text-sm font-medium text-zinc-400">Teams</h2>
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-4 text-sm font-medium text-app-ink-2">Teams</h2>
 
       {canManage && (
         <form onSubmit={onSubmit} className="mb-4 space-y-3" noValidate>
@@ -179,12 +179,12 @@ export function TeamSection() {
                 {...register('name')}
               />
               {errors.name && (
-                <p className="mt-1 text-sm text-red-400">{errors.name.message}</p>
+                <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
               )}
             </div>
             <div>
               <label htmlFor="team-dept" className={labelClass}>
-                Department <span className="text-zinc-500">(optional)</span>
+                Department <span className="text-app-ink-3">(optional)</span>
               </label>
               <select
                 id="team-dept"
@@ -201,7 +201,7 @@ export function TeamSection() {
             </div>
           </div>
           {create.isError && (
-            <p className="text-sm text-red-400">
+            <p className="text-sm text-red-600">
               {create.error?.message ?? 'Could not add team'}
             </p>
           )}
@@ -212,15 +212,15 @@ export function TeamSection() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading teams…</p>
+        <p className="text-sm text-app-ink-3">Loading teams…</p>
       ) : isError ? (
-        <p className="text-sm text-red-400">
+        <p className="text-sm text-red-600">
           {error?.message ?? 'Could not load teams'}
         </p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-zinc-500">No teams yet.</p>
+        <p className="text-sm text-app-ink-3">No teams yet.</p>
       ) : (
-        <ul className="divide-y divide-white/[0.06] rounded-xl border border-white/[0.07]">
+        <ul className="divide-y divide-app-border rounded-xl border border-app-border">
           {rows.map((t) => (
             <TeamRow key={t.id} team={t} departments={depts} canManage={canManage} />
           ))}

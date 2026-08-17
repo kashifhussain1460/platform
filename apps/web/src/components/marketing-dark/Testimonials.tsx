@@ -67,7 +67,7 @@ export function Testimonials() {
                 </span>
                 <div>
                   <p className="text-sm font-semibold text-white">{t.name}</p>
-                  <p className="text-xs text-zinc-500">{t.title}</p>
+                  <p className="text-xs text-fg-muted">{t.title}</p>
                 </div>
               </div>
             </div>

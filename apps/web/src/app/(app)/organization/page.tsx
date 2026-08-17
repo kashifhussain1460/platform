@@ -43,8 +43,8 @@ export default function OrganizationPage() {
   return (
     <AppShell {...shellProps}>
       <div className="mb-8 pt-2">
-        <h1 className="text-2xl font-bold text-white">Organization</h1>
-        <p className="mt-1 text-sm text-zinc-400">
+        <h1 className="text-2xl font-bold text-app-ink">Organization</h1>
+        <p className="mt-1 text-sm text-app-ink-2">
           Departments, teams and security policy.
           {!canManage && ' You have read-only access.'}
         </p>
@@ -59,7 +59,7 @@ export default function OrganizationPage() {
             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               tab === t.key
                 ? 'bg-violet text-white'
-                : 'border border-white/[0.1] text-zinc-400 hover:text-white'
+                : 'border border-app-border text-app-ink-2 hover:text-app-ink'
             }`}
           >
             {t.label}

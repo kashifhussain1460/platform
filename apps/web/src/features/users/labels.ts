@@ -9,9 +9,9 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 /** Tailwind badge classes per role (dark theme, soft-fill pill). */
 export const ROLE_BADGE: Record<Role, string> = {
-  OWNER: 'bg-violet/15 text-violet-secondary',
-  ADMIN: 'bg-blue-500/15 text-blue-400',
-  MEMBER: 'bg-white/[0.06] text-zinc-400',
+  OWNER: 'bg-violet/15 text-violet',
+  ADMIN: 'bg-blue-500/15 text-blue-800',
+  MEMBER: 'bg-app-raised text-app-ink-2',
 };
 
 /** Human label for an account status. */
@@ -22,6 +22,6 @@ export const STATUS_LABEL: Record<UserStatus, string> = {
 
 /** Tailwind badge classes per status (dark theme, outlined pill). */
 export const STATUS_BADGE: Record<UserStatus, string> = {
-  ACTIVE: 'border border-green-500/40 text-green-400',
-  DISABLED: 'border border-white/20 text-zinc-500',
+  ACTIVE: 'border border-green-500/40 text-green-700',
+  DISABLED: 'border border-app-border text-app-ink-3',
 };

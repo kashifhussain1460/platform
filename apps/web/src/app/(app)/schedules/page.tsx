@@ -36,8 +36,8 @@ export default function SchedulesPage() {
   return (
     <AppShell {...shellProps}>
       <div className="mb-6 pt-2">
-        <h1 className="text-2xl font-bold text-white">Schedules</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="text-2xl font-bold text-app-ink">Schedules</h1>
+        <p className="mt-1 text-sm text-app-ink-3">
           Workflows that start on their own.
           {rows.length > 0 &&
             ` ${activeCount} of ${rows.length} ${activeCount === 1 ? 'is' : 'are'} switched on.`}

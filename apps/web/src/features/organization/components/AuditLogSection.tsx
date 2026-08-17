@@ -14,16 +14,16 @@ function AuditLogRow({ entry }: { entry: AuditLogDto }) {
   return (
     <li className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-white">
+        <p className="text-sm font-medium text-app-ink">
           {entry.actorName ?? 'Unknown user'}{' '}
-          <span className="font-normal text-zinc-400">{entry.action}</span>
+          <span className="font-normal text-app-ink-2">{entry.action}</span>
         </p>
-        <p className="truncate text-xs text-zinc-500">
+        <p className="truncate text-xs text-app-ink-3">
           {entry.entityType}
           {entry.entityId ? ` · ${entry.entityId}` : ''}
         </p>
       </div>
-      <span className="shrink-0 text-xs text-zinc-500">
+      <span className="shrink-0 text-xs text-app-ink-3">
         {formatWhen(entry.createdAt)}
       </span>
     </li>
@@ -42,16 +42,16 @@ export function AuditLogSection() {
 
   if (isLoading) {
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-        <p className="text-sm text-zinc-500">Loading audit log…</p>
+      <div className="rounded-2xl border border-app-border bg-app-surface p-6">
+        <p className="text-sm text-app-ink-3">Loading audit log…</p>
       </div>
     );
   }
 
   if (isError) {
     return (
-      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-        <p className="text-sm text-red-400">Could not load the audit log.</p>
+      <div className="rounded-2xl border border-app-border bg-app-surface p-6">
+        <p className="text-sm text-red-600">Could not load the audit log.</p>
       </div>
     );
   }
@@ -59,20 +59,20 @@ export function AuditLogSection() {
   const entries = data ?? [];
 
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-      <div className="border-b border-white/[0.06] px-5 py-4">
-        <h2 className="text-sm font-medium text-white">Audit Log</h2>
-        <p className="mt-1 text-xs text-zinc-500">
+    <div className="rounded-2xl border border-app-border bg-app-surface">
+      <div className="border-b border-app-border px-5 py-4">
+        <h2 className="text-sm font-medium text-app-ink">Audit Log</h2>
+        <p className="mt-1 text-xs text-app-ink-3">
           Who changed what — role changes, workflow edits, skill installs, and
           security policy updates.
         </p>
       </div>
       {entries.length === 0 ? (
-        <p className="px-5 py-6 text-sm text-zinc-500">
+        <p className="px-5 py-6 text-sm text-app-ink-3">
           No activity recorded yet.
         </p>
       ) : (
-        <ul className="divide-y divide-white/[0.06]">
+        <ul className="divide-y divide-app-border">
           {entries.map((entry) => (
             <AuditLogRow key={entry.id} entry={entry} />
           ))}

@@ -39,14 +39,14 @@ export default function NewWorkflowPage() {
     <AppShell {...shellProps}>
       <div className="mb-6 flex items-center justify-between gap-4 pt-2">
         <div>
-          <h1 className="text-2xl font-bold text-white">Create a workflow</h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <h1 className="text-2xl font-bold text-app-ink">Create a workflow</h1>
+          <p className="mt-1 text-sm text-app-ink-3">
             How do you want to build it?
           </p>
         </div>
         <Link
           href="/workflows"
-          className="text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+          className="text-sm font-medium text-app-ink-2 transition-colors hover:text-app-ink"
         >
           ← Workflows
         </Link>
@@ -55,7 +55,7 @@ export default function NewWorkflowPage() {
       {canCreate ? (
         <CreateWorkflowChooser />
       ) : (
-        <p className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-4 text-sm text-zinc-400">
+        <p className="rounded-2xl border border-app-border bg-app-surface px-5 py-4 text-sm text-app-ink-2">
           Only owners and admins can create workflows. Ask one of them to set
           this up, or to give you admin access.
         </p>

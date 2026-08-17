@@ -98,25 +98,25 @@ export const NODE_ICONS: Record<NodeType, ElementType<{ className?: string }>> =
 
 /** Icon badge tone (bg + text) per node type. */
 export const NODE_TONES: Record<NodeType, string> = {
-  TRIGGER: 'bg-violet/20 text-violet-secondary',
-  RETRIEVE: 'bg-sky-500/15 text-sky-400',
-  AI_STEP: 'bg-violet/20 text-violet-secondary',
-  TOOL_ACTION: 'bg-violet/20 text-violet-secondary',
-  WAIT: 'bg-white/[0.06] text-zinc-400',
-  CONDITION: 'bg-amber-500/15 text-amber-400',
-  NOTIFY: 'bg-emerald-500/15 text-emerald-400',
-  APPROVAL: 'bg-violet/20 text-violet-secondary',
-  AI_EMPLOYEE_STEP: 'bg-violet/20 text-violet-secondary',
-  SWITCH: 'bg-amber-500/15 text-amber-400',
-  PARALLEL: 'bg-amber-500/15 text-amber-400',
-  JOIN: 'bg-amber-500/15 text-amber-400',
-  LOOP: 'bg-amber-500/15 text-amber-400',
-  TERMINATE: 'bg-red-500/15 text-red-400',
-  SET_VARIABLE: 'bg-sky-500/15 text-sky-400',
-  TRANSFORM: 'bg-sky-500/15 text-sky-400',
-  MEMORY_READ: 'bg-violet/20 text-violet-secondary',
-  MEMORY_WRITE: 'bg-violet/20 text-violet-secondary',
-  NOOP: 'bg-white/[0.06] text-zinc-400',
+  TRIGGER: 'bg-violet/20 text-violet',
+  RETRIEVE: 'bg-sky-500/15 text-sky-800',
+  AI_STEP: 'bg-violet/20 text-violet',
+  TOOL_ACTION: 'bg-violet/20 text-violet',
+  WAIT: 'bg-app-raised text-app-ink-2',
+  CONDITION: 'bg-amber-500/15 text-amber-800',
+  NOTIFY: 'bg-emerald-500/15 text-emerald-800',
+  APPROVAL: 'bg-violet/20 text-violet',
+  AI_EMPLOYEE_STEP: 'bg-violet/20 text-violet',
+  SWITCH: 'bg-amber-500/15 text-amber-800',
+  PARALLEL: 'bg-amber-500/15 text-amber-800',
+  JOIN: 'bg-amber-500/15 text-amber-800',
+  LOOP: 'bg-amber-500/15 text-amber-800',
+  TERMINATE: 'bg-red-500/15 text-red-600',
+  SET_VARIABLE: 'bg-sky-500/15 text-sky-800',
+  TRANSFORM: 'bg-sky-500/15 text-sky-800',
+  MEMORY_READ: 'bg-violet/20 text-violet',
+  MEMORY_WRITE: 'bg-violet/20 text-violet',
+  NOOP: 'bg-app-raised text-app-ink-2',
 };
 
 /** Human label per trigger type (workflow list meta line). */
@@ -129,37 +129,37 @@ export const TRIGGER_TYPE_LABELS: Record<TriggerType, string> = {
 
 /** Tailwind badge classes for a workflow status. */
 export const WORKFLOW_STATUS_STYLES: Record<WorkflowStatus, string> = {
-  DRAFT: 'bg-white/[0.06] text-zinc-400',
-  ACTIVE: 'bg-green-500/15 text-green-400',
-  PAUSED: 'bg-amber-500/15 text-amber-400',
+  DRAFT: 'bg-app-raised text-app-ink-2',
+  ACTIVE: 'bg-green-500/15 text-green-800',
+  PAUSED: 'bg-amber-500/15 text-amber-800',
   // Soft-deleted (G29): retained and readable, but no longer runnable.
-  ARCHIVED: 'bg-white/[0.04] text-zinc-500',
+  ARCHIVED: 'bg-app-raised text-app-ink-3',
 };
 
 /** Tailwind badge classes for a run status. */
 export const RUN_STATUS_STYLES: Record<WorkflowRunStatus, string> = {
-  PENDING: 'bg-white/[0.06] text-zinc-400',
-  RUNNING: 'bg-blue-500/15 text-blue-400',
-  WAITING: 'bg-amber-500/15 text-amber-400',
-  COMPLETED: 'bg-green-500/15 text-green-400',
-  FAILED: 'bg-red-500/15 text-red-400',
+  PENDING: 'bg-app-raised text-app-ink-2',
+  RUNNING: 'bg-blue-500/15 text-blue-800',
+  WAITING: 'bg-amber-500/15 text-amber-800',
+  COMPLETED: 'bg-green-500/15 text-green-800',
+  FAILED: 'bg-red-500/15 text-red-600',
   // P1 durable state machine states.
-  CANCELLED: 'bg-white/[0.06] text-zinc-400',
-  COMPENSATING: 'bg-orange-500/15 text-orange-400',
+  CANCELLED: 'bg-app-raised text-app-ink-2',
+  COMPENSATING: 'bg-orange-500/15 text-orange-800',
   TIMED_OUT: 'bg-red-500/10 text-red-300',
 };
 
 /** Tailwind badge classes for a step-run status. */
 export const STEP_STATUS_STYLES: Record<StepRunStatus, string> = {
-  PENDING: 'bg-white/[0.06] text-zinc-400',
-  RUNNING: 'bg-blue-500/15 text-blue-400',
-  COMPLETED: 'bg-green-500/15 text-green-400',
-  FAILED: 'bg-red-500/15 text-red-400',
-  SKIPPED: 'bg-white/[0.05] text-zinc-500',
+  PENDING: 'bg-app-raised text-app-ink-2',
+  RUNNING: 'bg-blue-500/15 text-blue-800',
+  COMPLETED: 'bg-green-500/15 text-green-800',
+  FAILED: 'bg-red-500/15 text-red-600',
+  SKIPPED: 'bg-app-raised text-app-ink-3',
   // P1 durable state machine states.
-  RETRYING: 'bg-amber-500/15 text-amber-400',
-  WAITING: 'bg-amber-500/15 text-amber-400',
-  COMPENSATED: 'bg-orange-500/10 text-orange-300',
+  RETRYING: 'bg-amber-500/15 text-amber-800',
+  WAITING: 'bg-amber-500/15 text-amber-800',
+  COMPENSATED: 'bg-orange-500/10 text-orange-800',
 };
 
 /** Sensible default `config` for a freshly added node of each type. */

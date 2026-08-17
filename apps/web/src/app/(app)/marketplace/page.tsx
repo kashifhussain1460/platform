@@ -29,25 +29,25 @@ export default function MarketplacePage() {
   return (
     <AppShell {...shellProps}>
       <header className="mb-8 pt-2">
-        <p className="text-sm text-zinc-500">Expand</p>
-        <h1 className="text-2xl font-bold text-white">Marketplace</h1>
+        <p className="text-sm text-app-ink-3">Expand</p>
+        <h1 className="text-2xl font-bold text-app-ink">Marketplace</h1>
       </header>
 
       <div className="space-y-10">
         <section>
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">AI Employees</h2>
+          <h2 className="mb-3 text-sm font-medium text-app-ink-2">AI Employees</h2>
           <EmployeeTemplateList />
         </section>
 
         <section>
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">
+          <h2 className="mb-3 text-sm font-medium text-app-ink-2">
             Workflow Templates
           </h2>
           <WorkflowTemplateList />
         </section>
 
         <section>
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">Skills</h2>
+          <h2 className="mb-3 text-sm font-medium text-app-ink-2">Skills</h2>
           <SkillCatalog />
         </section>
       </div>

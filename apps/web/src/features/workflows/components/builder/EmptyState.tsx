@@ -36,13 +36,13 @@ export function EmptyState({
       ].join(' ')}
     >
       {icon ? (
-        <div className="text-wf-ink-3" aria-hidden="true">
+        <div className="text-app-ink-3" aria-hidden="true">
           {icon}
         </div>
       ) : null}
-      <p className="font-display text-base font-semibold text-wf-ink">{title}</p>
+      <p className="font-display text-base font-semibold text-app-ink">{title}</p>
       {body ? (
-        <p className="max-w-prose text-sm text-wf-ink-2">{body}</p>
+        <p className="max-w-prose text-sm text-app-ink-2">{body}</p>
       ) : null}
       {action ? <div className="mt-1">{action}</div> : null}
     </div>

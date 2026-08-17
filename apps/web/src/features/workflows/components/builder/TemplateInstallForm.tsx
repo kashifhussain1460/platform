@@ -72,18 +72,18 @@ export function TemplateInstallForm({
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <p className="font-display text-lg font-semibold text-wf-ink">{template.name}</p>
+        <p className="font-display text-lg font-semibold text-app-ink">{template.name}</p>
         {template.description ? (
-          <p className="mt-1 text-sm text-wf-ink-2">{template.description}</p>
+          <p className="mt-1 text-sm text-app-ink-2">{template.description}</p>
         ) : null}
       </div>
 
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-wf-ink">Workflow name</span>
+        <span className="text-sm font-medium text-app-ink">Workflow name</span>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="rounded-lg border border-wf-hairline bg-void-card px-3 py-2 text-sm text-wf-ink outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
+          className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
         />
       </label>
 
@@ -98,7 +98,7 @@ export function TemplateInstallForm({
       ))}
 
       {install.isError ? (
-        <p className="rounded-lg border border-status-failed/40 bg-status-failed/10 px-3 py-2 text-sm text-status-failed">
+        <p className="rounded-lg border border-status-failed/40 bg-status-failed/10 px-3 py-2 text-sm text-sl-failed">
           {install.error.status === 422
             ? install.error.message
             : `Couldn't install this template. ${install.error.message}`}
@@ -134,16 +134,16 @@ function ParameterField({
   onChange: (v: unknown) => void;
 }) {
   const label = (
-    <span className="text-sm font-medium text-wf-ink">
+    <span className="text-sm font-medium text-app-ink">
       {param.label}
-      {param.required ? <span className="text-status-failed"> *</span> : null}
+      {param.required ? <span className="text-sl-failed"> *</span> : null}
     </span>
   );
   const help = param.help ? (
-    <span className="text-xs text-wf-ink-3">{param.help}</span>
+    <span className="text-xs text-app-ink-3">{param.help}</span>
   ) : null;
   const inputCls =
-    'rounded-lg border border-wf-hairline bg-void-card px-3 py-2 text-sm text-wf-ink outline-none focus-visible:ring-2 focus-visible:ring-wf-focus';
+    'rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-ink outline-none focus-visible:ring-2 focus-visible:ring-wf-focus';
 
   if (param.binds === 'employee') {
     return (
@@ -158,7 +158,7 @@ function ParameterField({
           ))}
         </select>
         {employees.length === 0 ? (
-          <span className="text-xs text-status-waiting">
+          <span className="text-xs text-sl-waiting">
             No eligible AI Employees yet — hire one for this role first.
           </span>
         ) : (

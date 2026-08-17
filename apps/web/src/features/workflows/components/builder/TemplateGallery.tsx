@@ -32,7 +32,7 @@ export function TemplateGallery() {
     return (
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-28 animate-pulse rounded-xl border border-wf-hairline bg-void-card" />
+          <div key={i} className="h-28 animate-pulse rounded-xl border border-app-border bg-app-surface" />
         ))}
       </div>
     );
@@ -63,7 +63,7 @@ export function TemplateGallery() {
       <div className="flex flex-col gap-6">
         {grouped.map(([category, templates]) => (
           <section key={category}>
-            <h2 className="mb-2 font-display text-xs font-semibold uppercase tracking-wider text-wf-ink-3">
+            <h2 className="mb-2 font-display text-xs font-semibold uppercase tracking-wider text-app-ink-3">
               {category}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -81,7 +81,7 @@ export function TemplateGallery() {
       </div>
 
       <aside className="lg:sticky lg:top-4 lg:h-fit">
-        <div className="rounded-xl border border-wf-hairline bg-void-section p-5">
+        <div className="rounded-xl border border-app-border bg-app-raised p-5">
           {selected ? (
             <TemplateInstallForm
               key={selected.id}
@@ -119,12 +119,12 @@ function TemplateCard({
         'flex flex-col gap-1.5 rounded-xl border p-4 text-left transition-colors',
         selected
           ? 'border-violet-secondary bg-violet/10'
-          : 'border-wf-hairline bg-void-card hover:border-wf-hairline-hover hover:bg-void-card-hover',
+          : 'border-app-border bg-app-surface hover:border-app-border-strong hover:bg-app-raised',
       ].join(' ')}
     >
-      <span className="font-display text-sm font-semibold text-wf-ink">{template.name}</span>
+      <span className="font-display text-sm font-semibold text-app-ink">{template.name}</span>
       {template.description ? (
-        <span className="line-clamp-2 text-xs text-wf-ink-2">{template.description}</span>
+        <span className="line-clamp-2 text-xs text-app-ink-2">{template.description}</span>
       ) : null}
       <span className="mt-1 flex flex-wrap gap-1.5">
         {template.requires.employeeRoles.map((r) => (
@@ -148,9 +148,9 @@ function TemplateCard({
 // Static, literal class strings so Tailwind's JIT actually generates them
 // (runtime-built `border-${tone}` names get purged and render colourless).
 const CHIP_TONES: Record<string, string> = {
-  'cat-employee': 'border-cat-employee/40 bg-cat-employee/10 text-cat-employee',
-  'cat-tool': 'border-cat-tool/40 bg-cat-tool/10 text-cat-tool',
-  'cat-approval': 'border-cat-approval/40 bg-cat-approval/10 text-cat-approval',
+  'cat-employee': 'border-cat-employee/40 bg-cat-employee/10 text-violet',
+  'cat-tool': 'border-cat-tool/40 bg-cat-tool/10 text-teal-700',
+  'cat-approval': 'border-cat-approval/40 bg-cat-approval/10 text-sl-waiting',
 };
 
 function Chip({

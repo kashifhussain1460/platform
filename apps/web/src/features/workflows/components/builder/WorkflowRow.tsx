@@ -38,22 +38,22 @@ const STATUS_META: Record<WorkflowStatus, StatusMeta> = {
   DRAFT: {
     label: 'Draft',
     icon: Pencil,
-    cls: 'border-wf-hairline bg-white/[0.04] text-wf-ink-2',
+    cls: 'border-app-border bg-app-raised text-app-ink-2',
   },
   ACTIVE: {
     label: 'Active',
     icon: CircleDot,
-    cls: 'border-status-succeeded/30 bg-status-succeeded/10 text-status-succeeded',
+    cls: 'border-status-succeeded/30 bg-status-succeeded/10 text-sl-succeeded',
   },
   PAUSED: {
     label: 'Paused',
     icon: PauseCircle,
-    cls: 'border-status-waiting/30 bg-status-waiting/10 text-status-waiting',
+    cls: 'border-status-waiting/30 bg-status-waiting/10 text-sl-waiting',
   },
   ARCHIVED: {
     label: 'Archived',
     icon: Archive,
-    cls: 'border-white/[0.06] bg-white/[0.03] text-wf-ink-3',
+    cls: 'border-app-border bg-app-surface text-app-ink-3',
   },
 };
 
@@ -90,7 +90,7 @@ function EmployeeStack({
 }) {
   if (employees.length === 0) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-wf-ink-3">
+      <span className="inline-flex items-center gap-1.5 text-xs text-app-ink-3">
         <UserRound className="h-3.5 w-3.5" aria-hidden />
         {needsEmployee ? 'Needs an employee' : 'Automated'}
       </span>
@@ -118,15 +118,15 @@ function EmployeeStack({
             'flex h-7 w-7 items-center justify-center rounded-full border-2 border-void-section text-[10px] font-semibold',
             i > 0 ? '-ml-2' : '',
             e.unresolved
-              ? 'bg-white/[0.05] text-wf-ink-3'
-              : 'bg-cat-employee/20 text-cat-employee',
+              ? 'bg-app-raised text-app-ink-3'
+              : 'bg-cat-employee/20 text-violet',
           ].join(' ')}
         >
           {e.unresolved ? '?' : initials(e.name)}
         </span>
       ))}
       {overflow > 0 && (
-        <span className="-ml-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-void-section bg-white/[0.06] text-[10px] font-semibold text-wf-ink-2">
+        <span className="-ml-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-void-section bg-app-raised text-[10px] font-semibold text-app-ink-2">
           +{overflow}
         </span>
       )}
@@ -181,7 +181,7 @@ function RowMenu({ label, items }: { label: string; items: MenuItem[] }) {
         aria-expanded={open}
         aria-label={label}
         onClick={() => setOpen((o) => !o)}
-        className="rounded-lg p-1.5 text-wf-ink-3 transition-colors hover:bg-white/[0.06] hover:text-wf-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
+        className="rounded-lg p-1.5 text-app-ink-3 transition-colors hover:bg-app-raised hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
       >
         <MoreHorizontal className="h-4 w-4" />
       </button>
@@ -197,7 +197,7 @@ function RowMenu({ label, items }: { label: string; items: MenuItem[] }) {
               close();
             }
           }}
-          className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-xl border border-wf-hairline bg-void-card p-1 shadow-xl shadow-black/40"
+          className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-xl border border-app-border bg-app-surface p-1 shadow-xl shadow-black/10"
         >
           {items.map((item) => {
             const Icon = item.icon;
@@ -218,10 +218,10 @@ function RowMenu({ label, items }: { label: string; items: MenuItem[] }) {
                   'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus',
                   item.disabled
-                    ? 'cursor-not-allowed text-wf-ink-3 opacity-60'
+                    ? 'cursor-not-allowed text-app-ink-3 opacity-60'
                     : item.danger
-                      ? 'text-status-failed hover:bg-status-failed/10'
-                      : 'text-wf-ink hover:bg-white/[0.06]',
+                      ? 'text-sl-failed hover:bg-status-failed/10'
+                      : 'text-app-ink hover:bg-app-raised',
                 ].join(' ')}
               >
                 <Icon className="h-4 w-4 shrink-0" aria-hidden />
@@ -349,8 +349,8 @@ export function WorkflowRow({
       }}
       className={[
         ROW_GRID,
-        'relative flex flex-col gap-3 rounded-2xl border border-wf-hairline bg-void-card p-4 transition-colors',
-        isTemp ? 'opacity-60' : 'cursor-pointer hover:border-wf-hairline-hover hover:bg-void-card-hover',
+        'relative flex flex-col gap-3 rounded-2xl border border-app-border bg-app-surface p-4 transition-colors',
+        isTemp ? 'opacity-60' : 'cursor-pointer hover:border-app-border-strong hover:bg-app-raised',
         isBusy ? 'opacity-70' : '',
       ].join(' ')}
     >
@@ -362,15 +362,15 @@ export function WorkflowRow({
             href={`/workflows/${workflow.id}`}
             onClick={(e) => e.stopPropagation()}
             aria-disabled={isTemp}
-            className="block truncate font-display font-semibold text-wf-ink hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
+            className="block truncate font-display font-semibold text-app-ink hover:text-app-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wf-focus"
           >
             {workflow.name}
           </Link>
           {workflow.description ? (
-            <span className="block truncate text-xs text-wf-ink-2">{workflow.description}</span>
+            <span className="block truncate text-xs text-app-ink-2">{workflow.description}</span>
           ) : null}
           {/* Below lg the status/trigger/updated columns fold into this subtitle */}
-          <span className="mt-0.5 block text-xs text-wf-ink-3 lg:hidden">
+          <span className="mt-0.5 block text-xs text-app-ink-3 lg:hidden">
             {triggerLabel} · updated {formatRelativeTime(workflow.updatedAt)}
           </span>
         </span>
@@ -382,13 +382,13 @@ export function WorkflowRow({
       </div>
 
       {/* Cell 3 — trigger (desktop column) */}
-      <div role="cell" className="hidden items-center gap-1.5 text-sm text-wf-ink-2 lg:flex">
-        <Zap className="h-3.5 w-3.5 text-cat-trigger" aria-hidden />
+      <div role="cell" className="hidden items-center gap-1.5 text-sm text-app-ink-2 lg:flex">
+        <Zap className="h-3.5 w-3.5 text-cyan-700" aria-hidden />
         {triggerLabel}
       </div>
 
       {/* Cell 4 — updated (desktop column) */}
-      <div role="cell" className="hidden text-sm text-wf-ink-3 lg:block">
+      <div role="cell" className="hidden text-sm text-app-ink-3 lg:block">
         {formatRelativeTime(workflow.updatedAt)}
       </div>
 

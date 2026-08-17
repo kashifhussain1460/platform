@@ -8,7 +8,7 @@ import { useConnectSkill, useDisconnectSkill } from '../hooks';
 import type { InstalledSkillDto, SkillDefinitionDto } from '../schemas';
 
 const outlinePill =
-  'rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50';
+  'rounded-xl border border-app-border-strong bg-app-surface px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 
 /**
  * Connect / disconnect control for an installed skill.
@@ -51,7 +51,7 @@ export function ConnectSkillControl({
   const isTemp = installed.id.startsWith('temp_');
 
   if (type === 'none') {
-    return <span className="text-xs text-zinc-500">No connection required</span>;
+    return <span className="text-xs text-app-ink-3">No connection required</span>;
   }
 
   if (isConnected) {
@@ -79,9 +79,9 @@ export function ConnectSkillControl({
           {authorizing ? 'Redirecting…' : (def.connection?.label ?? 'Connect')}
         </button>
         {oauthError ? (
-          <span className="text-[10px] text-red-400">{oauthError}</span>
+          <span className="text-[10px] text-red-600">{oauthError}</span>
         ) : (
-          <span className="text-[10px] text-zinc-600">OAuth</span>
+          <span className="text-[10px] text-app-ink-3">OAuth</span>
         )}
       </div>
     );

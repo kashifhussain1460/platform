@@ -28,7 +28,7 @@ export function ApprovalList() {
             className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
               tab === t.key
                 ? 'bg-violet text-white'
-                : 'border border-white/[0.1] text-zinc-400 hover:text-white'
+                : 'border border-app-border text-app-ink-2 hover:text-app-ink'
             }`}
           >
             {t.key === 'PENDING' ? `Pending (${pending?.length ?? 0})` : t.label}
@@ -37,9 +37,9 @@ export function ApprovalList() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-zinc-500">Loading approvals…</p>
+        <p className="text-sm text-app-ink-3">Loading approvals…</p>
       ) : !requests || requests.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-app-ink-3">
           {tab === 'PENDING'
             ? 'No pending approvals. High-risk actions will appear here for review.'
             : tab === 'APPROVED'
@@ -47,8 +47,8 @@ export function ApprovalList() {
               : 'No rejected requests yet.'}
         </p>
       ) : (
-        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02]">
-          <ul className="divide-y divide-white/[0.06]">
+        <div className="rounded-2xl border border-app-border bg-app-surface">
+          <ul className="divide-y divide-app-border">
             {requests.map((request) => (
               <ApprovalCard key={request.id} request={request} />
             ))}

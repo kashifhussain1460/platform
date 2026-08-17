@@ -30,8 +30,8 @@ export default function EmployeesPage() {
     <AppShell {...shellProps}>
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4 pt-2">
         <div>
-          <p className="text-sm text-zinc-500">AI workforce</p>
-          <h1 className="text-2xl font-bold text-white">AI Employees</h1>
+          <p className="text-sm text-app-ink-3">AI workforce</p>
+          <h1 className="text-2xl font-bold text-app-ink">AI Employees</h1>
         </div>
         <a href="#hire-employee" className={buttonClasses('violet')}>
           <UserPlus className="h-4 w-4" />
@@ -42,7 +42,7 @@ export default function EmployeesPage() {
       <div className="space-y-8">
         <EmployeeForm />
         <div>
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">Your roster</h2>
+          <h2 className="mb-3 text-sm font-medium text-app-ink-2">Your roster</h2>
           <EmployeeList />
         </div>
       </div>

@@ -28,8 +28,8 @@ export default function BillingPage() {
   return (
     <AppShell {...shellProps}>
       <div className="mb-8 pt-2">
-        <h1 className="text-2xl font-bold text-white">Billing</h1>
-        <p className="mt-1 text-sm text-zinc-400">Manage your subscription and billing.</p>
+        <h1 className="text-2xl font-bold text-app-ink">Billing</h1>
+        <p className="mt-1 text-sm text-app-ink-2">Manage your subscription and billing.</p>
       </div>
 
       <div className="space-y-10">
@@ -43,7 +43,7 @@ export default function BillingPage() {
         </div>
 
         <section id="plans">
-          <h2 className="mb-3 text-sm font-medium text-zinc-400">Plans</h2>
+          <h2 className="mb-3 text-sm font-medium text-app-ink-2">Plans</h2>
           <PlanCatalog />
         </section>
       </div>

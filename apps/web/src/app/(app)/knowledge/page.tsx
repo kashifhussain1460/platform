@@ -30,7 +30,7 @@ export default function KnowledgePage() {
 
   return (
     <AppShell {...shellProps}>
-      <h1 className="mb-8 pt-2 text-2xl font-bold text-white">Knowledge Base</h1>
+      <h1 className="mb-8 pt-2 text-2xl font-bold text-app-ink">Knowledge Base</h1>
 
       <KnowledgeWorkspace />
     </AppShell>
@@ -55,7 +55,7 @@ function KnowledgeWorkspace() {
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <section className="order-2 lg:order-1 lg:col-span-2">
-        <h2 className="mb-3 text-sm font-medium text-zinc-400">Documents</h2>
+        <h2 className="mb-3 text-sm font-medium text-app-ink-2">Documents</h2>
         <KnowledgeDropzone choice={choice} isEmpty={isEmpty}>
           <DocumentList />
         </KnowledgeDropzone>

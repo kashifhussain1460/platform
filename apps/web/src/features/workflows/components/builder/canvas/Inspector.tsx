@@ -15,7 +15,7 @@ import { TriggerInspector } from './TriggerInspector';
 
 // Literal tone → badge classes (Tailwind JIT can't see `bg-${tone}`).
 const TONE_BADGE: Record<string, string> = {
-  'cat-employee': 'bg-cat-employee/15 text-cat-employee',
+  'cat-employee': 'bg-cat-employee/15 text-violet-bright',
   'cat-trigger': 'bg-cat-trigger/15 text-cat-trigger',
   'cat-approval': 'bg-cat-approval/15 text-cat-approval',
   'cat-tool': 'bg-cat-tool/15 text-cat-tool',

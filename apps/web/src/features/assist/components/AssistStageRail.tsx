@@ -80,17 +80,17 @@ export function deriveStages(i: AssistStageRailInput): Stage[] {
 }
 
 const DOT: Record<StageStatus, string> = {
-  upcoming: 'border-white/[0.15] text-zinc-600',
-  active: 'border-violet text-violet-secondary shadow-[0_0_12px_rgba(124,92,255,0.4)]',
-  done: 'border-status-succeeded/50 bg-status-succeeded/15 text-status-succeeded',
-  warning: 'border-status-failed/50 bg-status-failed/10 text-status-failed',
+  upcoming: 'border-app-border-strong text-app-ink-3',
+  active: 'border-violet text-violet shadow-[0_0_12px_rgba(124,92,255,0.4)]',
+  done: 'border-status-succeeded/50 bg-status-succeeded/15 text-sl-succeeded',
+  warning: 'border-status-failed/50 bg-status-failed/10 text-sl-failed',
 };
 
 const LABEL: Record<StageStatus, string> = {
-  upcoming: 'text-zinc-600',
-  active: 'text-white',
-  done: 'text-zinc-300',
-  warning: 'text-status-failed',
+  upcoming: 'text-app-ink-3',
+  active: 'text-app-ink',
+  done: 'text-app-ink-2',
+  warning: 'text-sl-failed',
 };
 
 export function AssistStageRail(props: AssistStageRailInput) {
@@ -99,7 +99,12 @@ export function AssistStageRail(props: AssistStageRailInput) {
   return (
     <nav
       aria-label="Workflow build progress"
-      className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+      /* `relative` is load-bearing, not decoration. The per-stage `sr-only`
+         labels are `position:absolute`, so without a positioned ancestor here
+         they resolve against something outside this scroll box and escape its
+         clipping — at 390px that one invisible span stretched the document to
+         571px and slid the whole page, nav and all, sideways. */
+      className="relative flex shrink-0 items-center gap-1 overflow-x-auto rounded-xl border border-app-border bg-app-surface px-3 py-2"
     >
       {stages.map((stage, idx) => (
         <div key={stage.key} className="flex items-center gap-1">
@@ -127,7 +132,7 @@ export function AssistStageRail(props: AssistStageRailInput) {
                 <span className="sr-only"> — {stage.status}</span>
               </span>
               {stage.hint ? (
-                <span className="whitespace-nowrap text-[10px] text-status-failed">
+                <span className="whitespace-nowrap text-[10px] text-sl-failed">
                   {stage.hint}
                 </span>
               ) : null}
@@ -136,7 +141,7 @@ export function AssistStageRail(props: AssistStageRailInput) {
           {idx < stages.length - 1 ? (
             <span
               className={`mx-1 h-px w-6 shrink-0 ${
-                stage.status === 'done' ? 'bg-status-succeeded/40' : 'bg-white/[0.08]'
+                stage.status === 'done' ? 'bg-status-succeeded/40' : 'bg-app-raised'
               }`}
               aria-hidden
             />
@@ -145,9 +150,9 @@ export function AssistStageRail(props: AssistStageRailInput) {
       ))}
 
       {/* Quiet live metrics — the numbers behind the stages */}
-      <div className="ml-auto flex shrink-0 items-center gap-3 pl-3 text-[11px] text-zinc-500">
+      <div className="ml-auto flex shrink-0 items-center gap-3 pl-3 text-[11px] text-app-ink-3">
         <span>{props.nodeCount} steps</span>
-        <span className={props.unresolvedCount > 0 ? 'text-status-failed' : undefined}>
+        <span className={props.unresolvedCount > 0 ? 'text-sl-failed' : undefined}>
           {props.unresolvedCount} issues
         </span>
         {props.testCount > 0 ? <span>{props.testCount} tests</span> : null}

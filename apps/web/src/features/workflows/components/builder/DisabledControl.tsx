@@ -36,7 +36,7 @@ export function DisabledControl({
         {children}
       </span>
       {inline ? (
-        <span className="text-xs text-wf-ink-3" role="note">
+        <span className="text-xs text-app-ink-3" role="note">
           {reason}
         </span>
       ) : null}

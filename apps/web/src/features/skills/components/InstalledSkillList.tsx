@@ -64,7 +64,7 @@ function ConnectorMark({ skillKey }: { skillKey: string }) {
     );
   }
   return (
-    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet-secondary">
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet/15 text-violet">
       <Icon className="h-5 w-5" />
     </span>
   );
@@ -96,10 +96,10 @@ function ActionIconButton({
       aria-label={label}
       className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         active
-          ? 'border-violet/50 bg-violet/15 text-violet-secondary'
+          ? 'border-violet/50 bg-violet/15 text-violet'
           : danger
-            ? 'border-white/[0.08] text-zinc-400 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400'
-            : 'border-white/[0.08] text-zinc-400 hover:border-white/25 hover:text-white'
+            ? 'border-app-border text-app-ink-2 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-600'
+            : 'border-app-border text-app-ink-2 hover:border-app-border-strong hover:text-app-ink'
       }`}
     >
       <Icon className={spin ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
@@ -163,16 +163,16 @@ function InstalledSkillRow({
       id={`installed-${skill.skillKey}`}
       // `scroll-mt` keeps the sticky header from covering the row on an anchor
       // jump; the ring is the "you are here" cue for the highlighted skill.
-      className={`scroll-mt-24 rounded-2xl border bg-white/[0.02] p-4 transition-colors ${
+      className={`scroll-mt-24 rounded-2xl border bg-app-surface p-4 transition-colors ${
         targeted
           ? 'border-violet/60 ring-1 ring-violet/40'
-          : 'border-white/[0.07] hover:border-white/[0.14]'
+          : 'border-app-border hover:border-app-border-strong'
       }`}
     >
       <div className="flex items-center gap-3">
         <ConnectorMark skillKey={skill.skillKey} />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-bold text-white">{skill.displayName}</p>
+          <p className="truncate font-bold text-app-ink">{skill.displayName}</p>
           <span
             className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${CONNECTION_STATUS_STYLES[skill.connectionStatus]}`}
           >
@@ -180,17 +180,17 @@ function InstalledSkillRow({
           </span>
         </div>
         {!skill.enabled && (
-          <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-zinc-500">
+          <span className="shrink-0 rounded-full bg-app-raised px-2 py-0.5 text-[10px] font-medium text-app-ink-3">
             Disabled
           </span>
         )}
       </div>
 
-      <p className="mt-3 truncate text-[11px] text-zinc-600">{skill.skillKey}</p>
+      <p className="mt-3 truncate text-xs text-app-ink-3">{skill.skillKey}</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {!def ? (
-          <span className="text-xs text-zinc-600">Unknown skill</span>
+          <span className="text-xs text-app-ink-3">Unknown skill</span>
         ) : usesWizard ? (
           // Providers Orlixa can really verify get the sequential wizard (§26)
           // instead of a single credential box: they need several fields, and
@@ -200,7 +200,7 @@ function InstalledSkillRow({
             type="button"
             onClick={() => setShowWizard((v) => !v)}
             disabled={isTemp}
-            className="rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-xl border border-app-border-strong bg-app-surface px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50"
           >
             {showWizard
               ? 'Hide setup'
@@ -268,7 +268,7 @@ function InstalledSkillRow({
           wizard is open so the same fields are never editable in two places at
           once — that is how half-saved settings happen. */}
       {showConfig && def && !showWizard && (
-        <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+        <div className="mt-4 rounded-xl border border-app-border bg-app-surface p-4">
           <ConfigureSkillForm
             installed={skill}
             def={def}
@@ -278,36 +278,36 @@ function InstalledSkillRow({
       )}
 
       {showEvents && !isTemp && (
-        <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-          <p className="mb-2 text-xs font-medium text-zinc-500">Recent Events</p>
+        <div className="mt-4 rounded-xl border border-app-border bg-app-surface p-4">
+          <p className="mb-2 text-xs font-medium text-app-ink-3">Recent Events</p>
           <RecentConnectorEvents connectorId={skill.id} />
         </div>
       )}
 
       {(health || checkHealth.isError) && (
-        <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs">
+        <div className="mt-4 rounded-xl border border-app-border bg-app-surface p-3 text-xs">
           {health ? (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-zinc-400">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-app-ink-2">
               <span>
                 Health:{' '}
-                <span className="font-medium text-zinc-200">
+                <span className="font-medium text-app-ink">
                   {formatConnectionStatus(health.status)}
                 </span>
               </span>
               <span>Consecutive errors: {health.consecutiveErrors}</span>
               {health.lastHealthError && (
-                <span className="text-red-400">
+                <span className="text-red-600">
                   Last error: {health.lastHealthError}
                 </span>
               )}
               {health.lastHealthCheckAt && (
-                <span className="text-zinc-600">
+                <span className="text-app-ink-3">
                   Checked {new Date(health.lastHealthCheckAt).toLocaleString()}
                 </span>
               )}
             </div>
           ) : (
-            <span className="text-red-400">
+            <span className="text-red-600">
               {checkHealth.error?.message ?? 'Health check failed'}
             </span>
           )}
@@ -325,12 +325,12 @@ export function InstalledSkillList() {
   const defByKey = new Map((catalog ?? []).map((d) => [d.key, d]));
 
   if (isLoading) {
-    return <p className="text-sm text-zinc-500">Loading installed skills…</p>;
+    return <p className="text-sm text-app-ink-3">Loading installed skills…</p>;
   }
 
   if (!installed || installed.length === 0) {
     return (
-      <p className="text-sm text-zinc-500">
+      <p className="text-sm text-app-ink-3">
         No skills installed yet. Install one from the catalog above.
       </p>
     );

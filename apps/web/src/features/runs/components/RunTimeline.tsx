@@ -18,7 +18,7 @@ export function RunTimeline({ run }: { run: WorkflowRunDto }) {
 
   if (steps.length === 0) {
     return (
-      <p className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-5 py-6 text-sm text-zinc-500">
+      <p className="rounded-2xl border border-app-border bg-app-surface px-5 py-6 text-sm text-app-ink-3">
         {run.status === 'PENDING'
           ? 'Queued — waiting for a worker to pick it up.'
           : 'No steps recorded for this run.'}
@@ -51,19 +51,19 @@ function TimelineStep({
     step.type === 'APPROVAL' && run.status === 'WAITING' && !step.finishedAt;
 
   return (
-    <li className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3">
+    <li className="rounded-xl border border-app-border bg-app-surface p-3">
       <div className="flex items-start gap-3">
         <StepIcon status={step.status} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-white">{label}</span>
-            <span className="font-mono text-xs text-zinc-500">{step.nodeId}</span>
+            <span className="text-sm font-medium text-app-ink">{label}</span>
+            <span className="font-mono text-xs text-app-ink-3">{step.nodeId}</span>
             {step.attempt > 1 && (
-              <span className="rounded-full bg-status-waiting/15 px-2 py-0.5 text-[10px] font-medium text-status-waiting">
+              <span className="rounded-full bg-status-waiting/15 px-2 py-0.5 text-[10px] font-medium text-sl-waiting">
                 attempt {step.attempt}
               </span>
             )}
-            <span className="ml-auto text-xs text-zinc-500">
+            <span className="ml-auto text-xs text-app-ink-3">
               {stepDuration(step)}
             </span>
           </div>
@@ -71,7 +71,7 @@ function TimelineStep({
           {awaitingPerson && (
             <Link
               href="/approvals"
-              className="mt-1 inline-flex items-center gap-1 text-sm text-status-waiting hover:underline"
+              className="mt-1 inline-flex items-center gap-1 text-sm text-sl-waiting hover:underline"
             >
               Waiting for someone to approve it
               <ChevronRight className="h-3.5 w-3.5" aria-hidden />
@@ -79,17 +79,17 @@ function TimelineStep({
           )}
 
           {step.error && (
-            <p className="mt-1 break-words text-sm text-status-failed">
+            <p className="mt-1 break-words text-sm text-sl-failed">
               {step.error}
             </p>
           )}
 
           {!step.error && step.output != null && (
             <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">
+              <summary className="cursor-pointer text-xs text-app-ink-3 hover:text-app-ink-2">
                 What it produced
               </summary>
-              <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-xs text-zinc-400">
+              <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-xs text-app-ink-2">
                 {preview(step.output)}
               </pre>
             </details>
@@ -104,31 +104,31 @@ function StepIcon({ status }: { status: string }) {
   const base = 'mt-0.5 h-4 w-4 shrink-0';
   switch (status) {
     case 'COMPLETED':
-      return <Check className={`${base} text-status-succeeded`} aria-label="Done" />;
+      return <Check className={`${base} text-sl-succeeded`} aria-label="Done" />;
     case 'FAILED':
-      return <X className={`${base} text-status-failed`} aria-label="Failed" />;
+      return <X className={`${base} text-sl-failed`} aria-label="Failed" />;
     case 'COMPENSATED':
-      return <X className={`${base} text-status-waiting`} aria-label="Rolled back" />;
+      return <X className={`${base} text-sl-waiting`} aria-label="Rolled back" />;
     case 'RUNNING':
       return (
         <Loader2
-          className={`${base} animate-spin text-violet-secondary`}
+          className={`${base} animate-spin text-violet`}
           aria-label="Running"
         />
       );
     case 'RETRYING':
       return (
         <Loader2
-          className={`${base} animate-spin text-status-waiting`}
+          className={`${base} animate-spin text-sl-waiting`}
           aria-label="Retrying"
         />
       );
     case 'WAITING':
-      return <Clock className={`${base} text-status-waiting`} aria-label="Waiting" />;
+      return <Clock className={`${base} text-sl-waiting`} aria-label="Waiting" />;
     case 'SKIPPED':
-      return <Circle className={`${base} text-zinc-600`} aria-label="Skipped" />;
+      return <Circle className={`${base} text-app-ink-3`} aria-label="Skipped" />;
     default:
-      return <Circle className={`${base} text-zinc-600`} aria-label="Pending" />;
+      return <Circle className={`${base} text-app-ink-3`} aria-label="Pending" />;
   }
 }
 

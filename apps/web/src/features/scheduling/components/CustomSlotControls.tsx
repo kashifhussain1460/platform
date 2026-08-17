@@ -11,7 +11,7 @@ import {
 } from '../schemas';
 
 const secondaryBtnClass =
-  'rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50';
+  'rounded-xl border border-app-border-strong bg-app-surface px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 
 /** Exact per-date overrides on top of the recurring pattern: add one slot, or block a date. */
 export function CustomSlotControls() {
@@ -35,20 +35,20 @@ export function CustomSlotControls() {
   });
 
   return (
-    <section className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5">
-      <h2 className="mb-3 text-sm font-medium text-zinc-400">
+    <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      <h2 className="mb-3 text-sm font-medium text-app-ink-2">
         Custom overrides
       </h2>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <form onSubmit={onAddSlot} className="space-y-2" noValidate>
-          <p className="text-sm font-medium text-zinc-300">Add one-off slot</p>
+          <p className="text-sm font-medium text-app-ink-2">Add one-off slot</p>
           <input type="datetime-local" className="field-modern" {...addForm.register('start')} />
           <input type="datetime-local" className="field-modern" {...addForm.register('end')} />
           {(addForm.formState.errors.start || addForm.formState.errors.end) && (
-            <p className="text-sm text-red-400">Start and end are required.</p>
+            <p className="text-sm text-red-600">Start and end are required.</p>
           )}
           {addSlot.isError && (
-            <p className="text-sm text-red-400">
+            <p className="text-sm text-red-600">
               {addSlot.error?.message ?? 'Could not add slot'}
             </p>
           )}
@@ -58,18 +58,18 @@ export function CustomSlotControls() {
         </form>
 
         <form onSubmit={onBlockDate} className="space-y-2" noValidate>
-          <p className="text-sm font-medium text-zinc-300">Block a date (holiday)</p>
+          <p className="text-sm font-medium text-app-ink-2">Block a date (holiday)</p>
           <input type="date" className="field-modern" {...blockForm.register('date')} />
           {blockForm.formState.errors.date && (
-            <p className="text-sm text-red-400">Date is required.</p>
+            <p className="text-sm text-red-600">Date is required.</p>
           )}
           {blockDate.isError && (
-            <p className="text-sm text-red-400">
+            <p className="text-sm text-red-600">
               {blockDate.error?.message ?? 'Could not block date'}
             </p>
           )}
           {blockDate.isSuccess && (
-            <p className="text-sm text-green-400">
+            <p className="text-sm text-green-700">
               Cancelled {blockDate.data.cancelled} open slot(s).
             </p>
           )}

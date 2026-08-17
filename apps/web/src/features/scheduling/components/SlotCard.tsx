@@ -7,7 +7,7 @@ import { useCancelSlot, useRescheduleSlot } from '../hooks';
 import { STATUS_STYLES, formatStatus } from '../labels';
 
 const secondaryBtnClass =
-  'rounded-lg border border-white/[0.12] bg-white/[0.03] px-3.5 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-white/25 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50';
+  'rounded-lg border border-app-border-strong bg-app-surface px-3.5 py-1.5 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 
 /** A single interview slot: Cancel (OPEN) or Reschedule (BOOKED). */
 export function SlotCard({ slot }: { slot: InterviewSlotDto }) {
@@ -26,11 +26,11 @@ export function SlotCard({ slot }: { slot: InterviewSlotDto }) {
   };
 
   return (
-    <li className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4">
+    <li className="rounded-2xl border border-app-border bg-app-surface p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-white">
+            <p className="text-sm font-medium text-app-ink">
               {new Date(slot.start).toLocaleString()} –{' '}
               {new Date(slot.end).toLocaleTimeString()}
             </p>
@@ -41,7 +41,7 @@ export function SlotCard({ slot }: { slot: InterviewSlotDto }) {
             </span>
           </div>
           {slot.bookedFor && (
-            <p className="mt-0.5 text-xs text-zinc-500">
+            <p className="mt-0.5 text-xs text-app-ink-3">
               Candidate: {slot.bookedFor}
             </p>
           )}
@@ -51,14 +51,14 @@ export function SlotCard({ slot }: { slot: InterviewSlotDto }) {
                 href={slot.meetLink}
                 target="_blank"
                 rel="noreferrer"
-                className="text-violet-secondary hover:text-white hover:underline"
+                className="text-violet hover:text-app-ink hover:underline"
               >
                 Meet link
               </a>
             </p>
           )}
           {slot.cancelReason && (
-            <p className="mt-0.5 text-xs text-zinc-600">
+            <p className="mt-0.5 text-xs text-app-ink-3">
               Reason: {slot.cancelReason}
             </p>
           )}
@@ -66,12 +66,12 @@ export function SlotCard({ slot }: { slot: InterviewSlotDto }) {
       </div>
 
       {reschedule.isError && (
-        <p className="mt-2 text-sm text-red-400">
+        <p className="mt-2 text-sm text-red-600">
           {reschedule.error?.message ?? 'Could not reschedule'}
         </p>
       )}
       {cancel.isError && (
-        <p className="mt-2 text-sm text-red-400">
+        <p className="mt-2 text-sm text-red-600">
           {cancel.error?.message ?? 'Could not cancel'}
         </p>
       )}

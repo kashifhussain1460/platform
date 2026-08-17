@@ -75,13 +75,13 @@ export function SkillSetupWizard({
   const currentIndex = ORDER.findIndex((s) => s.key === stage);
 
   return (
-    <div className="rounded-2xl border border-white/[0.1] bg-white/[0.02] p-4">
+    <div className="rounded-2xl border border-app-border bg-app-surface p-4">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-white">
+          <p className="text-sm font-semibold text-app-ink">
             Connect {def.name}
           </p>
-          <p className="mt-0.5 text-xs text-zinc-500">
+          <p className="mt-0.5 text-xs text-app-ink-3">
             Each step has to pass before this skill can run.
           </p>
         </div>
@@ -90,7 +90,7 @@ export function SkillSetupWizard({
             type="button"
             onClick={onClose}
             aria-label="Close setup"
-            className="rounded-lg p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300"
+            className="rounded-lg p-1 text-app-ink-3 hover:bg-app-raised hover:text-app-ink-2"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
@@ -107,15 +107,15 @@ export function SkillSetupWizard({
               <span
                 className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
                   state === 'done'
-                    ? 'bg-status-succeeded/20 text-status-succeeded'
+                    ? 'bg-status-succeeded/20 text-sl-succeeded'
                     : state === 'current'
                       ? 'bg-violet text-white'
-                      : 'bg-white/[0.06] text-zinc-500'
+                      : 'bg-app-raised text-app-ink-3'
                 }`}
               >
                 {state === 'done' ? <Check className="h-3 w-3" aria-hidden /> : i + 1}
               </span>
-              <span className={state === 'todo' ? 'text-zinc-600' : 'text-zinc-300'}>
+              <span className={state === 'todo' ? 'text-app-ink-3' : 'text-app-ink-2'}>
                 {s.label}
               </span>
             </li>
@@ -133,7 +133,7 @@ export function SkillSetupWizard({
 
       {stage === 'verify' ? (
         <div className="space-y-3">
-          <p className="text-sm text-zinc-300">
+          <p className="text-sm text-app-ink-2">
             Orlixa will sign in to the provider with the details you saved. Nothing
             is sent yet.
           </p>
@@ -145,7 +145,7 @@ export function SkillSetupWizard({
             <button
               type="button"
               onClick={() => setStage('details')}
-              className="text-xs text-zinc-400 hover:text-zinc-200"
+              className="text-xs text-app-ink-2 hover:text-app-ink"
             >
               Back to details
             </button>
@@ -156,11 +156,11 @@ export function SkillSetupWizard({
       {stage === 'test' ? (
         <div className="space-y-3">
           {account ? (
-            <p className="text-sm text-status-succeeded">
+            <p className="text-sm text-sl-succeeded">
               Signed in as {account}.
             </p>
           ) : null}
-          <p className="text-sm text-zinc-300">
+          <p className="text-sm text-app-ink-2">
             Send one real test message to prove it works end to end.
           </p>
           <div className="flex flex-wrap items-center gap-2">
@@ -180,7 +180,7 @@ export function SkillSetupWizard({
             <button
               type="button"
               onClick={() => setStage('done')}
-              className="text-xs text-zinc-400 hover:text-zinc-200"
+              className="text-xs text-app-ink-2 hover:text-app-ink"
             >
               Skip the test
             </button>
@@ -191,7 +191,7 @@ export function SkillSetupWizard({
 
       {stage === 'done' ? (
         <div className="space-y-3">
-          <p className="flex items-center gap-1.5 text-sm text-status-succeeded">
+          <p className="flex items-center gap-1.5 text-sm text-sl-succeeded">
             <Check className="h-4 w-4" aria-hidden />
             {def.name} is connected{account ? ` as ${account}` : ''}.
           </p>
@@ -205,7 +205,7 @@ export function SkillSetupWizard({
       ) : null}
 
       {verify.isError ? (
-        <p className="mt-3 text-sm text-status-failed">
+        <p className="mt-3 text-sm text-sl-failed">
           {verify.error?.message ?? 'Could not check the connection.'}
         </p>
       ) : null}
@@ -223,31 +223,31 @@ export function SkillSetupWizard({
 function StepList({ steps }: { steps: VerifyStepResult[] }) {
   if (steps.length === 0) return null;
   return (
-    <ul className="space-y-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+    <ul className="space-y-1.5 rounded-xl border border-app-border bg-app-surface p-3">
       {steps.map((s) => (
         <li key={s.key} className="flex items-start gap-2 text-xs">
           {s.status === 'PASSED' ? (
-            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-succeeded" aria-hidden />
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sl-succeeded" aria-hidden />
           ) : s.status === 'FAILED' ? (
-            <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-failed" aria-hidden />
+            <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sl-failed" aria-hidden />
           ) : (
-            <CircleDashed className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden />
+            <CircleDashed className="mt-0.5 h-3.5 w-3.5 shrink-0 text-app-ink-3" aria-hidden />
           )}
           <div className="min-w-0">
             <p
               className={
                 s.status === 'FAILED'
-                  ? 'text-status-failed'
+                  ? 'text-sl-failed'
                   : s.status === 'PASSED'
-                    ? 'text-zinc-200'
-                    : 'text-zinc-500'
+                    ? 'text-app-ink'
+                    : 'text-app-ink-3'
               }
             >
               {s.label}
               {s.status === 'SKIPPED' ? ' — not run' : ''}
             </p>
             {s.detail ? (
-              <p className="mt-0.5 break-words text-zinc-500">{s.detail}</p>
+              <p className="mt-0.5 break-words text-app-ink-3">{s.detail}</p>
             ) : null}
           </div>
         </li>
@@ -259,7 +259,7 @@ function StepList({ steps }: { steps: VerifyStepResult[] }) {
 /** Small spinner used by callers that mount the wizard lazily. */
 export function WizardLoading() {
   return (
-    <div className="flex items-center gap-2 p-4 text-xs text-zinc-500">
+    <div className="flex items-center gap-2 p-4 text-xs text-app-ink-3">
       <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
       Loading setup…
     </div>

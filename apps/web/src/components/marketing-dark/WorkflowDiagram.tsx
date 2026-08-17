@@ -17,7 +17,7 @@ function Node({
 }) {
   const tones: Record<typeof tone, string> = {
     emerald: 'bg-emerald-400/15 text-emerald-400',
-    violet: 'bg-violet/20 text-violet-secondary',
+    violet: 'bg-violet/20 text-violet-bright',
     sky: 'bg-sky-400/15 text-sky-300',
     rose: 'bg-rose-400/15 text-rose-400',
   };
@@ -30,7 +30,7 @@ function Node({
       </span>
       <div className="min-w-0">
         <p className="truncate text-[13px] font-semibold text-white">{title}</p>
-        <p className="truncate text-[11px] text-zinc-500">{label}</p>
+        <p className="truncate text-[11px] text-fg-muted">{label}</p>
       </div>
     </div>
   );
