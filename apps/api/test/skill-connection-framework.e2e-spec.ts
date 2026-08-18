@@ -5,6 +5,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { CryptoService } from '../src/common/crypto/crypto.service';
+import { SkillsService } from '../src/modules/skills/skills.service';
 
 /**
  * The enterprise skill-connection framework (plan §3, §4, §26, §28, §37).
@@ -337,5 +338,119 @@ describeIfDb('Skill connection framework (§3/§37)', () => {
       select: { connectionStatus: true },
     });
     expect(row.connectionStatus).toBe('CONNECTED');
+  });
+
+  describe('OAuth provider adapters (Wave 2 — Gmail, Slack)', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('a Gmail OAuth connect that fails verification lands NOT_CONNECTED, not a silent CONNECTED', async () => {
+      const installed = await request(app.getHttpServer())
+        .post('/skills/install')
+        .set(bearer(token))
+        .send({ skillKey: 'gmail' })
+        .expect(201);
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: { status: 'PERMISSION_DENIED', message: 'Insufficient scope' } }),
+      }) as unknown as typeof fetch;
+
+      const skills = app.get(SkillsService);
+      await skills.connectOAuth(companyId, installed.body.id, { accessToken: 'bad-scope-token' });
+
+      const res = await request(app.getHttpServer())
+        .get('/skills/installed')
+        .set(bearer(token))
+        .expect(200);
+      const row = res.body.find((s: { id: string }) => s.id === installed.body.id);
+      expect(row.connectionStatus).toBe('NOT_CONNECTED');
+
+      // Company-wide installs are unique per (companyId, skillKey) — free the
+      // slot so the next test's fresh `gmail` install doesn't collide with it.
+      await request(app.getHttpServer())
+        .delete(`/skills/installed/${installed.body.id}`)
+        .set(bearer(token))
+        .expect(204);
+    });
+
+    it('a successful Gmail OAuth connect shows CONNECTED and the discovered account', async () => {
+      const installed = await request(app.getHttpServer())
+        .post('/skills/install')
+        .set(bearer(token))
+        .send({ skillKey: 'gmail' })
+        .expect(201);
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ emailAddress: 'hr@company.com' }),
+      }) as unknown as typeof fetch;
+
+      const skills = app.get(SkillsService);
+      await skills.connectOAuth(companyId, installed.body.id, { accessToken: 'good-token' });
+
+      const res = await request(app.getHttpServer())
+        .get('/skills/installed')
+        .set(bearer(token))
+        .expect(200);
+      const row = res.body.find((s: { id: string }) => s.id === installed.body.id);
+      expect(row.connectionStatus).toBe('CONNECTED');
+      expect(row.config?.connectedAccount).toBe('hr@company.com');
+    });
+
+    it('a Slack connection made before the users:read.email scope existed fails only the test action', async () => {
+      const installed = await request(app.getHttpServer())
+        .post('/skills/install')
+        .set(bearer(token))
+        .send({ skillKey: 'slack' })
+        .expect(201);
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, team: 'Acme', user: 'orlixa-bot' }),
+      }) as unknown as typeof fetch;
+      const skills = app.get(SkillsService);
+      await skills.connectOAuth(companyId, installed.body.id, { accessToken: 'xoxb-old-scope-token' });
+
+      // Only `users.lookupByEmail` needs the new `users:read.email` scope —
+      // `auth.test` (the credentials stage AND account discovery) still
+      // succeeds, exactly like the real connection this reproduces. A blanket
+      // fetch mock would fail the credentials stage too and demote the
+      // connector to DEGRADED, which is a different bug than the one under
+      // test here.
+      global.fetch = jest.fn().mockImplementation((url: string) => {
+        const isLookup = url.toString().includes('users.lookupByEmail');
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () =>
+            isLookup ? { ok: false, error: 'missing_scope' } : { ok: true, team: 'Acme', user: 'orlixa-bot' },
+        });
+      }) as unknown as typeof fetch;
+      const verifyRes = await request(app.getHttpServer())
+        .post(`/skills/installed/${installed.body.id}/verify`)
+        .set(bearer(token))
+        .send({ sendTest: true })
+        .expect(201);
+      expect(verifyRes.body.ok).toBe(false);
+      expect(verifyRes.body.code).toBe('INSUFFICIENT_SCOPE');
+
+      // validateCredentials/healthCheck are unaffected — the connection itself
+      // is still authenticated. But `verifyConnection` demotes on ANY failed
+      // stage (skills.service.ts), including a test-action-only failure, so a
+      // previously-CONNECTED connector reads DEGRADED here — not a silent
+      // CONNECTED, and not the total loss of NOT_CONNECTED either.
+      const list = await request(app.getHttpServer())
+        .get('/skills/installed')
+        .set(bearer(token))
+        .expect(200);
+      expect(
+        list.body.find((s: { id: string }) => s.id === installed.body.id).connectionStatus,
+      ).toBe('DEGRADED');
+    });
   });
 });
