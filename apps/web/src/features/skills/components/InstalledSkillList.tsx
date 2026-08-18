@@ -24,6 +24,7 @@ import {
   HubSpotIcon,
   SlackIcon,
 } from '@/components/marketing-dark/brand-icons';
+import { Modal } from '@/components/ui/Modal';
 import { RecentConnectorEvents } from '@/features/events/components/RecentConnectorEvents';
 import {
   useCatalog,
@@ -34,9 +35,7 @@ import {
 } from '../hooks';
 import { CONNECTION_STATUS_STYLES, formatConnectionStatus } from '../labels';
 import type { InstalledSkillDto, SkillDefinitionDto } from '../schemas';
-import { ConfigureSkillForm } from './ConfigureSkillForm';
 import { SkillSetupWizard } from './SkillSetupWizard';
-import { ConnectSkillControl } from './ConnectSkillControl';
 
 /** Real brand marks where we have one; a plain lucide glyph in a badge otherwise. */
 const CONNECTOR_ICON: Record<string, ElementType<{ className?: string }>> = {
@@ -107,13 +106,7 @@ function ActionIconButton({
   );
 }
 
-/**
- * Skills whose backend has a provider adapter, so the guided setup can really
- * verify. Mirrors `registerProviderAdapter` in the API's `skills/providers`.
- */
-const WIZARD_SKILLS = new Set(['email']);
-
-/** One installed-skill card: connect, configure, events, health, enable/disable, uninstall. */
+/** One installed-skill card: Settings opens the popup wizard for every skill; events, health, enable/disable, uninstall stay inline. */
 function InstalledSkillRow({
   skill,
   def,
@@ -124,26 +117,16 @@ function InstalledSkillRow({
   const update = useUpdateInstalledSkill();
   const uninstall = useUninstallSkill();
   const checkHealth = useCheckConnectorHealth();
-  const [showConfig, setShowConfig] = useState(false);
   const [showEvents, setShowEvents] = useState(false);
-  const isTemp = skill.id.startsWith('temp_');
-  /**
-   * Which skills get the sequential wizard.
-   *
-   * Kept as an explicit list rather than "anything with a configSchema" so
-   * turning a provider on is a deliberate act tied to it having a real backend
-   * adapter — a wizard whose "Check connection" step cannot actually check
-   * anything would be worse than the plain control it replaces.
-   */
-  const usesWizard = WIZARD_SKILLS.has(skill.skillKey);
   const [showWizard, setShowWizard] = useState(false);
+  const isTemp = skill.id.startsWith('temp_');
   const health = checkHealth.data;
 
   /**
    * Arrived from AI Assist's "finish connecting it" link (`?connect=<key>`) or
-   * the catalog's own anchor. Scroll this row into view and ring it, because
-   * landing at the top of a long Skills page and being told to "connect it"
-   * is how people ended up connecting nothing at all.
+   * the catalog's own anchor. Scroll this row into view and open the popup,
+   * because landing at the top of a long Skills page and being told to
+   * "connect it" is how people ended up connecting nothing at all.
    */
   const rowRef = useRef<HTMLDivElement>(null);
   const search = useSearchParams();
@@ -151,18 +134,13 @@ function InstalledSkillRow({
   useEffect(() => {
     if (!targeted) return;
     rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // Arriving from "finish connecting it" should LAND on the setup, not on a
-    // highlighted row the user then has to find a button in. One less step at
-    // the exact point people were giving up.
-    if (usesWizard) setShowWizard(true);
-  }, [targeted, usesWizard]);
+    setShowWizard(true);
+  }, [targeted]);
 
   return (
     <div
       ref={rowRef}
       id={`installed-${skill.skillKey}`}
-      // `scroll-mt` keeps the sticky header from covering the row on an anchor
-      // jump; the ring is the "you are here" cue for the highlighted skill.
       className={`scroll-mt-24 rounded-2xl border bg-app-surface p-4 transition-colors ${
         targeted
           ? 'border-violet/60 ring-1 ring-violet/40'
@@ -191,33 +169,24 @@ function InstalledSkillRow({
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {!def ? (
           <span className="text-xs text-app-ink-3">Unknown skill</span>
-        ) : usesWizard ? (
-          // Providers Orlixa can really verify get the sequential wizard (§26)
-          // instead of a single credential box: they need several fields, and
-          // the connection is only allowed to become live once the provider has
-          // actually accepted them (§37).
+        ) : (
           <button
             type="button"
-            onClick={() => setShowWizard((v) => !v)}
+            onClick={() => setShowWizard(true)}
             disabled={isTemp}
             className="rounded-xl border border-app-border-strong bg-app-surface px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {showWizard
-              ? 'Hide setup'
-              : skill.connectionStatus === 'CONNECTED'
-                ? 'Manage connection'
-                : (def.connection?.label ?? 'Set up')}
+            {skill.connectionStatus === 'CONNECTED'
+              ? 'Manage connection'
+              : (def.connection?.label ?? 'Set up')}
           </button>
-        ) : (
-          <ConnectSkillControl installed={skill} def={def} />
         )}
         <div className="ml-auto flex items-center gap-1.5">
           {def && (
             <ActionIconButton
               icon={Settings}
-              label="Configure"
-              active={showConfig}
-              onClick={() => setShowConfig((v) => !v)}
+              label="Settings"
+              onClick={() => setShowWizard(true)}
               disabled={isTemp}
             />
           )}
@@ -253,28 +222,15 @@ function InstalledSkillRow({
         </div>
       </div>
 
-      {showWizard && def && (
-        <div className="mt-4">
-          <SkillSetupWizard
-            installed={skill}
-            def={def}
-            onClose={() => setShowWizard(false)}
-          />
-        </div>
-      )}
-
-      {/* The raw config form stays available behind the gear for a connected
-          skill (changing a signature, a daily cap). It is hidden while the
-          wizard is open so the same fields are never editable in two places at
-          once — that is how half-saved settings happen. */}
-      {showConfig && def && !showWizard && (
-        <div className="mt-4 rounded-xl border border-app-border bg-app-surface p-4">
-          <ConfigureSkillForm
-            installed={skill}
-            def={def}
-            onDone={() => setShowConfig(false)}
-          />
-        </div>
+      {def && (
+        <Modal
+          open={showWizard}
+          onClose={() => setShowWizard(false)}
+          title={`Connect ${def.name}`}
+          size="lg"
+        >
+          <SkillSetupWizard installed={skill} def={def} onClose={() => setShowWizard(false)} />
+        </Modal>
       )}
 
       {showEvents && !isTemp && (
@@ -317,7 +273,7 @@ function InstalledSkillRow({
   );
 }
 
-/** Installed skills as connection cards: connect/configure/enable/uninstall (all optimistic). */
+/** Installed skills as connection cards: Settings/connect/events/health/enable/uninstall (all optimistic). */
 export function InstalledSkillList() {
   const { data: installed, isLoading } = useInstalledSkills();
   const { data: catalog } = useCatalog();

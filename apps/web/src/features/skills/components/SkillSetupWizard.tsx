@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, CircleDashed, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { ConfigureSkillForm } from './ConfigureSkillForm';
@@ -55,6 +55,7 @@ export function SkillSetupWizard({
   );
   const [steps, setSteps] = useState<VerifyStepResult[]>([]);
   const [account, setAccount] = useState<string | null>(null);
+  const [adapterAvailable, setAdapterAvailable] = useState(true);
   const [testTo, setTestTo] = useState('');
   const verify = useVerifyConnection();
 
@@ -65,6 +66,7 @@ export function SkillSetupWizard({
         onSuccess: (result) => {
           setSteps(result.steps);
           setAccount(result.account);
+          setAdapterAvailable(result.adapterAvailable);
           if (!result.ok) return;
           setStage(sendTest ? 'done' : 'test');
         },
@@ -72,33 +74,29 @@ export function SkillSetupWizard({
     );
   };
 
+  // Auto-run the check once, the first time this render reaches the `verify`
+  // stage — so a skill with no adapter shows its honest "can't verify yet"
+  // state immediately instead of behind an extra click. Guarded by a ref, not
+  // a `run` dependency: `run` closes over the mutation object and is rebuilt
+  // every render, and depending on it directly re-fires the effect on every
+  // render (the exact infinite-loop shape already hit and fixed elsewhere in
+  // this codebase's workflow canvas autosave).
+  const autoChecked = useRef(false);
+  useEffect(() => {
+    if (stage !== 'verify' || autoChecked.current) return;
+    autoChecked.current = true;
+    run(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+
   const currentIndex = ORDER.findIndex((s) => s.key === stage);
 
   return (
-    <div className="rounded-2xl border border-app-border bg-app-surface p-4">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-app-ink">
-            Connect {def.name}
-          </p>
-          <p className="mt-0.5 text-xs text-app-ink-3">
-            Each step has to pass before this skill can run.
-          </p>
-        </div>
-        {onClose ? (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close setup"
-            className="rounded-lg p-1 text-app-ink-3 hover:bg-app-raised hover:text-app-ink-2"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        ) : null}
-      </div>
+    <div>
+      <p className="mb-4 text-xs text-app-ink-3">
+        Each step has to pass before this skill can run.
+      </p>
 
-      {/* The rail. Numbered because §26's whole point is that the customer can
-          see how far through they are and what is left. */}
       <ol className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         {ORDER.map((s, i) => {
           const state = i < currentIndex ? 'done' : i === currentIndex ? 'current' : 'todo';
@@ -133,23 +131,46 @@ export function SkillSetupWizard({
 
       {stage === 'verify' ? (
         <div className="space-y-3">
-          <p className="text-sm text-app-ink-2">
-            Orlixa will sign in to the provider with the details you saved. Nothing
-            is sent yet.
-          </p>
-          <StepList steps={steps} />
-          <div className="flex items-center gap-2">
-            <Button variant="violet" onClick={() => run(false)} disabled={verify.isPending}>
-              {verify.isPending ? 'Checking…' : 'Check connection'}
-            </Button>
-            <button
-              type="button"
-              onClick={() => setStage('details')}
-              className="text-xs text-app-ink-2 hover:text-app-ink"
-            >
-              Back to details
-            </button>
-          </div>
+          {adapterAvailable ? (
+            <>
+              <p className="text-sm text-app-ink-2">
+                Orlixa will sign in to the provider with the details you saved. Nothing
+                is sent yet.
+              </p>
+              <StepList steps={steps} />
+              <div className="flex items-center gap-2">
+                <Button variant="violet" onClick={() => run(false)} disabled={verify.isPending}>
+                  {verify.isPending ? 'Checking…' : 'Check connection'}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setStage('details')}
+                  className="text-xs text-app-ink-2 hover:text-app-ink"
+                >
+                  Back to details
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-app-ink-2">
+                Orlixa can&apos;t automatically verify this provider yet — your settings
+                are saved and this skill is ready to use.
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="violet" onClick={() => setStage('done')}>
+                  Continue
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setStage('details')}
+                  className="text-xs text-app-ink-2 hover:text-app-ink"
+                >
+                  Back to details
+                </button>
+              </div>
+            </>
+          )}
         </div>
       ) : null}
 
@@ -191,10 +212,17 @@ export function SkillSetupWizard({
 
       {stage === 'done' ? (
         <div className="space-y-3">
-          <p className="flex items-center gap-1.5 text-sm text-sl-succeeded">
-            <Check className="h-4 w-4" aria-hidden />
-            {def.name} is connected{account ? ` as ${account}` : ''}.
-          </p>
+          {adapterAvailable ? (
+            <p className="flex items-center gap-1.5 text-sm text-sl-succeeded">
+              <Check className="h-4 w-4" aria-hidden />
+              {def.name} is connected{account ? ` as ${account}` : ''}.
+            </p>
+          ) : (
+            <p className="text-sm text-app-ink-2">
+              {def.name} is set up. Automatic verification isn&apos;t available for this
+              provider yet.
+            </p>
+          )}
           <StepList steps={steps} />
           {onClose ? (
             <Button variant="violet" onClick={onClose}>
