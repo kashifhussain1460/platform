@@ -73,7 +73,11 @@ const SKILL_OAUTH: Record<string, { provider: string; scopes: string[] }> = {
   },
   // channels:read lets the executor resolve a human channel name ("#general")
   // to the id modern chat.postMessage calls require — see real-skill-executor.
-  slack: { provider: 'slack', scopes: ['chat:write', 'channels:read'] },
+  // users:read.email lets the connection wizard's test action DM the
+  // connecting user (users.lookupByEmail) — added for the Wave-2 adapter;
+  // a connection made before this existed correctly reports
+  // INSUFFICIENT_SCOPE on the test action alone until reconnected.
+  slack: { provider: 'slack', scopes: ['chat:write', 'channels:read', 'users:read.email'] },
 };
 
 /** A fully-resolved provider ready to build an authorize URL / exchange a code. */

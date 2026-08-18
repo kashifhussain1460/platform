@@ -110,6 +110,7 @@ const PROBES: Record<string, HealthProbe> = {
   gmail: adapterProbe('gmail'),
   calendar: adapterProbe('calendar'),
   gdrive: adapterProbe('gdrive'),
+  slack: adapterProbe('slack'),
 };
 
 /** Resolve the probe for a provider (generic mock fallback). */

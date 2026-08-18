@@ -3,6 +3,7 @@ import { smtpAdapter } from './smtp.adapter';
 import { gmailAdapter } from './gmail.adapter';
 import { calendarAdapter } from './calendar.adapter';
 import { gdriveAdapter } from './gdrive.adapter';
+import { slackAdapter } from './slack.adapter';
 
 /**
  * Provider adapter registration (plan §28/§36).
@@ -19,6 +20,7 @@ registerProviderAdapter(smtpAdapter);
 registerProviderAdapter(gmailAdapter);
 registerProviderAdapter(calendarAdapter);
 registerProviderAdapter(gdriveAdapter);
+registerProviderAdapter(slackAdapter);
 
 export * from './provider-adapter';
 export { smtpAdapter, resolveSmtpSettings, SMTP_FIELDS } from './smtp.adapter';
