@@ -101,14 +101,18 @@ export const gdriveAdapter: SkillProviderAdapter = {
 };
 
 async function deleteFile(token: string, fileId: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
   try {
     const res = await fetch(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
-      { method: 'DELETE', headers: { authorization: `Bearer ${token}` } },
+      { method: 'DELETE', headers: { authorization: `Bearer ${token}` }, signal: controller.signal },
     );
     return res.ok || res.status === 404;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
