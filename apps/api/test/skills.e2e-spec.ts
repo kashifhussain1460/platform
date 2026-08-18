@@ -284,6 +284,19 @@ describeIfDb('Skills e2e (catalog -> install -> assign -> tool-calling run)', ()
         .set(priorityAuth)
         .send({ config: { companyEmail: 'company-wide@acme.example' } })
         .expect(200);
+
+      // `connect` now runs the real gmail adapter's live verification
+      // (oauth-provider-adapters-wave2 plan, Tasks 2/5) before marking a
+      // connection CONNECTED, so these placeholder tokens need a mocked
+      // fetch standing in for Google's profile API — this test is about
+      // per-employee connection PRIORITY, not Gmail OAuth verification.
+      const realFetch = global.fetch;
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ emailAddress: 'some-test-address@example.com' }),
+      }) as unknown as typeof fetch;
+
       await request(server)
         .post(`/skills/installed/${companyWide.body.id}/connect`)
         .set(priorityAuth)
@@ -314,6 +327,10 @@ describeIfDb('Skills e2e (catalog -> install -> assign -> tool-calling run)', ()
         .set(priorityAuth)
         .send({ credentials: { accessToken: 'employee-owned-token' } })
         .expect(201);
+
+      // Restore before the rest of the test (a real chat turn, real tool
+      // resolution) so an unrelated call never sees this mock.
+      global.fetch = realFetch;
 
       // Drive a REAL chat turn (NOT the manual-execute endpoint, which calls
       // runTool({ companyId }, ...) with no employeeId and so can never

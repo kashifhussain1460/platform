@@ -99,11 +99,27 @@ describeIfDb('Workflow skill requirements (in-chat connection surface)', () => {
       .set(bearer(token))
       .send({ skillKey: 'gmail' })
       .expect(201);
+
+    // `connect` now runs the real gmail adapter's live verification
+    // (oauth-provider-adapters-wave2 plan, Tasks 2/5) before marking a
+    // connection CONNECTED, so this placeholder token needs a mocked fetch
+    // standing in for Google's profile API — this test is about
+    // skill-requirement connection REUSE, not Gmail OAuth verification.
+    const realFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ emailAddress: 'some-test-address@example.com' }),
+    }) as unknown as typeof fetch;
+
     await request(app.getHttpServer())
       .post(`/skills/installed/${installed.body.id}/connect`)
       .set(bearer(token))
       .send({ credentials: { accessToken: 'ya29-test' } })
       .expect(201);
+
+    // Restore immediately — the rest of the file's tests must not inherit it.
+    global.fetch = realFetch;
 
     const res = await request(app.getHttpServer())
       .get(`/workflows/${workflowId}/skill-requirements`)
