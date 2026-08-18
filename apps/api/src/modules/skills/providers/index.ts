@@ -1,6 +1,7 @@
 import { registerProviderAdapter } from './provider-adapter';
 import { smtpAdapter } from './smtp.adapter';
 import { gmailAdapter } from './gmail.adapter';
+import { calendarAdapter } from './calendar.adapter';
 
 /**
  * Provider adapter registration (plan §28/§36).
@@ -15,6 +16,7 @@ import { gmailAdapter } from './gmail.adapter';
  */
 registerProviderAdapter(smtpAdapter);
 registerProviderAdapter(gmailAdapter);
+registerProviderAdapter(calendarAdapter);
 
 export * from './provider-adapter';
 export { smtpAdapter, resolveSmtpSettings, SMTP_FIELDS } from './smtp.adapter';

@@ -108,6 +108,7 @@ const PROBES: Record<string, HealthProbe> = {
   github: githubProbe,
   email: adapterProbe('email'),
   gmail: adapterProbe('gmail'),
+  calendar: adapterProbe('calendar'),
 };
 
 /** Resolve the probe for a provider (generic mock fallback). */
