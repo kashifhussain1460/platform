@@ -151,3 +151,100 @@ describe('SkillsService.verifyConnection — adapterAvailable', () => {
     expect(result.ok).toBe(true);
   });
 });
+
+describe('SkillsService.connectOAuth — verify before CONNECTED', () => {
+  function buildService(installed: Record<string, unknown>) {
+    const update = jest.fn().mockResolvedValue({});
+    const record = jest.fn();
+    const prisma = {
+      installedSkill: {
+        findFirst: jest.fn().mockResolvedValue(installed),
+        update,
+      },
+    } as never;
+    const tokens = { getAccessToken: jest.fn() } as never;
+    // connectOAuth always re-seals merged credentials via CryptoService.encryptJson,
+    // regardless of adapter outcome, so the mock needs a working stub for that one
+    // method even though these tests never assert on the stored ciphertext.
+    const crypto = { encryptJson: jest.fn().mockReturnValue('enc-blob') } as never;
+    const service = new SkillsService(
+      prisma,
+      crypto,
+      {} as never,
+      tokens,
+      {} as never,
+      {} as never,
+      {} as never,
+      { record } as never,
+      new MetricsRegistry(),
+      { findSuppressed: jest.fn().mockResolvedValue([]) } as never,
+    );
+    return { service, update, record };
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('sets CONNECTED and audits connector.connected when the adapter verifies successfully', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ emailAddress: 'hr@company.com' }),
+    }) as unknown as typeof fetch;
+    const { service, update, record } = buildService({
+      id: 'is-1',
+      companyId: 'c1',
+      skillKey: 'gmail',
+      connectionType: 'oauth',
+      connectionStatus: 'NOT_CONNECTED',
+      credentials: {},
+      config: {},
+    });
+
+    await service.connectOAuth('c1', 'is-1', { accessToken: 'tok' });
+
+    expect(update.mock.calls[0][0].data.connectionStatus).toBe('CONNECTED');
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'connector.connected' }),
+    );
+  });
+
+  it('sets NOT_CONNECTED (not DEGRADED) on a failed first-time verification', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { status: 'PERMISSION_DENIED', message: 'Insufficient scope' } }),
+    }) as unknown as typeof fetch;
+    const { service, update, record } = buildService({
+      id: 'is-2',
+      companyId: 'c1',
+      skillKey: 'gmail',
+      connectionType: 'oauth',
+      connectionStatus: 'NOT_CONNECTED',
+      credentials: {},
+      config: {},
+    });
+
+    await service.connectOAuth('c1', 'is-2', { accessToken: 'bad-scope-tok' });
+
+    expect(update.mock.calls[0][0].data.connectionStatus).toBe('NOT_CONNECTED');
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'connector.connect_failed' }),
+    );
+  });
+
+  it('keeps the unconditional CONNECTED behavior for a skill with no adapter (hubspot)', async () => {
+    const { service, update } = buildService({
+      id: 'is-3',
+      companyId: 'c1',
+      skillKey: 'hubspot',
+      connectionType: 'oauth',
+      connectionStatus: 'NOT_CONNECTED',
+      credentials: {},
+      config: {},
+    });
+
+    await service.connectOAuth('c1', 'is-3', { accessToken: 'tok' });
+
+    expect(update.mock.calls[0][0].data.connectionStatus).toBe('CONNECTED');
+  });
+});

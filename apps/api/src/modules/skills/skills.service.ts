@@ -1058,17 +1058,64 @@ export class SkillsService {
       ...this.readCredentials(installed.credentials),
       ...tokens,
     };
+
+    const adapter = getProviderAdapter(installed.skillKey);
+    let connectionStatus: SkillConnectionStatus = 'CONNECTED';
+    let account: string | null = null;
+    let failureCode: string | undefined;
+    let steps: VerifyStep[] = [];
+
+    if (adapter) {
+      const current = installed.connectionStatus as SkillConnectionStatus;
+      const result = await runVerification(
+        adapter,
+        { creds: merged, config: (installed.config as Record<string, unknown> | null) ?? {} },
+        { includeTest: false },
+      );
+      steps = result.steps;
+      account = result.account;
+      failureCode = result.code;
+      // Same rule verifyConnection() uses: a first-time connect's `current` is
+      // always NOT_CONNECTED, so a failed verification lands there too, never
+      // DEGRADED (which would wrongly imply a working connection broke).
+      connectionStatus = result.ok
+        ? 'CONNECTED'
+        : current === 'CONNECTED'
+          ? 'DEGRADED'
+          : 'NOT_CONNECTED';
+    }
+
     await this.prisma.installedSkill.update({
       where: { id: installedSkillId },
       data: {
         credentials: this.sealCredentials(merged),
         connectionType: this.defFor(installed.skillKey).connection.type,
-        connectionStatus: 'CONNECTED',
-        // Fresh OAuth connect resets the health lifecycle + caches token expiry.
+        connectionStatus,
         consecutiveErrors: 0,
-        lastHealthError: null,
+        lastHealthError: connectionStatus === 'CONNECTED' ? null : (lastFailure(steps) ?? null),
         disabledReason: null,
         tokenExpiresAt: this.parseExpiry(merged),
+        ...(account
+          ? {
+              config: {
+                ...((installed.config as Record<string, unknown> | null) ?? {}),
+                connectedAccount: account,
+              } as Prisma.InputJsonObject,
+            }
+          : {}),
+      },
+    });
+
+    await this.auditLog.record({
+      companyId,
+      action: connectionStatus === 'CONNECTED' ? 'connector.connected' : 'connector.connect_failed',
+      entityType: 'InstalledSkill',
+      entityId: installedSkillId,
+      metadata: {
+        skillKey: installed.skillKey,
+        connectionType: this.defFor(installed.skillKey).connection.type,
+        account,
+        code: failureCode ?? null,
       },
     });
   }
