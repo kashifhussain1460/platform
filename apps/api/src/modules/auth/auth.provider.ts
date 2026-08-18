@@ -13,6 +13,7 @@ export interface AuthenticatedUser {
   userId: string;
   companyId: string;
   role: Role;
+  email: string;
 }
 
 export interface TokenPair {

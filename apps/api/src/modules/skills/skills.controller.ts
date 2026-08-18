@@ -142,12 +142,14 @@ export class SkillsController {
   @RequirePermission('skill:connect')
   verify(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
     @Body() dto: VerifyConnectionDto,
   ) {
     return this.skills.verifyConnection(companyId, id, {
       includeTest: dto.sendTest,
       testTo: dto.testTo,
+      requesterEmail: user.email,
     });
   }
 
