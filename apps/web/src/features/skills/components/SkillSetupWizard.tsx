@@ -66,12 +66,28 @@ export function SkillSetupWizard({
   // config fields), but the wizard has to stay correct if the catalog grows
   // one that doesn't.
   const hasNoConfig = (def.configSchema ?? []).length === 0;
+  // The same guard the initial-stage ternary below uses to skip `details`
+  // entirely on open must also gate every button that routes BACK to
+  // `details` later (from `verify`). Without this, a `!needsOAuth &&
+  // hasNoConfig` skill that reaches `verify` and then clicks "Back to
+  // details" lands on `ConfigureSkillForm`'s empty-`configSchema` branch,
+  // which renders only inert "This skill has no configuration" text with no
+  // button and no callback — a dead end with no way out except closing the
+  // whole modal. Four real, in-production skills hit this today: scheduling,
+  // postiz, chatwoot, plane (all `connection.type: 'none'` + `configSchema:
+  // []` in apps/api/src/modules/skills/catalog.ts, each provisioned once per
+  // company at onboarding).
+  const canReturnToDetails = needsOAuth || !hasNoConfig;
 
   const [stage, setStage] = useState<Stage>(
     // Already connected → the user is here to re-test or fix, not to start over.
+    // The `!canReturnToDetails` branch below is the mirror image of the guard
+    // on the "Back to details" buttons further down — same rule, opened here
+    // instead of gated there — kept as one derived constant so the two can
+    // never drift apart.
     installed.connectionStatus === 'CONNECTED'
       ? 'test'
-      : !needsOAuth && hasNoConfig
+      : !canReturnToDetails
         ? 'verify'
         : 'details',
   );
@@ -168,13 +184,15 @@ export function SkillSetupWizard({
                 <Button variant="violet" onClick={() => run(false)} disabled={verify.isPending}>
                   {verify.isPending ? 'Checking…' : 'Check connection'}
                 </Button>
-                <button
-                  type="button"
-                  onClick={() => setStage('details')}
-                  className="text-xs text-app-ink-2 hover:text-app-ink"
-                >
-                  Back to details
-                </button>
+                {canReturnToDetails ? (
+                  <button
+                    type="button"
+                    onClick={() => setStage('details')}
+                    className="text-xs text-app-ink-2 hover:text-app-ink"
+                  >
+                    Back to details
+                  </button>
+                ) : null}
               </div>
             </>
           ) : (
@@ -187,13 +205,15 @@ export function SkillSetupWizard({
                 <Button variant="violet" onClick={() => setStage('done')}>
                   Continue
                 </Button>
-                <button
-                  type="button"
-                  onClick={() => setStage('details')}
-                  className="text-xs text-app-ink-2 hover:text-app-ink"
-                >
-                  Back to details
-                </button>
+                {canReturnToDetails ? (
+                  <button
+                    type="button"
+                    onClick={() => setStage('details')}
+                    className="text-xs text-app-ink-2 hover:text-app-ink"
+                  >
+                    Back to details
+                  </button>
+                ) : null}
               </div>
             </>
           )}
