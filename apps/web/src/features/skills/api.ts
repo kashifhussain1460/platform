@@ -119,6 +119,7 @@ export interface VerifyConnectionResult {
   account: string | null;
   code?: string;
   connectionStatus: string;
+  adapterAvailable: boolean;
 }
 
 /**

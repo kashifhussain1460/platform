@@ -963,6 +963,7 @@ export class SkillsService {
     account: string | null;
     code?: string;
     connectionStatus: SkillConnectionStatus;
+    adapterAvailable: boolean;
   }> {
     const installed = await this.findOwnedInstalled(companyId, id);
     const adapter = getProviderAdapter(installed.skillKey);
@@ -981,12 +982,19 @@ export class SkillsService {
         ],
         account: null,
         connectionStatus: current,
+        adapterAvailable: false,
       };
     }
 
+    const credentials = await resolveFreshCredentials(
+      this.tokens,
+      installed,
+      this.readCredentials(installed.credentials),
+      (msg) => this.logger.warn(`Token refresh failed for connector ${installed.id}: ${msg}`),
+    );
     const input = {
-      creds: this.readCredentials(installed.credentials),
-      config: ((installed.config as Record<string, unknown> | null) ?? {}),
+      creds: credentials,
+      config: (installed.config as Record<string, unknown> | null) ?? {},
     };
     const result = await runVerification(adapter, input, {
       includeTest: Boolean(opts.includeTest),
@@ -1037,7 +1045,7 @@ export class SkillsService {
       },
     });
 
-    return { ...result, connectionStatus: nextStatus };
+    return { ...result, connectionStatus: nextStatus, adapterAvailable: true };
   }
 
   async connectOAuth(

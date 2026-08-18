@@ -90,3 +90,64 @@ describe('SkillsService.runTool least-privilege gate', () => {
     expect((call.args as Record<string, unknown>).token).toBe('***');
   });
 });
+
+describe('SkillsService.verifyConnection — adapterAvailable', () => {
+  function buildService(installed: Record<string, unknown>) {
+    const prisma = {
+      installedSkill: {
+        findFirst: jest.fn().mockResolvedValue(installed),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    } as never;
+    const tokens = { getAccessToken: jest.fn() } as never;
+    return new SkillsService(
+      prisma,
+      {} as never,
+      {} as never,
+      tokens,
+      {} as never,
+      {} as never,
+      {} as never,
+      { record: jest.fn() } as never,
+      new MetricsRegistry(),
+      { findSuppressed: jest.fn().mockResolvedValue([]) } as never,
+    );
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('reports adapterAvailable:false for a skill with no registered adapter (stripe)', async () => {
+    const service = buildService({
+      id: 'is-1',
+      companyId: 'c1',
+      skillKey: 'stripe',
+      connectionType: 'api_key',
+      connectionStatus: 'NOT_CONNECTED',
+      credentials: {},
+      config: {},
+    });
+    const result = await service.verifyConnection('c1', 'is-1', {});
+    expect(result.adapterAvailable).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
+  it('reports adapterAvailable:true for an adapter-backed skill (gmail)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ emailAddress: 'hr@company.com' }),
+    }) as unknown as typeof fetch;
+    const service = buildService({
+      id: 'is-2',
+      companyId: 'c1',
+      skillKey: 'gmail',
+      connectionType: 'oauth',
+      connectionStatus: 'NOT_CONNECTED',
+      credentials: { accessToken: 'tok' },
+      config: {},
+    });
+    const result = await service.verifyConnection('c1', 'is-2', {});
+    expect(result.adapterAvailable).toBe(true);
+    expect(result.ok).toBe(true);
+  });
+});
