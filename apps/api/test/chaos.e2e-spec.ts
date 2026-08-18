@@ -230,8 +230,13 @@ describeIfDb('WAVE 8 §8.1 — chaos invariants', () => {
               type: 'TOOL_ACTION',
               config: {
                 skillKey: 'http',
+                // `method` is required by the `http.request` tool schema
+                // (SkillCatalog) and enforced by ToolActionNodeHandler's
+                // pre-flight `findMissingRequiredArgs` check — unrelated to
+                // this suite's chaos scenarios, but omitting it stops the
+                // step before the scripted executor is ever reached.
                 tool: 'request',
-                args: { url: 'https://example.test/ping' },
+                args: { method: 'GET', url: 'https://example.test/ping' },
                 outputKey: 'res',
               },
             },
