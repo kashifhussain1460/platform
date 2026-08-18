@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, CircleDashed, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { ConfigureSkillForm } from './ConfigureSkillForm';
+import { ConnectSkillControl } from './ConnectSkillControl';
 import { useVerifyConnection } from '../hooks';
 import type { VerifyStepResult } from '../api';
 import type { InstalledSkillDto, SkillDefinitionDto } from '../schemas';
@@ -49,9 +50,30 @@ export function SkillSetupWizard({
   def: SkillDefinitionDto;
   onClose?: () => void;
 }) {
+  // Same type==='oauth' check ConnectSkillControl uses to decide whether to
+  // render its own OAuth redirect button — but paired with `credentialsSet`
+  // (has the token exchange ever happened) rather than
+  // `connectionStatus === 'CONNECTED'` (is it healthy right now). connectOAuth
+  // always stores credentials even when the first-time verification fails, so
+  // a failed-verification retry (NOT_CONNECTED, credentialsSet: true) must
+  // fall into the "already has it" branch below and go straight to fixing/
+  // retrying the connection, not back through a brand-new browser redirect.
+  const needsOAuth = def.connection?.type === 'oauth' && !installed.credentialsSet;
+  // A skill with nothing to configure renders ConfigureSkillForm's inert
+  // "no configuration" text with no button — a dead end for anyone routed to
+  // `details` who doesn't need OAuth either (already has credentials, or
+  // never needed any). None of today's oauth skills hit this (all have real
+  // config fields), but the wizard has to stay correct if the catalog grows
+  // one that doesn't.
+  const hasNoConfig = (def.configSchema ?? []).length === 0;
+
   const [stage, setStage] = useState<Stage>(
     // Already connected → the user is here to re-test or fix, not to start over.
-    installed.connectionStatus === 'CONNECTED' ? 'test' : 'details',
+    installed.connectionStatus === 'CONNECTED'
+      ? 'test'
+      : !needsOAuth && hasNoConfig
+        ? 'verify'
+        : 'details',
   );
   const [steps, setSteps] = useState<VerifyStepResult[]>([]);
   const [account, setAccount] = useState<string | null>(null);
@@ -122,11 +144,15 @@ export function SkillSetupWizard({
       </ol>
 
       {stage === 'details' ? (
-        <ConfigureSkillForm
-          installed={installed}
-          def={def}
-          onDone={() => setStage('verify')}
-        />
+        needsOAuth ? (
+          <ConnectSkillControl installed={installed} def={def} />
+        ) : (
+          <ConfigureSkillForm
+            installed={installed}
+            def={def}
+            onDone={() => setStage('verify')}
+          />
+        )
       ) : null}
 
       {stage === 'verify' ? (
