@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, type InstalledSkill } from '@prisma/client';
 import type { ConnectorHealthDto } from '@vaep/types';
@@ -9,7 +9,8 @@ import {
   CONNECTOR_FAILURE_THRESHOLD,
   CONNECTOR_HEALTH_BATCH,
 } from './connector.constants';
-import { readCredentials } from './credentials.util';
+import { ConnectorTokenService } from './connector-token.service';
+import { readCredentials, resolveFreshCredentials } from './credentials.util';
 import { getHealthProbe } from './health-probe';
 
 /** Statuses considered "live" — the only ones health signals act on. */
@@ -48,6 +49,8 @@ export class ConnectorHealthService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     config: ConfigService,
+    @Inject(forwardRef(() => ConnectorTokenService))
+    private readonly tokens: ConnectorTokenService,
   ) {
     const mode = (config.get<string>('SKILL_EXECUTOR') ?? 'mock').toLowerCase();
     this.liveProbes = mode === 'real' || mode === 'auto';
@@ -239,7 +242,12 @@ export class ConnectorHealthService {
     if (!this.liveProbes) {
       return { healthy: true, mock: true };
     }
-    const creds = readCredentials(this.crypto, connector.credentials);
+    const creds = await resolveFreshCredentials(
+      this.tokens,
+      connector,
+      readCredentials(this.crypto, connector.credentials),
+      (msg) => this.logger.warn(`Token refresh failed for connector ${connector.id}: ${msg}`),
+    );
     const config = (connector.config as Record<string, unknown> | null) ?? {};
     try {
       return await getHealthProbe(connector.skillKey).probe(creds, config);

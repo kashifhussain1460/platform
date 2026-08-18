@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { InstalledSkill } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service';
@@ -54,6 +54,7 @@ export class ConnectorTokenService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly config: ConfigService,
+    @Inject(forwardRef(() => ConnectorHealthService))
     private readonly health: ConnectorHealthService,
     @Inject(CONNECTOR_FETCH) private readonly fetchImpl: FetchLike,
     private readonly metrics: MetricsRegistry,
