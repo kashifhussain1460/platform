@@ -203,6 +203,36 @@ which auto-runs the moment the OAuth callback returns control to the app (same
 `GET /skills/installed/:id/oauth/authorize` unchanged; only what happens *after* the callback changes
 (the wizard now has something real to show).
 
+## UI addition: universal Settings popup wizard
+
+Added scope (2026-08-18, same day, user request): today `InstalledSkillList.tsx` splits configuration
+across two inline-expanding affordances — the gear "Configure" icon (`ActionIconButton`, opens
+`ConfigureSkillForm` inline) and, only for `WIZARD_SKILLS` (`email` alone today), a separate primary
+button that opens `SkillSetupWizard` inline. This unifies them: **every** installed skill's gear icon
+(and its primary action button) opens the **same** `SkillSetupWizard`, in a **popup**, using the
+existing `Modal` component (`components/ui/Modal.tsx` — focus-trapped, portaled, Esc/backdrop-close,
+already used elsewhere in the app; size `lg`). `WIZARD_SKILLS`'s allow-list is removed.
+
+This is not just a wrapper change. `SkillSetupWizard`'s `verify` stage has no escape hatch today: when
+`verifyConnection()` hits its no-adapter early return (`skills.service.ts:989-1003`, a single SKIPPED
+step, `result.ok` always `false`), the wizard's `run()` (`SkillSetupWizard.tsx:61-73`) never advances
+past `verify` — exactly why the allow-list existed. Two small, targeted changes fix this:
+
+1. **Backend**: `verifyConnection()`'s response (and `VerifyConnectionDto`) gains `adapterAvailable:
+   boolean` — `Boolean(getProviderAdapter(installed.skillKey))`, computed where the existing early
+   return already knows this.
+2. **Frontend**: when `adapterAvailable === false`, the `verify` stage renders an honest "Orlixa can't
+   automatically verify this provider yet — your settings are saved" message with a **Continue** action
+   that advances to `done` **without** calling `run()` again (never a fake PASSED step). The `done`
+   stage's copy branches on whether a real verification actually ran: `"{name} is connected as
+   {account}"` when it did, vs. `"{name} is set up. Automatic verification isn't available for this
+   provider yet."` when it didn't. `ConfigureSkillForm` (the `details` stage) and the `test` stage's
+   existing "Skip the test" escape are already generic and need no change.
+
+Out of scope for this addition: changing what `ConfigureSkillForm` renders per-field (unchanged,
+already data-driven off `configSchema`); removing the primary connect button (kept as a second entry
+point into the same modal, not replaced).
+
 ## Explicitly out of scope for this wave
 
 - Microsoft 365/Outlook (§9) — does not exist as a provider anywhere in the codebase today; separate
@@ -243,3 +273,8 @@ which auto-runs the moment the OAuth callback returns control to the app (same
   `users:read.email`) reports `INSUFFICIENT_SCOPE` specifically on the test action, while
   `validateCredentials`/`healthCheck`/normal `send_message` execution are unaffected — proving the new
   scope only gates the one capability that needs it, not the whole connection.
+- Unit: `verifyConnection()` — `adapterAvailable` is `true` for an adapter-backed skill, `false` for one
+  without (regression pin covering hubspot/jira/stripe/etc.).
+- Browser: open the popup for a no-adapter skill (e.g. Stripe) end-to-end — verify stage shows the
+  honest "can't auto-verify yet" message with a working Continue action, and the done stage never
+  claims a connection was verified.
