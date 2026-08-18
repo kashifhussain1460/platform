@@ -61,3 +61,40 @@ export function credString(
   }
   return '';
 }
+
+/** The one method `resolveFreshCredentials` needs — satisfied by `ConnectorTokenService` as-is. */
+export interface AccessTokenResolver {
+  getAccessToken(installedSkillId: string): Promise<string>;
+}
+
+/**
+ * Refresh an OAuth connector's access token if it's near/passed expiry, and
+ * return credentials with the fresh value spliced in. Extracted from
+ * `SkillsService.resolveExecutorContext` (the tool-execution path already did
+ * this) so `verifyConnection` and the health-check sweep get the SAME
+ * guarantee: neither should report a perfectly valid connection as broken just
+ * because the last real tool call was over an hour ago.
+ *
+ * Non-oauth connectors, and oauth connectors with no refresh token, are
+ * returned unchanged — mirrors the existing tool-execution check exactly.
+ */
+export async function resolveFreshCredentials(
+  tokens: AccessTokenResolver,
+  installed: { id: string; connectionType: string | null },
+  credentials: Record<string, unknown>,
+  onRefreshError?: (message: string) => void,
+): Promise<Record<string, unknown>> {
+  const hasRefreshToken = Boolean(credString(credentials, 'refreshToken', 'refresh_token'));
+  if (installed.connectionType !== 'oauth' || !hasRefreshToken) {
+    return credentials;
+  }
+  try {
+    const fresh = await tokens.getAccessToken(installed.id);
+    if (fresh) {
+      return { ...credentials, accessToken: fresh };
+    }
+  } catch (err) {
+    onRefreshError?.(err instanceof Error ? err.message : String(err));
+  }
+  return credentials;
+}

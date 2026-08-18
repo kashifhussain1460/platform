@@ -41,6 +41,7 @@ import { ConnectorTokenService } from './connectors/connector-token.service';
 import {
   credString,
   readCredentials as decryptCreds,
+  resolveFreshCredentials,
   sealCredentials as encryptCreds,
 } from './connectors/credentials.util';
 import { ConfigureSkillDto } from './dto/configure-skill.dto';
@@ -809,31 +810,12 @@ export class SkillsService {
     if (!installed) {
       return ctx;
     }
-    const credentials = this.readCredentials(installed.credentials);
-    // OAuth egress uses a FRESH access token: when the connector has a refresh
-    // token and its cached expiry is near/passed, ConnectorTokenService renews it
-    // (single-flight) and persists the new token. API-key connectors are
-    // unaffected (no refresh token → the stored value is used as-is).
-    if (
-      installed.connectionType === 'oauth' &&
-      credString(credentials, 'refreshToken', 'refresh_token')
-    ) {
-      try {
-        const fresh = await this.tokens.getAccessToken(installed.id);
-        if (fresh) {
-          credentials.accessToken = fresh;
-        }
-      } catch (err) {
-        // Refresh failed (revoked → ConnectorTokenService already flipped the
-        // connector DISCONNECTED; or a provider misconfig). Leave creds as-is: the
-        // executor surfaces the auth error and dependent workflows quarantine.
-        this.logger.warn(
-          `Token refresh failed for connector ${installed.id} (${skillKey}): ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-    }
+    const credentials = await resolveFreshCredentials(
+      this.tokens,
+      installed,
+      this.readCredentials(installed.credentials),
+      (msg) => this.logger.warn(`Token refresh failed for connector ${installed.id} (${skillKey}): ${msg}`),
+    );
     return {
       ...ctx,
       installedSkillId: installed.id,
