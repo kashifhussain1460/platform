@@ -1,5 +1,6 @@
 import { registerProviderAdapter } from './provider-adapter';
 import { smtpAdapter } from './smtp.adapter';
+import { gmailAdapter } from './gmail.adapter';
 
 /**
  * Provider adapter registration (plan §28/§36).
@@ -13,6 +14,7 @@ import { smtpAdapter } from './smtp.adapter';
  * has no way to check, which is worse than the permissive path it replaces.
  */
 registerProviderAdapter(smtpAdapter);
+registerProviderAdapter(gmailAdapter);
 
 export * from './provider-adapter';
 export { smtpAdapter, resolveSmtpSettings, SMTP_FIELDS } from './smtp.adapter';
