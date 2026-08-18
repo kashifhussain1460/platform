@@ -106,8 +106,14 @@ export interface SkillProviderAdapter {
    * §3 TESTING — a real, non-destructive action proving the connection works
    * end to end. An adapter whose only test would have a side effect (sending
    * mail to a stranger) must require the caller to opt in via `opts`.
+   *
+   * `to` is an explicit override; `requesterEmail` is the connecting user's own
+   * account email, always supplied by the caller — a provider with no notion of
+   * "the connection's own address" (Slack) uses it as its natural default,
+   * providers that DO have one (email, Gmail) ignore it and keep defaulting to
+   * themselves.
    */
-  test?(input: AdapterInput, opts?: { to?: string }): Promise<AdapterCheck>;
+  test?(input: AdapterInput, opts?: { to?: string; requesterEmail?: string }): Promise<AdapterCheck>;
 
   /**
    * §3 CONFIGURING_INBOUND — can this connection RECEIVE?
@@ -164,7 +170,7 @@ export function adapterKeys(): string[] {
 export async function runVerification(
   adapter: SkillProviderAdapter,
   input: AdapterInput,
-  opts: { includeTest: boolean; testTo?: string } = { includeTest: false },
+  opts: { includeTest: boolean; testTo?: string; requesterEmail?: string } = { includeTest: false },
 ): Promise<{
   ok: boolean;
   steps: VerifyStep[];
@@ -258,7 +264,7 @@ export async function runVerification(
     });
   } else {
     const tested = await safely(
-      () => adapter.test!(input, { to: opts.testTo }),
+      () => adapter.test!(input, { to: opts.testTo, requesterEmail: opts.requesterEmail }),
       adapter,
     );
     steps.push({

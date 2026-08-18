@@ -956,7 +956,7 @@ export class SkillsService {
   async verifyConnection(
     companyId: string,
     id: string,
-    opts: { includeTest?: boolean; testTo?: string } = {},
+    opts: { includeTest?: boolean; testTo?: string; requesterEmail?: string } = {},
   ): Promise<{
     ok: boolean;
     steps: VerifyStep[];
@@ -999,6 +999,7 @@ export class SkillsService {
     const result = await runVerification(adapter, input, {
       includeTest: Boolean(opts.includeTest),
       testTo: opts.testTo,
+      requesterEmail: opts.requesterEmail,
     });
 
     // The verification IS the status. A pass promotes the connector to
