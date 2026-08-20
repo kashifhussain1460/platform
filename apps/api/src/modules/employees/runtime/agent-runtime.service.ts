@@ -28,6 +28,8 @@ import {
   CreditLimitsService,
   EmployeeBudgetExceededError,
   WorkflowLimitExceededError,
+  EmployeeExecutionCeilingExceededError,
+  EmployeeTaskCeilingExceededError,
 } from '../../credits/credit-limits.service';
 import { CompanyConcurrencyGuardService } from '../../credits/company-concurrency-guard.service';
 import {
@@ -412,7 +414,11 @@ export class AgentRuntimeService {
               costKind: 'EXECUTION',
             });
           } catch (err) {
-            if (err instanceof EmployeeBudgetExceededError) {
+            if (
+              err instanceof EmployeeBudgetExceededError ||
+              err instanceof EmployeeExecutionCeilingExceededError ||
+              err instanceof EmployeeTaskCeilingExceededError
+            ) {
               throw new ConflictException(`${employee.name} ${err.message}`);
             }
             throw err;

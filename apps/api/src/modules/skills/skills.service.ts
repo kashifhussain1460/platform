@@ -38,6 +38,8 @@ import {
   CreditLimitsService,
   EmployeeBudgetExceededError,
   WorkflowLimitExceededError,
+  EmployeeExecutionCeilingExceededError,
+  EmployeeTaskCeilingExceededError,
 } from '../credits/credit-limits.service';
 import { CreditReservationService } from '../credits/credit-reservation.service';
 import { CompanyConcurrencyGuardService } from '../credits/company-concurrency-guard.service';
@@ -713,7 +715,11 @@ export class SkillsService {
           } catch (err) {
             if (err instanceof EmployeeBudgetExceededError) {
               enforcementBlockedError = `This employee ${err.message}`;
-            } else if (err instanceof WorkflowLimitExceededError) {
+            } else if (
+              err instanceof WorkflowLimitExceededError ||
+              err instanceof EmployeeExecutionCeilingExceededError ||
+              err instanceof EmployeeTaskCeilingExceededError
+            ) {
               enforcementBlockedError = err.message;
             } else {
               throw err;

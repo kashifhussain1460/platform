@@ -15,6 +15,8 @@ import {
   CreditLimitsService,
   EmployeeBudgetExceededError,
   WorkflowLimitExceededError,
+  EmployeeExecutionCeilingExceededError,
+  EmployeeTaskCeilingExceededError,
 } from '../../../credits/credit-limits.service';
 import { CreditReservationService } from '../../../credits/credit-reservation.service';
 import { CompanyConcurrencyGuardService } from '../../../credits/company-concurrency-guard.service';
@@ -186,7 +188,9 @@ export class AiStepNodeHandler implements NodeHandler {
         // step" contract).
         if (
           err instanceof EmployeeBudgetExceededError ||
-          err instanceof WorkflowLimitExceededError
+          err instanceof WorkflowLimitExceededError ||
+          err instanceof EmployeeExecutionCeilingExceededError ||
+          err instanceof EmployeeTaskCeilingExceededError
         ) {
           throw err;
         }
