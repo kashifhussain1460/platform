@@ -18,6 +18,32 @@ describe('RetryPolicyService (P1-05)', () => {
       ['CONDITION expected a number but got "around 85"', 'VALIDATION_ERROR', false],
       ['Emma has reached its monthly budget limit', 'BUDGET_EXCEEDED', false],
       ['Subscription is past due — workflow execution is paused', 'SUBSCRIPTION_BLOCKED', false],
+      // Gap fix: the TOOL_ACTION path re-wraps a runTool() ok:false into a
+      // plain Error (tool-action.handler.ts), losing the typed
+      // InsufficientCreditsError/WorkflowLimitExceededError classes the
+      // instanceof checks above rely on — these two messages are the exact
+      // text those wrapped errors carry, and previously fell through to the
+      // default (retryable) NODE_ERROR.
+      [
+        'Tool postiz/schedule_post did not succeed: This company has run out of credits. An owner or admin needs to add more credits before this can continue.',
+        'INSUFFICIENT_CREDITS',
+        false,
+      ],
+      [
+        'Tool postiz/schedule_post did not succeed: This workflow run has reached its configured credit limit.',
+        'WORKFLOW_LIMIT_EXCEEDED',
+        false,
+      ],
+      [
+        'Tool postiz/schedule_post did not succeed: would cost 75 credits, over its configured per-execution ceiling of 50 — lower the request\'s scope or raise the employee\'s "Max credits / execution" setting.',
+        'EMPLOYEE_EXECUTION_CEILING_EXCEEDED',
+        false,
+      ],
+      [
+        'Tool postiz/schedule_post did not succeed: This task would cost 11 credits, over this employee\'s configured per-task ceiling of 10.',
+        'EMPLOYEE_TASK_CEILING_EXCEEDED',
+        false,
+      ],
       ['Something exploded', 'NODE_ERROR', true],
     ])('%s → %s (retryable: %s)', (message, expectedClass, retryable) => {
       const decision = retry.classify(new Error(message), 1);

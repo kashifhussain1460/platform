@@ -30,6 +30,17 @@ import { CircuitBreakerRegistry } from '../../common/resilience/circuit-breaker.
 import { CircuitOpenError } from '../../common/resilience/circuit-breaker';
 import { RateLimiter } from '../../common/resilience/rate-limiter';
 import { countsTowardCircuit } from '../../common/resilience/error-classifier';
+import { randomUUID } from 'node:crypto';
+import { companyEnforcementActive, creditLedgerEnabled } from '../../common/config/credit-config';
+import { CreditCostCalculatorService } from '../credits/credit-cost-calculator.service';
+import { InsufficientCreditsError } from '../credits/credit-ledger.service';
+import {
+  CreditLimitsService,
+  EmployeeBudgetExceededError,
+  WorkflowLimitExceededError,
+} from '../credits/credit-limits.service';
+import { CreditReservationService } from '../credits/credit-reservation.service';
+import { CompanyConcurrencyGuardService } from '../credits/company-concurrency-guard.service';
 import { SkillCatalog, type SkillDefinition } from './catalog';
 import {
   getProviderAdapter,
@@ -38,6 +49,14 @@ import {
 } from './providers';
 import { ConnectorHealthService } from './connectors/connector-health.service';
 import { ConnectorTokenService } from './connectors/connector-token.service';
+
+/**
+ * C-07: skills whose client already extends ResilientClientBase and wraps
+ * its own outbound calls (PostizClientService, ChatwootClientService) — see
+ * skills.service.ts's runTool for why SkillsService's own generic,
+ * installedSkillId-keyed wrap must NOT also apply to these.
+ */
+const SELF_WRAPPED_SKILL_KEYS = new Set(['postiz', 'chatwoot']);
 import {
   credString,
   readCredentials as decryptCreds,
@@ -86,6 +105,12 @@ export class SkillsService {
     private readonly metrics: MetricsRegistry,
     // WAVE 3 §3.6 — "may we contact this person?", enforced for every tool.
     private readonly suppression: SuppressionService,
+    // Credit system Phase 3, Task 3.2 — the real cost meter for this choke point.
+    private readonly costCalculator: CreditCostCalculatorService,
+    // Credit system Phase 3, Task 3.5 — reserve/settle/release around the real call.
+    private readonly reservations: CreditReservationService,
+    private readonly creditLimits: CreditLimitsService,
+    private readonly concurrencyGuard: CompanyConcurrencyGuardService,
   ) {}
 
   // --- Catalog -------------------------------------------------------------
@@ -543,7 +568,39 @@ export class SkillsService {
     tool: string,
     args: Record<string, unknown>,
   ): Promise<ToolCallDto> {
+    // Gap fix (Task 10.5) — same per-company in-flight cap as chat and
+    // AI_STEP; this is the third real entry point (TOOL_ACTION) that was
+    // never wired. `runTool()`'s own contract is "never throws" — a
+    // rejection here is an `ok:false` outcome, matching the enforcement
+    // layers' own shape, not a thrown error.
+    if (!(await this.concurrencyGuard.tryAcquire(ctx.companyId))) {
+      return {
+        skillKey,
+        tool,
+        args,
+        result: null,
+        ok: false,
+        error: 'Too many requests are already in flight for this company — please wait for one to finish and try again.',
+      };
+    }
+    try {
+      return await this.runToolWithinConcurrencyLimit(ctx, skillKey, tool, args);
+    } finally {
+      await this.concurrencyGuard.release(ctx.companyId);
+    }
+  }
+
+  private async runToolWithinConcurrencyLimit(
+    ctx: ExecutorContext,
+    skillKey: string,
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<ToolCallDto> {
     const safeArgs = (args ?? {}) as Record<string, unknown>;
+    // Computed once, inside the real-execution branch below (Task 3.5) — a
+    // blocked call (suppressed/unknown/unauthorized) never reaches that
+    // branch and is priced at zero for SkillExecution.creditsUsed (Task 3.2).
+    let priced: { credits: number; toolCostRateId: string | null } | undefined;
     // WAVE 5 §5.3 — provider latency covers the WHOLE tool call, including
     // credential resolution and the circuit breaker, because that is what the
     // caller actually waits for. Timing only the fetch would understate it.
@@ -606,36 +663,172 @@ export class SkillsService {
       for (const v of Object.values(execCtx.credentials ?? {})) {
         if (typeof v === 'string') secretMaskValues.push(v);
       }
-      // Resilience (Unit C, docs §9): wrap ONLY real/auto provider calls against a
-      // resolved connector with the per-connector circuit breaker + rate limiter.
-      // The mock path (usesInstalledCredentials falsy) and connector-less calls run
-      // UNWRAPPED, so the offline suite is never throttled or circuit-broken.
-      const connectorId = this.executor.usesInstalledCredentials
-        ? (execCtx.installedSkillId ?? null)
-        : null;
-      if (connectorId) {
-        outcome = await this.runGuardedEgress(
-          connectorId,
-          skillKey,
-          tool,
-          safeArgs,
-          execCtx,
-        );
+
+      // Credit system Phase 3, Task 3.5 — reservation between the approval
+      // gate (already resolved by the caller before runTool was ever
+      // invoked) and the real provider call below. Priced FIRST via
+      // priceToolCall's flat per-call rate: a tool call's actual cost is
+      // never usage-dependent (unlike an LLM completion), so "estimated" and
+      // "actual" are always the same number here — settle() still runs
+      // through the normal reserve→settle lifecycle rather than a direct
+      // DEBIT, for one consistent shape across every reservation-backed spend
+      // path. A tool with no real cost (priced.credits===0, the overwhelming
+      // majority — mock-only tools) skips reservation entirely, per
+      // priceToolCall's own contract: never append a zero-amount, no-rate-id
+      // DEBIT for a free action.
+      let reservationId: string | null = null;
+      let enforcementBlockedError: string | null = null;
+      priced = await this.costCalculator.priceToolCall({ skillKey, tool });
+      if (creditLedgerEnabled() && priced.credits > 0) {
+        // Phase 8 (Enforcement), Task 8.3 — this method's own "never
+        // throws" contract means an enforcement rejection here becomes an
+        // `ok:false` outcome, not a thrown error. `runTool` is shared by
+        // both chat (ToolExecutorService surfaces `error` to the user) and
+        // TOOL_ACTION (`tool-action.handler.ts` wraps `!ok` into a plain
+        // Error, classified by RetryPolicyService's message-pattern
+        // fallback — the typed error classes don't survive that
+        // re-wrapping, unlike the AI_STEP/chat paths which throw directly).
+        const companyRow = await this.prisma.company.findFirst({
+          where: { id: ctx.companyId },
+          select: { creditEnforcementEnabledAt: true },
+        });
+        const enforcementActive = companyRow ? companyEnforcementActive(companyRow) : false;
+        if (enforcementActive) {
+          try {
+            if (ctx.employeeId) {
+              await this.creditLimits.checkAndReserveEmployeeBudget({
+                employeeId: ctx.employeeId,
+                companyId: ctx.companyId,
+                cost: priced.credits,
+                costKind: 'TASK',
+              });
+            }
+            if (ctx.workflowRunId) {
+              await this.creditLimits.checkAndReserveWorkflowLimit({
+                workflowRunId: ctx.workflowRunId,
+                companyId: ctx.companyId,
+                cost: priced.credits,
+              });
+            }
+          } catch (err) {
+            if (err instanceof EmployeeBudgetExceededError) {
+              enforcementBlockedError = `This employee ${err.message}`;
+            } else if (err instanceof WorkflowLimitExceededError) {
+              enforcementBlockedError = err.message;
+            } else {
+              throw err;
+            }
+          }
+        }
+
+        if (!enforcementBlockedError) {
+          try {
+            const { reservation } = await this.reservations.reserve({
+              companyId: ctx.companyId,
+              employeeId: ctx.employeeId ?? null,
+              workflowRunId: ctx.workflowRunId ?? null,
+              workflowStepRunId: ctx.workflowStepRunId ?? null,
+              conversationId: ctx.conversationId ?? null,
+              // No natural, stable per-call id exists on the chat/manual path
+              // (unlike a workflow step, which is keyed above) — nothing in
+              // this codebase retries a specific tool call by identity, so a
+              // fresh key per attempt is correct, not a dedup gap.
+              messageIdempotencyKey: ctx.workflowStepRunId ? null : randomUUID(),
+              resourceType: 'TOOL_CALL',
+              estimatedCredits: priced.credits,
+              toolCostRateId: priced.toolCostRateId,
+              reason: `${skillKey}.${tool}`,
+            });
+            reservationId = reservation.id;
+          } catch (err) {
+            // Phase 8 — Layer 1: with enforcement active, a genuine
+            // insufficient-balance rejection blocks the call outright.
+            if (enforcementActive && err instanceof InsufficientCreditsError) {
+              enforcementBlockedError =
+                'This company has run out of credits. An owner or admin needs to add more credits before this can continue.';
+            } else {
+              // Shadow mode (or any other credit-service hiccup): never
+              // break a real tool call.
+              this.logger.warn(
+                `credit reservation failed (shadow mode, ignored): ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            }
+          }
+        }
+      }
+
+      if (enforcementBlockedError) {
+        outcome = { ok: false, error: enforcementBlockedError };
       } else {
-        try {
-          outcome = await this.executor.execute(
+        // Resilience (Unit C, docs §9): wrap ONLY real/auto provider calls against a
+        // resolved connector with the per-connector circuit breaker + rate limiter.
+        // The mock path (usesInstalledCredentials falsy) and connector-less calls run
+        // UNWRAPPED, so the offline suite is never throttled or circuit-broken.
+        //
+        // C-07: postiz/chatwoot are excluded here — their clients now wrap
+        // themselves (ResilientClientBase), keyed on the identity that's
+        // actually correct for each (one global key for Postiz's single shared
+        // instance, one per-company key for Chatwoot's per-tenant instance).
+        // This generic `installedSkillId`-keyed wrap would use the WRONG
+        // identity for both (per-company for Postiz, which needs global; a
+        // possibly-absent InstalledSkill for a bare workflow TOOL_ACTION) and
+        // would double-wrap on top of the client's own guard.
+        const connectorId =
+          this.executor.usesInstalledCredentials && !SELF_WRAPPED_SKILL_KEYS.has(skillKey)
+            ? (execCtx.installedSkillId ?? null)
+            : null;
+        if (connectorId) {
+          outcome = await this.runGuardedEgress(
+            connectorId,
             skillKey,
             tool,
             safeArgs,
             execCtx,
           );
-        } catch (err) {
-          outcome = {
-            ok: false,
-            error: err instanceof Error ? err.message : 'Tool execution failed',
-          };
+        } else {
+          try {
+            outcome = await this.executor.execute(
+              skillKey,
+              tool,
+              safeArgs,
+              execCtx,
+            );
+          } catch (err) {
+            outcome = {
+              ok: false,
+              error: err instanceof Error ? err.message : 'Tool execution failed',
+            };
+          }
         }
       }
+
+      if (reservationId) {
+        try {
+          if (outcome.ok) {
+            await this.reservations.settle({
+              reservationId,
+              companyId: ctx.companyId,
+              actualCredits: priced.credits,
+              toolCostRateId: priced.toolCostRateId,
+            });
+          } else {
+            await this.reservations.release({
+              reservationId,
+              companyId: ctx.companyId,
+              reason: `${skillKey}.${tool} did not succeed`,
+            });
+          }
+        } catch (err) {
+          this.logger.warn(
+            `credit settle/release failed (shadow mode, ignored): ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+
       // Passive connector health signal (docs §1.8): a real egress outcome feeds
       // the state machine. No-op when the skill isn't installed as a connector or
       // isn't live; never breaks the tool call (health tracking is best-effort).
@@ -672,6 +865,14 @@ export class SkillsService {
       );
     }
 
+    const durationMs = Date.now() - startedAt;
+    // Credit system Phase 3, Task 3.2 — `priced` was already computed above
+    // (Task 3.5) for any call that reached the real-execution branch. A call
+    // blocked before that branch (suppressed/unknown/unauthorized) never
+    // incurred a cost, so it is metered at zero rather than charging for a
+    // call that did not happen.
+    const meteredPrice = priced ?? { credits: 0, toolCostRateId: null };
+
     const execution = await this.prisma.skillExecution.create({
       data: {
         companyId: ctx.companyId,
@@ -686,6 +887,8 @@ export class SkillsService {
             : (safeResult as Prisma.InputJsonValue),
         status: outcome.ok ? 'SUCCESS' : 'ERROR',
         error: typeof safeError === 'string' ? safeError : null,
+        durationMs,
+        creditsUsed: meteredPrice.credits > 0 ? meteredPrice.credits : null,
       },
     });
 

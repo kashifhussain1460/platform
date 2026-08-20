@@ -4,6 +4,13 @@ import {
   RETRY_CAP_MS,
   RETRY_MAX_ATTEMPTS,
 } from './workflow-runtime.constants';
+import { InsufficientCreditsError } from '../credits/credit-ledger.service';
+import {
+  EmployeeBudgetExceededError,
+  WorkflowLimitExceededError,
+  EmployeeExecutionCeilingExceededError,
+  EmployeeTaskCeilingExceededError,
+} from '../credits/credit-limits.service';
 
 /** Why a run/step failed — mirrors RunFailureClass (doc 00 §0.7.1). */
 export type FailureClass =
@@ -18,6 +25,15 @@ export type FailureClass =
   | 'CANCELLED'
   | 'INTERNAL'
   | 'AUTHORIZATION_DENIED'
+  /** Phase 8 (Enforcement), Task 8.3 — Layer 1: the company's credit balance is exhausted. */
+  | 'INSUFFICIENT_CREDITS'
+  /** Phase 8, Task 8.3 — Layer 2: this employee's own monthly credit budget is exhausted. */
+  | 'EMPLOYEE_BUDGET_EXCEEDED'
+  /** Phase 8, Task 8.3 — Layer 3: this workflow run's own configured credit cap is exhausted. */
+  | 'WORKFLOW_LIMIT_EXCEEDED'
+  /** Kill-critic gap fix (2026-08-20, round 2) — a single execution/task cost more than the employee's own configured ceiling, independent of the monthly budget. */
+  | 'EMPLOYEE_EXECUTION_CEILING_EXCEEDED'
+  | 'EMPLOYEE_TASK_CEILING_EXCEEDED'
   /**
    * WAVE 2 — the worker died between the side effect and its bookkeeping
    * commit, so whether the external action happened is genuinely unknown.
@@ -121,6 +137,11 @@ export class RetryPolicyService {
       case 'CANCELLED':
       case 'INTERNAL':
       case 'OUTCOME_UNKNOWN':
+      case 'INSUFFICIENT_CREDITS':
+      case 'EMPLOYEE_BUDGET_EXCEEDED':
+      case 'WORKFLOW_LIMIT_EXCEEDED':
+      case 'EMPLOYEE_EXECUTION_CEILING_EXCEEDED':
+      case 'EMPLOYEE_TASK_CEILING_EXCEEDED':
         return false;
       default:
         return false;
@@ -128,6 +149,18 @@ export class RetryPolicyService {
   }
 
   private classifyError(error: unknown): FailureClass {
+    // Phase 8, Task 8.3 — checked by TYPE, not message text, before the
+    // string-matching fallback below: Layer 2's message is deliberately
+    // VERBATIM-identical to the pre-existing dollar-based budget check's
+    // text (§35.5's "must not be replaced" rule), so a message-substring
+    // classifier alone could never tell the two apart. `instanceof` has no
+    // such ambiguity.
+    if (error instanceof InsufficientCreditsError) return 'INSUFFICIENT_CREDITS';
+    if (error instanceof EmployeeBudgetExceededError) return 'EMPLOYEE_BUDGET_EXCEEDED';
+    if (error instanceof WorkflowLimitExceededError) return 'WORKFLOW_LIMIT_EXCEEDED';
+    if (error instanceof EmployeeExecutionCeilingExceededError) return 'EMPLOYEE_EXECUTION_CEILING_EXCEEDED';
+    if (error instanceof EmployeeTaskCeilingExceededError) return 'EMPLOYEE_TASK_CEILING_EXCEEDED';
+
     const message =
       error instanceof Error ? error.message : String(error ?? 'unknown');
     const lower = message.toLowerCase();
@@ -144,6 +177,28 @@ export class RetryPolicyService {
     }
     if (lower.includes('budget limit')) {
       return 'BUDGET_EXCEEDED';
+    }
+    // Phase 8/13 gap fix — the TOOL_ACTION path (tool-action.handler.ts)
+    // re-wraps a runTool() `ok:false` into a plain `Error`, which loses the
+    // typed `InsufficientCreditsError`/`WorkflowLimitExceededError` classes
+    // the `instanceof` checks above rely on. Layer 2's text happens to match
+    // 'budget limit' above by coincidence of reusing the old dollar-check
+    // phrasing; Layer 1 and Layer 3 had no matching pattern at all, so both
+    // fell through to the default NODE_ERROR (retryable) — meaning a
+    // TOOL_ACTION blocked for zero company balance, or for hitting its
+    // workflow's credit cap, was retried with backoff instead of failing
+    // fast on a condition retrying cannot fix.
+    if (lower.includes('run out of credits')) {
+      return 'INSUFFICIENT_CREDITS';
+    }
+    if (lower.includes('configured credit limit')) {
+      return 'WORKFLOW_LIMIT_EXCEEDED';
+    }
+    if (lower.includes('per-execution ceiling')) {
+      return 'EMPLOYEE_EXECUTION_CEILING_EXCEEDED';
+    }
+    if (lower.includes('per-task ceiling')) {
+      return 'EMPLOYEE_TASK_CEILING_EXCEEDED';
     }
     if (lower.includes('subscription is')) {
       return 'SUBSCRIPTION_BLOCKED';
