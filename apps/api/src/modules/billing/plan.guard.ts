@@ -46,6 +46,11 @@ export class PlanGuard implements CanActivate {
       throw new ForbiddenException('No authenticated company for this request');
     }
     const subscription = await this.billing.getSubscription(companyId);
+    if (subscription.status !== 'ACTIVE') {
+      throw new ForbiddenException(
+        `Your subscription is ${subscription.status.replace('_', ' ').toLowerCase()} — resolve billing before using this feature.`,
+      );
+    }
     if (!allowed.includes(subscription.plan)) {
       throw new ForbiddenException(
         `This feature requires the ${allowed.join(' or ')} plan`,

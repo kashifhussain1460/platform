@@ -28,7 +28,7 @@ describe('PlanGuard', () => {
       getAllAndOverride: () => ['BUSINESS', 'ENTERPRISE'],
     } as unknown as Reflector;
     const billing = {
-      getSubscription: jest.fn().mockResolvedValue({ plan: 'STARTER' } as SubscriptionDto),
+      getSubscription: jest.fn().mockResolvedValue({ plan: 'STARTER', status: 'ACTIVE' } as SubscriptionDto),
     } as unknown as BillingService;
     const guard = new PlanGuard(reflector, billing);
 
@@ -40,10 +40,24 @@ describe('PlanGuard', () => {
       getAllAndOverride: () => ['BUSINESS', 'ENTERPRISE'],
     } as unknown as Reflector;
     const billing = {
-      getSubscription: jest.fn().mockResolvedValue({ plan: 'BUSINESS' } as SubscriptionDto),
+      getSubscription: jest.fn().mockResolvedValue({ plan: 'BUSINESS', status: 'ACTIVE' } as SubscriptionDto),
     } as unknown as BillingService;
     const guard = new PlanGuard(reflector, billing);
 
     await expect(guard.canActivate(makeContext('co_1'))).resolves.toBe(true);
+  });
+
+  it('throws ForbiddenException for a PAST_DUE company even when its plan matches', async () => {
+    const reflector = {
+      getAllAndOverride: () => ['BUSINESS', 'ENTERPRISE'],
+    } as unknown as Reflector;
+    const billing = {
+      getSubscription: jest
+        .fn()
+        .mockResolvedValue({ plan: 'BUSINESS', status: 'PAST_DUE' } as SubscriptionDto),
+    } as unknown as BillingService;
+    const guard = new PlanGuard(reflector, billing);
+
+    await expect(guard.canActivate(makeContext('co_1'))).rejects.toThrow(ForbiddenException);
   });
 });
