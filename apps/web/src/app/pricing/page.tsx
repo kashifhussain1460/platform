@@ -1,24 +1,30 @@
-import type { Metadata } from 'next';
 import { Tag } from 'lucide-react';
 import { DarkNav } from '@/components/marketing-dark/DarkNav';
+import { HeroGlow } from '@/components/marketing-dark/HeroGlow';
 import { DarkHl } from '@/components/marketing-dark/DarkSectionHeading';
 import { PricingPlans } from '@/components/marketing-dark/PricingPlans';
-import { PricingFaq } from '@/components/marketing-dark/PricingFaq';
+import { PricingFaq, FAQS } from '@/components/marketing-dark/PricingFaq';
 import { SiteFooter } from '@/components/marketing-dark/SiteFooter';
+import { buildMetadata } from '@/lib/seo';
+import { JsonLd, breadcrumbSchema, faqPageSchema } from '@/lib/jsonld';
 
-export const metadata: Metadata = {
+export const metadata = buildMetadata({
   title: 'Pricing — Orlixa',
   description:
     'Plans for individuals, small teams, growing departments and large organizations. Every plan includes the platform, workflow automation and the AI Employee marketplace.',
-};
+  path: '/pricing',
+});
 
 export default function PricingPage() {
   return (
     <div className="font-marketing min-h-screen overflow-x-hidden bg-dark-hero">
+      <JsonLd data={breadcrumbSchema([{ name: 'Home', path: '/' }, { name: 'Pricing', path: '/pricing' }])} />
+      <JsonLd data={faqPageSchema(FAQS)} />
       <DarkNav />
 
-      <section className="px-6 pb-4 pt-10 sm:pt-16">
-        <div className="mx-auto max-w-3xl text-center">
+      <section className="relative overflow-hidden px-6 pb-4 pt-10 sm:pt-16">
+        <HeroGlow />
+        <div className="relative z-10 mx-auto max-w-3xl text-center">
           <span className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3.5 py-1.5 text-[13px] text-zinc-300">
             <Tag className="h-3.5 w-3.5 text-violet-secondary" aria-hidden />
             Simple, transparent pricing

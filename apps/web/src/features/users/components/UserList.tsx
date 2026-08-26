@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { useCurrentUser } from '@/features/auth/hooks';
+import { useDepartments } from '@/features/organization/hooks';
+import { formatScope } from '@/features/organization/labels';
 import {
   useCanManageUsers,
   useCurrentRole,
@@ -27,6 +29,8 @@ export function UserList() {
   const { data: me } = useCurrentUser();
   const canManage = useCanManageUsers();
   const callerRole = useCurrentRole();
+  // Any member may read the department list, so this needs no extra gating.
+  const { data: departments } = useDepartments();
   const update = useUpdateUser();
   const del = useDeleteUser();
   const [query, setQuery] = useState('');
@@ -88,6 +92,7 @@ export function UserList() {
             <tr>
               <th className="px-4 py-3">Member</th>
               <th className="px-4 py-3">Role</th>
+              <th className="px-4 py-3">Department</th>
               <th className="px-4 py-3">Status</th>
               {canManage && <th className="px-4 py-3 text-right">Actions</th>}
             </tr>
@@ -144,6 +149,50 @@ export function UserList() {
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${ROLE_BADGE[u.role]}`}
                       >
                         {ROLE_LABEL[u.role]}
+                      </span>
+                    )}
+                  </td>
+
+                  {/*
+                    Department placement — the control that was missing.
+
+                    `User.departmentId` has been in the schema, in the update
+                    DTO and in the authorization policy since WAVE 2, and there
+                    was no input for it anywhere in the product. That single
+                    gap is what made department-scoped authorization, DEPARTMENT
+                    approval routing and DEPARTMENT workflow permissions all
+                    unreachable: none of them can resolve for a user who is in
+                    no department, and nobody could put a user in one.
+
+                    The backend validates that the department belongs to this
+                    tenant (users.service), so a cross-tenant id is rejected
+                    server-side, not merely absent from this list.
+                  */}
+                  <td className="px-4 py-3">
+                    {editable ? (
+                      <select
+                        aria-label={`Department for ${u.name}`}
+                        className="rounded-lg border border-app-border bg-app-surface px-2 py-1.5 text-xs text-app-ink transition-colors hover:border-app-border-strong focus:border-[#7c5cf0] focus:outline-none"
+                        value={u.departmentId ?? ''}
+                        disabled={update.isPending}
+                        onChange={(e) =>
+                          update.mutate({
+                            id: u.id,
+                            data: { departmentId: e.target.value || null },
+                          })
+                        }
+                      >
+                        <option value="">No department</option>
+                        {(departments ?? []).map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name}
+                            {d.scopes.length > 0 ? ` · ${d.scopes.map(formatScope).join(', ')}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-app-ink-3">
+                        {departments?.find((d) => d.id === u.departmentId)?.name ?? '—'}
                       </span>
                     )}
                   </td>

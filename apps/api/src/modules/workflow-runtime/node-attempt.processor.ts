@@ -6,7 +6,11 @@ import { DEFAULT_QUEUE_CONCURRENCY } from '../../common/resilience/queue-concurr
 import { ApprovalGateService } from '../workflows/engine/approval-gate.service';
 import type { NodeResult } from '../workflows/engine/nodes/node-handler';
 import { NodeRegistry } from '../workflows/engine/node-registry.service';
-import { AttemptLeaseService } from './attempt-lease.service';
+import {
+  extractValidationConcern,
+  validationContextKey,
+} from '../skills/tool-approval-policy';
+import { AttemptLeaseService, attemptIdempotencyKey } from './attempt-lease.service';
 import { branchOf } from './graph';
 import { RetryPolicyService } from './retry-policy.service';
 import { RunStateWriter } from './run-state-writer.service';
@@ -179,6 +183,8 @@ export class NodeAttemptProcessor extends WorkerHost {
                   companyId: run.companyId,
                   workflowId: run.workflowId,
                   runId: run.id,
+                  stepRunId: data.stepId,
+                  attemptIdempotencyKey: attemptIdempotencyKey(data.runId, data.nodeId, data.attempt),
                   node,
                   context,
                   dryRun: run.dryRun,
@@ -214,6 +220,12 @@ export class NodeAttemptProcessor extends WorkerHost {
         outputKey && 'contextValue' in result
           ? { [outputKey]: result.contextValue }
           : {};
+      // S-01: thread any validation concern into context, regardless of
+      // whether the handler also declared an outputKey — mirrors the legacy
+      // walk's identical write in workflow-engine.service.ts.
+      if (extractValidationConcern(result.output)) {
+        contextPatch[validationContextKey(node.id)] = true;
+      }
 
       // A paused step has NOT done its work — it decided to wait. Marking it
       // COMPLETED would make it terminal, and the resumed run could then never
@@ -358,6 +370,9 @@ export class NodeAttemptProcessor extends WorkerHost {
         stepId: data.stepId,
         attempt: next,
         status: 'PENDING',
+        // Credit-system prerequisite (Phase 1, Task 1.2): call-level replay-safety
+        // key. Distinct from CreditReservation's step-level idempotency key.
+        idempotencyKey: attemptIdempotencyKey(data.runId, data.nodeId, next),
       },
     });
 

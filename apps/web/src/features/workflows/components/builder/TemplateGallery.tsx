@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { WorkflowTemplateSummaryDto } from '@vaep/types';
+import type { WorkflowCategory, WorkflowTemplateSummaryDto } from '@vaep/types';
 import { useWorkflowTemplates } from '../../hooks';
+import { WORKFLOW_CATEGORY_LABELS } from '../../labels';
 import { EmptyState } from './EmptyState';
 import { TemplateInstallForm } from './TemplateInstallForm';
 
@@ -16,17 +17,28 @@ import { TemplateInstallForm } from './TemplateInstallForm';
 export function TemplateGallery() {
   const { data, isLoading, isError, error } = useWorkflowTemplates();
   const [selected, setSelected] = useState<WorkflowTemplateSummaryDto | null>(null);
+  // Gap fix (2026-08-20) — this gallery already groups by category (never
+  // hid anything), but with 22+ templates across 5-6 categories, jumping
+  // straight to the one you care about beats scrolling past every other
+  // one first. `null` = show every category, same as today.
+  const [categoryFilter, setCategoryFilter] = useState<WorkflowCategory | null>(null);
   const router = useRouter();
+
+  const availableCategories = useMemo(
+    () => Array.from(new Set((data ?? []).map((t) => t.category))).sort(),
+    [data],
+  );
 
   const grouped = useMemo(() => {
     const by = new Map<string, WorkflowTemplateSummaryDto[]>();
     for (const t of data ?? []) {
+      if (categoryFilter && t.category !== categoryFilter) continue;
       const list = by.get(t.category) ?? [];
       list.push(t);
       by.set(t.category, list);
     }
     return [...by.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [data]);
+  }, [data, categoryFilter]);
 
   if (isLoading) {
     return (
@@ -61,10 +73,42 @@ export function TemplateGallery() {
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
       <div className="flex flex-col gap-6">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter templates by category">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={categoryFilter === null}
+            onClick={() => setCategoryFilter(null)}
+            className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+              categoryFilter === null
+                ? 'bg-violet text-white'
+                : 'border border-app-border bg-app-surface text-app-ink-2 hover:border-violet/40'
+            }`}
+          >
+            All
+          </button>
+          {availableCategories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              role="tab"
+              aria-selected={categoryFilter === category}
+              onClick={() => setCategoryFilter(category)}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                categoryFilter === category
+                  ? 'bg-violet text-white'
+                  : 'border border-app-border bg-app-surface text-app-ink-2 hover:border-violet/40'
+              }`}
+            >
+              {WORKFLOW_CATEGORY_LABELS[category] ?? category}
+            </button>
+          ))}
+        </div>
+
         {grouped.map(([category, templates]) => (
           <section key={category}>
             <h2 className="mb-2 font-display text-xs font-semibold uppercase tracking-wider text-app-ink-3">
-              {category}
+              {WORKFLOW_CATEGORY_LABELS[category as WorkflowCategory] ?? category}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
               {templates.map((t) => (

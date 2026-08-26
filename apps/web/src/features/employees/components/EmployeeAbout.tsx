@@ -25,6 +25,14 @@ export function EmployeeAbout({ employee }: { employee: AiEmployeeDto }) {
     employee.budgetLimit != null
       ? `$${(employee.monthToDateCostUsd ?? 0).toFixed(2)} spent of $${employee.budgetLimit.toLocaleString()} this month (estimated)`
       : '—';
+  const creditsPerExecution =
+    employee.maxCreditsPerExecution != null
+      ? `${employee.maxCreditsPerExecution.toLocaleString()} credits`
+      : '—';
+  const creditsPerTask =
+    employee.maxCreditsPerTask != null
+      ? `${employee.maxCreditsPerTask.toLocaleString()} credits`
+      : '—';
   const created = new Date(employee.createdAt).toLocaleDateString(undefined, {
     year: 'numeric',
     month: 'long',
@@ -44,6 +52,8 @@ export function EmployeeAbout({ employee }: { employee: AiEmployeeDto }) {
         <AboutRow label="Model" value={employee.model ?? '—'} />
         <AboutRow label="Knowledge access" value={knowledgeAccess} />
         <AboutRow label="Budget limit" value={budget} />
+        <AboutRow label="Max credits / execution" value={creditsPerExecution} />
+        <AboutRow label="Max credits / task" value={creditsPerTask} />
         <AboutRow label="Created" value={created} />
       </div>
       {employee.persona && (

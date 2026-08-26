@@ -41,6 +41,16 @@ export async function saveOnboardingAiEmployeesRequest(
   return data;
 }
 
+export async function saveOnboardingDepartmentsRequest(
+  departments: string[],
+): Promise<OnboardingStatusDto> {
+  const { data } = await apiClient.patch<OnboardingStatusDto>(
+    '/onboarding/departments',
+    { departments },
+  );
+  return data;
+}
+
 export async function saveOnboardingGoalsRequest(
   goals: string[],
 ): Promise<OnboardingStatusDto> {

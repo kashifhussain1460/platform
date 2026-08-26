@@ -68,6 +68,9 @@ export class ToolActionNodeHandler implements NodeHandler {
   async execute({
     companyId,
     workflowId,
+    runId,
+    stepRunId,
+    attemptIdempotencyKey,
     node,
     context,
     dryRun,
@@ -179,7 +182,14 @@ export class ToolActionNodeHandler implements NodeHandler {
 
     // Runs through SkillsService (swappable executor) + writes a SkillExecution.
     const call = await this.skills.runTool(
-      { companyId, employeeId, secretValues },
+      {
+        companyId,
+        employeeId,
+        secretValues,
+        workflowRunId: runId,
+        workflowStepRunId: stepRunId,
+        attemptIdempotencyKey,
+      },
       skillKey,
       tool,
       liveArgs,

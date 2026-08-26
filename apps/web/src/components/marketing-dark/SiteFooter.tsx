@@ -7,10 +7,11 @@ const COLUMNS: { title: string; links: { label: string; href: string }[] }[] = [
   {
     title: 'Product',
     links: [
-      { label: 'AI Employees', href: '/register' },
-      { label: 'Workflows', href: '#' },
-      { label: 'Integrations', href: '#' },
-      { label: 'Pricing', href: '#pricing' },
+      { label: 'AI Employees', href: '/ai-employees' },
+      { label: 'Workflows', href: '/automation' },
+      { label: 'Integrations', href: '/integrations' },
+      { label: 'Pricing', href: '/pricing' },
+      { label: 'Security', href: '/security' },
     ],
   },
   {
@@ -25,10 +26,11 @@ const COLUMNS: { title: string; links: { label: string; href: string }[] }[] = [
   {
     title: 'Company',
     links: [
-      { label: 'About Us', href: '#' },
-      { label: 'Careers', href: '#' },
-      { label: 'Privacy Policy', href: '#' },
-      { label: 'Terms of Service', href: '#' },
+      { label: 'About Us', href: '/about' },
+      { label: 'Careers', href: '/careers' },
+      { label: 'Contact Sales', href: '/contact-sales' },
+      { label: 'Privacy Policy', href: '/privacy-policy' },
+      { label: 'Terms of Service', href: '/terms-of-service' },
     ],
   },
 ];

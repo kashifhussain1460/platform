@@ -83,6 +83,19 @@ export class UpdateEmployeeDto implements IUpdateEmployeeDto {
   @Max(100000000)
   budgetLimit?: number | null;
 
+  // Credit system §20 — validated identically to budgetLimit.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100000000)
+  maxCreditsPerExecution?: number | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100000000)
+  maxCreditsPerTask?: number | null;
+
   @IsOptional()
   @IsObject()
   permissions?: Record<string, boolean>;

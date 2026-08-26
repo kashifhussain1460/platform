@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
+import { CreditExhaustedModal } from '@/components/app-shell/CreditExhaustedModal';
+import { isCreditExhaustedError } from '@/lib/credit-exhausted';
 import { useRunWorkflow, useWorkflowRun } from '../hooks';
 import { RUN_STATUS_STYLES } from '../labels';
 import { RunSteps } from './RunSteps';
@@ -23,6 +25,7 @@ export function RunPanel({
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const [dryRun, setDryRun] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  const [showExhaustedModal, setShowExhaustedModal] = useState(false);
 
   const run = useRunWorkflow(workflowId);
   const { data: current } = useWorkflowRun(runId);
@@ -47,7 +50,12 @@ export function RunPanel({
     setTriggerError(null);
     run.mutate(
       { trigger, dryRun },
-      { onSuccess: (created) => setRunId(created.id) },
+      {
+        onSuccess: (created) => setRunId(created.id),
+        onError: (err) => {
+          if (isCreditExhaustedError(err)) setShowExhaustedModal(true);
+        },
+      },
     );
   };
 
@@ -55,6 +63,9 @@ export function RunPanel({
 
   return (
     <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+      {showExhaustedModal && (
+        <CreditExhaustedModal onClose={() => setShowExhaustedModal(false)} />
+      )}
       <h2 className="mb-3 text-sm font-medium text-app-ink-2">Run</h2>
 
       <label className="mb-1 block text-xs font-medium text-app-ink-2">

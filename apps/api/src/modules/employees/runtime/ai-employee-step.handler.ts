@@ -58,6 +58,8 @@ export class AiEmployeeStepNodeHandler implements NodeHandler, OnModuleInit {
 
   async execute({
     companyId,
+    runId,
+    stepRunId,
     node,
     context,
     dryRun,
@@ -121,6 +123,12 @@ export class AiEmployeeStepNodeHandler implements NodeHandler, OnModuleInit {
     // the run, orphaning it WAITING — offering no tools avoids that entirely.)
     const result = await this.runtime.run(employee, conversation, instruction, {
       disableTools: true,
+      // Attribution (Phase 3, Task 3.1): this is a workflow-driven turn, not
+      // ordinary chat — without this override every AI_EMPLOYEE_STEP's spend
+      // was silently folded into 'chat' telemetry.
+      source: 'workflow_employee_step',
+      workflowRunId: runId,
+      workflowStepRunId: stepRunId,
       // The node's timeout. An AI_EMPLOYEE_STEP is the longest-running node
       // type and the one most exposed to a third party's latency, so it is the
       // one that most needs its model calls actually cancelled — not merely

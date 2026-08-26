@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EMBEDDING_DIM, type EmbeddingProvider } from './embedding.provider';
+import { EMBEDDING_DIM, type EmbeddingProvider, type EmbedResult } from './embedding.provider';
 
 /**
  * DEFAULT embedding provider: fully offline, zero-dependency and deterministic
@@ -12,8 +12,8 @@ import { EMBEDDING_DIM, type EmbeddingProvider } from './embedding.provider';
 export class HashEmbeddingProvider implements EmbeddingProvider {
   readonly dim = EMBEDDING_DIM;
 
-  async embed(texts: string[]): Promise<number[][]> {
-    return texts.map((text) => this.embedOne(text));
+  async embed(texts: string[]): Promise<EmbedResult> {
+    return { vectors: texts.map((text) => this.embedOne(text)), usage: undefined };
   }
 
   private embedOne(text: string): number[] {

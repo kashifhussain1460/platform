@@ -5,16 +5,13 @@ import type {
   AiEmployeeDto,
   InstallEmployeeDto,
   MarketplaceCatalogDto,
-  WorkflowDto,
 } from '@vaep/types';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { employeeKeys } from '@/features/employees/hooks';
-import { workflowKeys } from '@/features/workflows/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import {
   getMarketplace,
   installEmployeeTemplate,
-  installWorkflowTemplate,
 } from './api';
 
 // The skills section reuses the existing skills install hook (useInstallSkill)
@@ -74,10 +71,14 @@ export function useInstallEmployeeTemplate() {
         knowledgeAccess: 'ALL',
         budgetLimit: null,
         monthToDateCostUsd: null,
+        maxCreditsPerExecution: null,
+        maxCreditsPerTask: null,
         permissions: null,
         approvalRules: null,
         goals: null,
         kpiTargets: null,
+        // A brand-new employee is never archived.
+        archivedAt: null,
         createdAt: new Date().toISOString(),
       };
       qc.setQueryData<AiEmployeeDto[]>(employeeKeys.list, (old) => [
@@ -97,59 +98,4 @@ export function useInstallEmployeeTemplate() {
   });
 }
 
-interface WorkflowsContext {
-  previous?: WorkflowDto[];
-}
 
-/**
- * Install a workflow template (optimistic): prepend a temp workflow to the
- * workflows list, roll back on error, invalidate the list on settle.
- */
-export function useInstallWorkflowTemplate() {
-  const qc = useQueryClient();
-  return useMutation<
-    WorkflowDto,
-    NormalizedApiError,
-    { key: string; name: string },
-    WorkflowsContext
-  >({
-    mutationFn: ({ key }) => installWorkflowTemplate(key),
-    onMutate: async ({ name }) => {
-      await qc.cancelQueries({ queryKey: workflowKeys.list });
-      const previous = qc.getQueryData<WorkflowDto[]>(workflowKeys.list);
-      const now = new Date().toISOString();
-      const optimistic: WorkflowDto = {
-        id: `temp_${Date.now()}`,
-        companyId: '',
-        name,
-        description: null,
-        status: 'DRAFT',
-        definition: { nodes: [], edges: [] },
-        triggerType: 'MANUAL',
-        triggerConfig: null,
-        webhookToken: null,
-        activatedAt: null,
-        ownerUserId: null,
-        activeVersionId: null,
-        draftVersionId: null,
-        category: null,
-        warnings: [],
-        createdAt: now,
-        updatedAt: now,
-      };
-      qc.setQueryData<WorkflowDto[]>(workflowKeys.list, (old) => [
-        optimistic,
-        ...(old ?? []),
-      ]);
-      return { previous };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) {
-        qc.setQueryData(workflowKeys.list, context.previous);
-      }
-    },
-    onSettled: () => {
-      void qc.invalidateQueries({ queryKey: workflowKeys.list });
-    },
-  });
-}

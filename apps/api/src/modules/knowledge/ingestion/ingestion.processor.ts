@@ -76,7 +76,7 @@ export class IngestionProcessor extends WorkerHost {
       let inserted = 0;
       for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
         const batch = chunks.slice(i, i + EMBED_BATCH);
-        const vectors = await this.embeddings.embed(batch);
+        const { vectors } = await this.embeddings.embed(batch);
         for (let j = 0; j < batch.length; j += 1) {
           const literal = toVectorLiteral(vectors[j]);
           // Prisma cannot write the Unsupported vector column, so insert via

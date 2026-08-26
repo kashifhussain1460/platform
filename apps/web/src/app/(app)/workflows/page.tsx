@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
-import { useSubscription } from '@/features/billing/hooks';
+import { useEntitlements } from '@/features/product-context/hooks';
 import { GenerateWorkflowChat } from '@/features/workflows/components/GenerateWorkflowChat';
 import { WorkflowForm } from '@/features/workflows/components/WorkflowForm';
 import { WorkflowListTable } from '@/features/workflows/components/builder/WorkflowListTable';
@@ -19,7 +19,7 @@ export default function WorkflowsPage() {
   const router = useRouter();
   const accessToken = useSessionStore((s) => s.accessToken);
   const shellProps = useAppShellProps();
-  const { data: subscription } = useSubscription();
+  const entitlements = useEntitlements();
   const [showForm, setShowForm] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
 
@@ -34,7 +34,11 @@ export default function WorkflowsPage() {
     return null;
   }
 
-  const canGenerate = subscription?.plan === 'BUSINESS' || subscription?.plan === 'ENTERPRISE';
+  // Resolved once by the server, not re-derived here. This exact expression
+  // used to be copy-pasted into three files, and the sidebar's copy was simply
+  // missing — which is why STARTER customers were shown an AI Assist link that
+  // answered 403.
+  const canGenerate = entitlements.includes('ASSIST');
   const primaryBtnClass =
     'rounded-xl bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_14px_34px_-12px_rgba(91,33,230,0.85)] transition-all hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60';
 

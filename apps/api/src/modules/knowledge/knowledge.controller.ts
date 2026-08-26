@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import { knowledgeUploadMaxBytes } from '../../common/config/credit-abuse.constants';
 import type { KnowledgeDocumentDto, SearchResultDto } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -33,9 +34,15 @@ import { KnowledgeService, type UploadedDocFile } from './knowledge.service';
 export class KnowledgeController {
   constructor(private readonly knowledge: KnowledgeService) {}
 
-  /** Upload a document (multipart field `file`, buffered in memory by Multer). */
+  /**
+   * Upload a document (multipart field `file`, buffered in memory by
+   * Multer). Credit system Phase 10, Task 10.6 (§26) — a size ceiling
+   * independent of credit balance: an oversized upload is rejected before
+   * ANY ingestion work (extract/chunk/embed) starts, not priced and blocked
+   * mid-way.
+   */
   @Post('documents')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: knowledgeUploadMaxBytes() } }))
   upload(
     @CurrentTenant() companyId: string,
     @UploadedFile() file: UploadedDocFile,

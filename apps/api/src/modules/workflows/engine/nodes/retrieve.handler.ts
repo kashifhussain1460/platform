@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { EmployeeRole } from '@vaep/types';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import { KnowledgeService } from '../../../knowledge/knowledge.service';
+import { knowledgeRetrievalAllowed } from '../../../skills/employee-permission-policy';
 import { resolveTemplate } from '../template';
 import type {
   NodeExecContext,
@@ -132,10 +133,14 @@ export class RetrieveNodeHandler implements NodeHandler {
       // Author-supplied id — tenant-checked, like every other node that takes one.
       const employee = await this.prisma.aiEmployee.findFirst({
         where: { id: employeeId, companyId },
-        select: { role: true, knowledgeAccess: true },
+        select: { role: true, knowledgeAccess: true, permissions: true },
       });
       if (employee) {
-        if (employee.knowledgeAccess === 'NONE') return { denied: true };
+        // Phase 1 — the same two-control gate the chat path applies. A
+        // workflow RETRIEVE scoped to an employee whose "Access knowledge
+        // base" permission is off must return nothing, or the workflow becomes
+        // the way around the setting.
+        if (!knowledgeRetrievalAllowed(employee)) return { denied: true };
         return { category: employee.role };
       }
       // An employee id that resolves to nothing must NOT fall through to

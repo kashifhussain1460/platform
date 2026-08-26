@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -13,6 +14,7 @@ import {
 import type {
   AiEmployeeDto,
   ConversationDto,
+  EmployeeDependenciesDto,
 } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -74,14 +76,49 @@ export class EmployeesController {
     return this.employees.update(companyId, id, dto);
   }
 
+  /**
+   * What a delete would take with it — call this before offering `?hard=true`.
+   * Any member who may read the employee may read this; it exposes counts, not
+   * content.
+   */
+  @Get(':id/dependencies')
+  dependencies(
+    @CurrentTenant() companyId: string,
+    @Param('id') id: string,
+  ): Promise<EmployeeDependenciesDto> {
+    return this.employees.dependencies(companyId, id);
+  }
+
+  /**
+   * SOFT delete — archives the employee and KEEPS its conversations, memories,
+   * skill grants, stored per-employee credentials and audit history. Returns
+   * 409 while a workflow run that uses it is in flight, or while it has an
+   * approval still awaiting a decision.
+   *
+   * `?hard=true` performs the genuine cascading erasure (data-subject deletion
+   * requests). It destroys chat history, memories, grants AND the employee's
+   * encrypted connections permanently, so — exactly like the workflow
+   * equivalent — it is restricted to OWNER and audited separately.
+   */
   @Delete(':id')
   @RequirePermission('employee:manage')
   @HttpCode(204)
-  remove(
+  async remove(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
+    @Query('hard') hard?: string,
   ): Promise<void> {
-    return this.employees.remove(companyId, id);
+    const wantsHardDelete = hard === 'true';
+    if (wantsHardDelete && user.role !== 'OWNER') {
+      throw new ForbiddenException(
+        'Only an OWNER may permanently erase an AI employee, its conversation ' +
+          'history and its stored connections. Omit ?hard=true to archive it instead.',
+      );
+    }
+    await this.employees.remove(companyId, id, user.userId, {
+      hard: wantsHardDelete,
+    });
   }
 
   @Post(':id/conversations')

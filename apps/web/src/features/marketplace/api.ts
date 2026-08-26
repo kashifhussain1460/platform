@@ -3,10 +3,9 @@ import type {
   AiEmployeeDto,
   InstallEmployeeDto,
   MarketplaceCatalogDto,
-  WorkflowDto,
 } from '@vaep/types';
 
-/** The unified marketplace catalog (employees + workflows + reused skills). */
+/** The marketplace catalog: hireable AI Employee templates + the skills catalog. */
 export async function getMarketplace(): Promise<MarketplaceCatalogDto> {
   const { data } = await apiClient.get<MarketplaceCatalogDto>('/marketplace');
   return data;
@@ -25,10 +24,3 @@ export async function installEmployeeTemplate(vars: {
 }
 
 /** Install a workflow template as a new workflow. */
-export async function installWorkflowTemplate(key: string): Promise<WorkflowDto> {
-  const { data } = await apiClient.post<WorkflowDto>(
-    `/marketplace/workflows/${key}/install`,
-    {},
-  );
-  return data;
-}

@@ -12,6 +12,7 @@ import type {
   InstallWorkflowTemplateDto,
   Plan,
   TemplateParameter,
+  WorkflowCategory,
   WorkflowDefinition,
   WorkflowDto,
   WorkflowTemplateManifest,
@@ -20,6 +21,7 @@ import type {
 } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { planMeetsMinimum } from '../billing/billing.plans';
 import { SkillCatalog } from '../skills/catalog';
 import { validateDefinitionStructure } from '../workflows/engine/definition-validator';
 import { toWorkflowDto } from '../workflows/workflows.mapper';
@@ -30,13 +32,6 @@ import {
   substituteParams,
   validateManifest,
 } from './workflow-templates.util';
-
-const PLAN_RANK: Record<Plan, number> = {
-  STARTER: 0,
-  PRO: 1,
-  BUSINESS: 2,
-  ENTERPRISE: 3,
-};
 
 /**
  * Workflow templates (P3-02). Install performs a deep COPY into the tenant
@@ -102,10 +97,14 @@ export class WorkflowTemplatesService implements OnModuleInit {
     );
   }
 
-  async list(companyId: string): Promise<WorkflowTemplateSummaryDto[]> {
+  async list(
+    companyId: string,
+    category?: WorkflowCategory,
+  ): Promise<WorkflowTemplateSummaryDto[]> {
     const rows = await this.prisma.workflowTemplate.findMany({
       where: {
         OR: [{ companyId: null, status: 'PUBLISHED' }, { companyId }],
+        ...(category ? { category } : {}),
       },
       orderBy: [{ category: 'asc' }, { name: 'asc' }],
     });
@@ -379,7 +378,7 @@ export class WorkflowTemplatesService implements OnModuleInit {
         select: { plan: true },
       });
       const current: Plan = sub?.plan ?? 'STARTER';
-      if (PLAN_RANK[current] < PLAN_RANK[requires.minPlan]) {
+      if (!planMeetsMinimum(current, requires.minPlan)) {
         missingPlan = requires.minPlan;
       }
     }

@@ -9,6 +9,7 @@ import type {
   NodeDefinitionDto,
   PublishWorkflowResultDto,
   UpdateWorkflowDto,
+  WorkflowCategory,
   WorkflowDefinition,
   WorkflowDto,
   WorkflowReadinessDto,
@@ -54,19 +55,24 @@ export const workflowKeys = {
   run: (runId: string) => ['workflows', 'run', runId] as const,
   readiness: (id: string) => ['workflows', id, 'readiness'] as const,
   nodeDefinitions: ['workflows', 'node-definitions'] as const,
-  templates: ['workflows', 'templates'] as const,
+  templates: (category?: WorkflowCategory) =>
+    ['workflows', 'templates', category ?? null] as const,
   template: (id: string) => ['workflows', 'templates', id] as const,
   versions: (id: string) => ['workflows', id, 'versions'] as const,
 };
 
 // --- Templates -------------------------------------------------------------
 
-/** The installable template catalog (first-party + tenant). */
-export function useWorkflowTemplates() {
+/**
+ * The installable template catalog (first-party + tenant). `category` is
+ * optional (gap fix, 2026-08-20) — omitted, this fetches everything exactly
+ * as before.
+ */
+export function useWorkflowTemplates(category?: WorkflowCategory) {
   const accessToken = useSessionStore((s) => s.accessToken);
   return useQuery<WorkflowTemplateSummaryDto[], NormalizedApiError>({
-    queryKey: workflowKeys.templates,
-    queryFn: listWorkflowTemplates,
+    queryKey: workflowKeys.templates(category),
+    queryFn: () => listWorkflowTemplates(category),
     enabled: Boolean(accessToken),
   });
 }

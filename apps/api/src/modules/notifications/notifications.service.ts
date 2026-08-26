@@ -109,6 +109,31 @@ export class NotificationsService {
     });
   }
 
+  /**
+   * S-13/C-06: a conversation was escalated to a human (Handoff) — notify the
+   * assignee, else the admins. Deliberately a SEPARATE method from
+   * `approvalRequested` rather than reused as-is: that one's copy and link
+   * point at `/approvals`, which is wrong here (a handoff is not an
+   * ApprovalRequest and has no queue UI yet) — reuses the SAME
+   * `approvalRecipients` resolution helper, so there is still only one
+   * recipient-resolution mechanism, just accurate messaging for this case.
+   */
+  async handoffRequested(
+    companyId: string,
+    opts: { assigneeUserId?: string | null; summary: string },
+  ): Promise<void> {
+    await this.run('handoffRequested', async () => {
+      const recipients = await this.approvalRecipients(companyId, opts.assigneeUserId);
+      for (const r of recipients) {
+        await this.mail.send(
+          r.email,
+          'A customer conversation needs you',
+          `Hi ${r.name},\n\n${opts.summary}\n\nThe AI Employee has paused itself on this conversation until a human responds.`,
+        );
+      }
+    });
+  }
+
   /** A subscription payment failed — tell the company owners. */
   async paymentFailed(companyId: string): Promise<void> {
     await this.run('paymentFailed', async () => {

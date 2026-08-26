@@ -1,8 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { DEFAULT_CREDITS_PER_USD } from '@vaep/types';
+import { creditBadgeState } from '@/components/app-shell/CreditBadge';
+import { useCreditBalance } from '../credits-hooks';
 import { useUsage } from '../hooks';
 import { formatLimit, formatNumber } from '../labels';
+
+const BANNER_STYLES = {
+  low: 'bg-amber-500/10 text-amber-800',
+  critical: 'bg-orange-500/10 text-orange-800',
+  zero: 'bg-red-500/10 text-red-800',
+} as const;
 
 /** "Used / total" row with a progress bar — only meaningful when a real plan limit exists. */
 function UsageBar({ label, used, max }: { label: string; used: number; max: number | null }) {
@@ -42,6 +51,10 @@ function UsageCount({ label, value, helper }: { label: string; value: number; he
 /** Usage summary: employees vs limit (with soft over-limit hint), skills, tasks. */
 export function UsageSummary() {
   const { data: usage, isLoading } = useUsage();
+  const { data: credits } = useCreditBalance();
+  const creditState = credits
+    ? creditBadgeState(credits.balance, credits.trailingMonthlyDebits)
+    : 'normal';
 
   if (isLoading || !usage) {
     return (
@@ -64,7 +77,25 @@ export function UsageSummary() {
           value={usage.tokens}
           helper={`~$${usage.estimatedCostUsd.toFixed(2)} estimated — illustrative, not an exact bill`}
         />
+        {credits && (
+          <UsageCount
+            label="Credits Consumed"
+            value={Math.round(usage.estimatedCostUsd * DEFAULT_CREDITS_PER_USD)}
+            helper="illustrative, not an exact bill — see the Usage page for the real ledger"
+          />
+        )}
       </div>
+
+      {(creditState === 'low' || creditState === 'critical') && (
+        <div className={`mt-5 rounded-xl px-4 py-3 text-sm ${BANNER_STYLES[creditState]}`}>
+          {creditState === 'critical'
+            ? 'Your credit balance is critically low — add more credits soon to avoid an interruption.'
+            : 'Your credit balance is running low.'}{' '}
+          <Link href="#buy-credits" className="font-semibold underline underline-offset-2">
+            Buy credits
+          </Link>
+        </div>
+      )}
 
       {usage.overEmployeeLimit && (
         <div className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800">

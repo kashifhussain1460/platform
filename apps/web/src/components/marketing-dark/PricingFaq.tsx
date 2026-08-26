@@ -6,7 +6,7 @@ import { ChevronDown } from 'lucide-react';
  * survives a page find (Ctrl+F reaches closed text in modern browsers), and
  * needs no client bundle for a list that only expands.
  */
-const FAQS = [
+export const FAQS = [
   {
     q: 'Can I change my plan later?',
     a: 'Yes. Move up or down whenever you like, from Billing in your workspace. Moving up takes effect immediately and we charge the difference for the rest of the period; moving down takes effect at your next renewal, so you keep what you have already paid for.',

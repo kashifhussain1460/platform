@@ -165,7 +165,11 @@ export const MARKETING_WORKFLOW_TEMPLATES: readonly WorkflowTemplateManifest[] =
         { id: 'trigger', type: 'TRIGGER', name: 'Email campaign requested', config: {} },
         { id: 'retrieve', type: 'RETRIEVE', name: 'Email policy + consent rules', config: { query: 'email policy, consent and unsubscribe rules, and brand voice', k: 5, outputKey: 'policy' } },
         { id: 'draft', type: 'AI_EMPLOYEE_STEP', name: 'Draft the email', config: { employeeId: '{{param.marketingEmployee}}', instruction: 'Draft an email campaign for {{trigger.campaignId}} targeting segment {{trigger.segmentQuery}} using the policy {{policy}}: a subject line and body in brand voice with an unsubscribe footer. Exclude anyone on the suppression list.', outputKey: 'email' } },
-        { id: 'consent', type: 'CONDITION', name: 'Consent verified?', config: { left: '{{trigger.consentVerified}}', op: 'eq', right: 'true' } },
+        // M-08: a REAL query against MarketingConsent/MarketingSuppression —
+        // replaces trusting a `{{trigger.consentVerified}}` boolean the
+        // trigger payload could claim without it being true.
+        { id: 'checkConsent', type: 'TOOL_ACTION', name: 'Check real consent + suppression', config: { skillKey: 'marketing', tool: 'check_consent', args: { channel: 'EMAIL', addresses: '{{trigger.recipients}}' }, outputKey: 'consentCheck' } },
+        { id: 'consent', type: 'CONDITION', name: 'Consent verified?', config: { left: '{{consentCheck.result.allConsented}}', op: 'eq', right: 'true' } },
         { id: 'blocked', type: 'TERMINATE', name: 'Blocked — no consent', config: { status: 'FAILED', reason: 'Consent not verified / suppression not applied — send blocked.' } },
         { id: 'approval', type: 'APPROVAL', name: 'Approve content + volume', config: { message: 'Approve BOTH the email content and the recipient volume ({{trigger.recipientCount}} recipients) before this campaign is sent.' } },
         { id: 'send', type: 'TOOL_ACTION', name: 'Send the campaign', config: { skillKey: 'gmail', tool: 'send_email', args: { to: '{{trigger.recipients}}', subject: '{{trigger.subject}}', body: '{{email}}' } } },
@@ -174,7 +178,8 @@ export const MARKETING_WORKFLOW_TEMPLATES: readonly WorkflowTemplateManifest[] =
       edges: [
         { from: 'trigger', to: 'retrieve' },
         { from: 'retrieve', to: 'draft' },
-        { from: 'draft', to: 'consent' },
+        { from: 'draft', to: 'checkConsent' },
+        { from: 'checkConsent', to: 'consent' },
         { from: 'consent', to: 'blocked', branch: 'false' },
         { from: 'consent', to: 'approval', branch: 'true' },
         { from: 'approval', to: 'send' },

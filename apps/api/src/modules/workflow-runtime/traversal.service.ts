@@ -4,6 +4,7 @@ import type { Queue } from 'bullmq';
 import type { WorkflowDefinition, WorkflowNode } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { NodeResult } from '../workflows/engine/nodes/node-handler';
+import { attemptIdempotencyKey } from './attempt-lease.service';
 import { RunStateWriter } from './run-state-writer.service';
 import {
   WF_ATTEMPT_JOB,
@@ -447,6 +448,9 @@ export class TraversalService {
             stepId: step.id,
             attempt: nextAttempt,
             status: 'PENDING',
+            // Credit-system prerequisite (Phase 1, Task 1.2): call-level replay-safety
+            // key. Distinct from CreditReservation's step-level idempotency key.
+            idempotencyKey: attemptIdempotencyKey(runId, node.id, nextAttempt),
           },
         });
         return { stepId: step.id, attemptId: row.id, attempt: nextAttempt };

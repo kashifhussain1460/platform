@@ -20,6 +20,11 @@ import { HrRetentionService } from '../hr/hr-retention.service';
 import { DataRetentionService } from '../retention/data-retention.service';
 import { AlertDispatchService } from './alert-dispatch.service';
 import { WorkflowsService } from '../workflows/workflows.service';
+import { CreditReservationSweepService } from '../credits/credit-reservation-sweep.service';
+import { SubscriptionCreditRenewalService } from '../credits/subscription-credit-renewal.service';
+import { EnterpriseCreditAgreementService } from '../credits/enterprise-credit-agreement.service';
+import { CreditReconciliationService } from '../credits/credit-reconciliation.service';
+import { CreditRollupService } from '../credits/credit-rollup.service';
 
 /**
  * Time-based sweeps, callable over HTTP.
@@ -40,6 +45,46 @@ import { WorkflowsService } from '../workflows/workflows.service';
  * endpoint that can trigger every tenant's workflows is not something to leave
  * ajar by default.
  */
+
+/**
+ * Every job `run()` accepts — the canonical list.
+ *
+ * Extracted from the `switch` (and from the hand-maintained string in its
+ * `default:` branch, which had already drifted) so that ONE place can be
+ * compared against the deployment scheduler. `cron-schedule-coverage.spec.ts`
+ * asserts every name here appears in `apps/api/vercel.json`.
+ *
+ * That test exists because six of these were reachable over HTTP and scheduled
+ * by nothing: `imap-poll`, `credit-reservation-sweep`,
+ * `subscription-credit-renewal`, `enterprise-credit-agreement-renewal`,
+ * `credit-reconciliation` and `credit-finance-rollup`. On the serverless
+ * deployment that meant IMAP inbound never polled, orphaned credit holds were
+ * never released, and — worst — PAYING customers never received their monthly
+ * included credits, because the job that grants them was written, tested,
+ * routed, and never called.
+ */
+export const CRON_JOBS = [
+  'workflow-schedules',
+  'workflow-watchdog',
+  'approval-sla',
+  'hr-retention',
+  'audit-retention',
+  'data-retention',
+  'alerts',
+  'gmail-poll',
+  'imap-poll',
+  'connector-reconcile',
+  'marketing-sync',
+  'marketing-analytics',
+  'credit-reservation-sweep',
+  'subscription-credit-renewal',
+  'enterprise-credit-agreement-renewal',
+  'credit-reconciliation',
+  'credit-finance-rollup',
+] as const;
+
+export type CronJob = (typeof CRON_JOBS)[number];
+
 @Controller('admin/cron')
 export class CronController {
   private readonly logger = new Logger(CronController.name);
@@ -57,6 +102,11 @@ export class CronController {
     private readonly auditRetention: AuditRetentionService,
     private readonly dataRetention: DataRetentionService,
     private readonly alerts: AlertDispatchService,
+    private readonly creditReservationSweep: CreditReservationSweepService,
+    private readonly subscriptionCreditRenewal: SubscriptionCreditRenewalService,
+    private readonly enterpriseCreditAgreement: EnterpriseCreditAgreementService,
+    private readonly creditReconciliation: CreditReconciliationService,
+    private readonly creditRollup: CreditRollupService,
   ) {}
 
   /**
@@ -123,9 +173,46 @@ export class CronController {
         // Postiz reconciliation is the source of truth (its webhook is a no-op);
         // worker-only otherwise, so it must be cron-driven on serverless.
         return { ...(await this.marketingSync.sweep()) };
+      case 'marketing-analytics':
+        // M-10 — deliberately a much lower cadence than marketing-sync (daily,
+        // not every 10 minutes): see MarketingSyncService.snapshotAnalytics's
+        // own doc comment for why folding this into the sync sweep would blow
+        // Postiz's real instance-wide rate cap.
+        return { ...(await this.marketingSync.snapshotAnalytics()) };
+      case 'credit-reservation-sweep':
+        // Credit system Phase 2, Task 2.8 (kill-critic Q8's "hard
+        // prerequisite"): without this case, the sweep's BullMQ repeatable
+        // never fires on this platform's QUEUE_WORKERS_ENABLED=false
+        // deployment path, turning "a reconciliation window" into "no
+        // recovery, ever" for orphaned chat/assist credit holds.
+        return { ...(await this.creditReservationSweep.sweep()) };
+      case 'subscription-credit-renewal':
+        // Credit system Phase 7, Task 7.3 — the fallback path for every
+        // tenant with no real Stripe subscription to fire
+        // invoice.payment_succeeded (Task 7.2). Daily cadence.
+        return { ...(await this.subscriptionCreditRenewal.grantDuePeriods()) };
+      case 'enterprise-credit-agreement-renewal':
+        // Credit system Phase 7, Task 7.4 — Enterprise's own recurring
+        // allotment mechanism (blocked from the self-serve Stripe path).
+        return { ...(await this.enterpriseCreditAgreement.grantDuePeriods()) };
+      case 'credit-reconciliation':
+        // Credit system Phase 10, Task 10.3 (§25.3) — daily, for the
+        // PREVIOUS UTC day (the day just closed, so every real-time
+        // reservation for it has settled by the time this runs).
+        return {
+          ...(await this.creditReconciliation.runDaily(
+            new Date(Date.now() - 24 * 60 * 60 * 1000),
+          )),
+        };
+      case 'credit-finance-rollup':
+        // Credit system Phase 10, Task 10.4 (§24/§27) — nightly, for the
+        // PREVIOUS UTC day, same timing rationale as credit-reconciliation.
+        return {
+          ...(await this.creditRollup.runNightly(new Date(Date.now() - 24 * 60 * 60 * 1000))),
+        };
       default:
         throw new BadRequestException(
-          `Unknown cron job "${job}". Known: workflow-schedules, workflow-watchdog, approval-sla, hr-retention, audit-retention, data-retention, alerts, gmail-poll, imap-poll, connector-reconcile, marketing-sync.`,
+          `Unknown cron job "${job}". Known: ${CRON_JOBS.join(', ')}.`,
         );
     }
   }

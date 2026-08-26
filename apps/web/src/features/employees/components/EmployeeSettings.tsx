@@ -18,14 +18,32 @@ const inputClass = 'field-modern';
 const secondaryBtnClass =
   'rounded-xl border border-app-border-strong bg-app-surface px-4 py-2 text-sm font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
 
-/** Turn a stored record into a full {key: boolean} map for the checkboxes. */
-function toFlags(
-  record: Record<string, unknown> | null,
-  options: readonly { key: string }[],
-): Record<string, boolean> {
-  const out: Record<string, boolean> = {};
+/**
+ * Turn a stored record into a full {key: boolean} map for the checkboxes.
+ *
+ * `whenUnset` is the Phase 1 fix, and it matters more than it looks.
+ *
+ * This helper used to hard-code `Boolean(record?.[key])`, so an employee with
+ * NO stored permissions rendered four unticked boxes — and merely opening
+ * Settings and pressing Save persisted `{sendEmail:false, …}`, i.e. "deny
+ * everything". That was harmless only because nothing enforced the flags.
+ * Now that they ARE enforced, the same default would silently revoke email,
+ * messaging and payment tools from every employee an admin ever looked at.
+ *
+ * So permissions default to GRANTED when unset (matching the API's "key absent
+ * = allowed" rule), while approval rules default to OFF (absent = no extra
+ * gate). Same widget, opposite safe direction, because one grants and the
+ * other restricts.
+ */
+function toFlags<K extends string>(
+  record: Partial<Record<K, boolean>> | null,
+  options: readonly { key: K }[],
+  whenUnset: boolean,
+): Record<K, boolean> {
+  const out = {} as Record<K, boolean>;
   for (const { key } of options) {
-    out[key] = Boolean(record?.[key]);
+    const stored = record?.[key];
+    out[key] = typeof stored === 'boolean' ? stored : whenUnset;
   }
   return out;
 }
@@ -69,8 +87,11 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
       language: employee.language ?? '',
       knowledgeAccess: employee.knowledgeAccess,
       budgetLimit: employee.budgetLimit,
-      permissions: toFlags(employee.permissions, PERMISSION_OPTIONS),
-      approvalRules: toFlags(employee.approvalRules, APPROVAL_RULE_OPTIONS),
+      maxCreditsPerExecution: employee.maxCreditsPerExecution,
+      maxCreditsPerTask: employee.maxCreditsPerTask,
+      // Unset permission = allowed; unset approval rule = no extra gate.
+      permissions: toFlags(employee.permissions, PERMISSION_OPTIONS, true),
+      approvalRules: toFlags(employee.approvalRules, APPROVAL_RULE_OPTIONS, false),
       goals: employee.goals ?? [],
       kpiTargets: {
         tasksPerWeek: employee.kpiTargets?.tasksPerWeek,
@@ -111,6 +132,8 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
         language: clean(values.language),
         knowledgeAccess: values.knowledgeAccess,
         budgetLimit: values.budgetLimit ?? null,
+        maxCreditsPerExecution: values.maxCreditsPerExecution ?? null,
+        maxCreditsPerTask: values.maxCreditsPerTask ?? null,
         permissions: values.permissions,
         approvalRules: values.approvalRules,
         goals: values.goals ?? [],
@@ -244,6 +267,52 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
               </p>
             )}
           </div>
+          <div>
+            <label
+              htmlFor="s-max-credits-execution"
+              className="mb-1.5 block text-sm font-medium text-app-ink-2"
+            >
+              Max credits / execution <span className="text-app-ink-3">(optional)</span>
+            </label>
+            <input
+              id="s-max-credits-execution"
+              type="number"
+              min={0}
+              className={inputClass}
+              {...register('maxCreditsPerExecution', {
+                setValueAs: (v) =>
+                  v === '' || v === null || v === undefined ? null : Number(v),
+              })}
+            />
+            {errors.maxCreditsPerExecution && (
+              <p className="mt-1 text-sm text-red-600">
+                {errors.maxCreditsPerExecution.message}
+              </p>
+            )}
+          </div>
+          <div>
+            <label
+              htmlFor="s-max-credits-task"
+              className="mb-1.5 block text-sm font-medium text-app-ink-2"
+            >
+              Max credits / task <span className="text-app-ink-3">(optional)</span>
+            </label>
+            <input
+              id="s-max-credits-task"
+              type="number"
+              min={0}
+              className={inputClass}
+              {...register('maxCreditsPerTask', {
+                setValueAs: (v) =>
+                  v === '' || v === null || v === undefined ? null : Number(v),
+              })}
+            />
+            {errors.maxCreditsPerTask && (
+              <p className="mt-1 text-sm text-red-600">
+                {errors.maxCreditsPerTask.message}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Goals (P1 #6): a free-form list of objectives (add/remove). */}
@@ -360,15 +429,22 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
           <legend className="px-1 text-xs font-medium text-app-ink-3">
             Permissions
           </legend>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <p className="mb-3 text-xs text-app-ink-3">
+            Turning one off blocks the matching actions when this employee runs —
+            in chat and in workflows. The employee is told why, and nothing is sent.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
             {PERMISSION_OPTIONS.map((p) => (
-              <label key={p.key} className="flex items-center gap-2 text-sm text-app-ink-2">
+              <label key={p.key} className="flex items-start gap-2 text-sm text-app-ink-2">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-app-border bg-app-raised accent-[#6a30ec]"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-app-border bg-app-raised accent-[#6a30ec]"
                   {...register(`permissions.${p.key}` as const)}
                 />
-                {p.label}
+                <span>
+                  <span className="block">{p.label}</span>
+                  <span className="block text-xs text-app-ink-3">{p.hint}</span>
+                </span>
               </label>
             ))}
           </div>
@@ -378,15 +454,18 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
           <legend className="px-1 text-xs font-medium text-app-ink-3">
             Approval rules
           </legend>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             {APPROVAL_RULE_OPTIONS.map((a) => (
-              <label key={a.key} className="flex items-center gap-2 text-sm text-app-ink-2">
+              <label key={a.key} className="flex items-start gap-2 text-sm text-app-ink-2">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-app-border bg-app-raised accent-[#6a30ec]"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-app-border bg-app-raised accent-[#6a30ec]"
                   {...register(`approvalRules.${a.key}` as const)}
                 />
-                {a.label}
+                <span>
+                  <span className="block">{a.label}</span>
+                  <span className="block text-xs text-app-ink-3">{a.hint}</span>
+                </span>
               </label>
             ))}
           </div>

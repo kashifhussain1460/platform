@@ -10,10 +10,16 @@ describe('SkillsService.runTool least-privilege gate', () => {
   const execute = jest.fn().mockResolvedValue({ ok: true, result: {} });
   const employeeSkillFindFirst = jest.fn();
   const skillExecutionCreate = jest.fn().mockResolvedValue({});
+  // Phase 1: runTool now also reads the acting employee's permission flags.
+  // Default to "no flags set" = allowed, which is the pre-existing behaviour
+  // these least-privilege tests are asserting; the permission cases below set
+  // their own value.
+  const aiEmployeeFindFirst = jest.fn().mockResolvedValue({ permissions: null });
 
   const prisma = {
     employeeSkill: { findFirst: employeeSkillFindFirst },
     skillExecution: { create: skillExecutionCreate },
+    aiEmployee: { findFirst: aiEmployeeFindFirst },
   } as never;
   const executor = { execute, usesInstalledCredentials: false } as never;
   const service = new SkillsService(
@@ -28,6 +34,13 @@ describe('SkillsService.runTool least-privilege gate', () => {
     new MetricsRegistry(),
     // Nothing suppressed: these tests assert least-privilege, not consent.
     { findSuppressed: jest.fn().mockResolvedValue([]) } as never,
+    // Neither tool used here has a real cost rate — mirrors the real
+    // CreditCostCalculatorService's "unknown tool" fallback exactly.
+    { priceToolCall: jest.fn().mockResolvedValue({ credits: 0, toolCostRateId: null }) } as never,
+    // CREDIT_LEDGER_ENABLED is unset in this suite, so reservation is never reached.
+    {} as never, // reservations
+    {} as never, // creditLimits — unused (enforcement never active in this suite)
+    { tryAcquire: jest.fn().mockResolvedValue(true), release: jest.fn() } as never, // concurrencyGuard
   );
 
   beforeEach(() => jest.clearAllMocks());
@@ -89,6 +102,103 @@ describe('SkillsService.runTool least-privilege gate', () => {
     // The returned call (feeds step output / run context) is masked.
     expect((call.args as Record<string, unknown>).token).toBe('***');
   });
+
+  /**
+   * Phase 1 — the employee's permission flags, enforced at the choke point.
+   *
+   * `runTool` is the single funnel for chat, AI_EMPLOYEE_STEP, TOOL_ACTION and
+   * the manual run endpoint, which is why the gate lives here rather than in
+   * any one caller. These tests assert the two things that actually matter: the
+   * executor is NOT reached, and the caller is not told it succeeded.
+   */
+  describe('permission enforcement', () => {
+    beforeEach(() => {
+      // Every case below has the skill granted — permissions are a separate,
+      // narrower gate on top of the grant.
+      employeeSkillFindFirst.mockResolvedValue({ id: 'es1' });
+    });
+
+    it('BLOCKS a denied capability and never calls the executor', async () => {
+      aiEmployeeFindFirst.mockResolvedValue({
+        permissions: { contactCustomers: false },
+      });
+      const call = await service.runTool(
+        { companyId: 'c1', employeeId: 'e1' },
+        'slack',
+        'send_message',
+        { channel: '#general', text: 'hi' },
+      );
+      expect(call.ok).toBe(false);
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('reports the refusal honestly instead of a fabricated success', async () => {
+      aiEmployeeFindFirst.mockResolvedValue({ permissions: { sendEmail: false } });
+      const call = await service.runTool(
+        { companyId: 'c1', employeeId: 'e1' },
+        'gmail',
+        'send_email',
+        {},
+      );
+      expect(call.ok).toBe(false);
+      expect(call.result).toBeNull();
+      // Names the checkbox the admin actually unticked.
+      expect(call.error).toContain('Send email');
+    });
+
+    it('still writes a SkillExecution audit row for the blocked call', async () => {
+      aiEmployeeFindFirst.mockResolvedValue({ permissions: { sendEmail: false } });
+      await service.runTool(
+        { companyId: 'c1', employeeId: 'e1' },
+        'gmail',
+        'send_email',
+        {},
+      );
+      // A denial that leaves no trace is indistinguishable from a call that
+      // never happened, which is exactly what an auditor needs to tell apart.
+      expect(skillExecutionCreate).toHaveBeenCalledTimes(1);
+      expect(skillExecutionCreate.mock.calls[0][0].data.status).toBe('ERROR');
+    });
+
+    it('ALLOWS a tool the denied flag does not govern', async () => {
+      aiEmployeeFindFirst.mockResolvedValue({ permissions: { makePayments: false } });
+      const call = await service.runTool(
+        { companyId: 'c1', employeeId: 'e1' },
+        'slack',
+        'send_message',
+        {},
+      );
+      expect(call.ok).toBe(true);
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('ALLOWS when the employee has no permissions object (back-compat)', async () => {
+      aiEmployeeFindFirst.mockResolvedValue({ permissions: null });
+      const call = await service.runTool(
+        { companyId: 'c1', employeeId: 'e1' },
+        'slack',
+        'send_message',
+        {},
+      );
+      expect(call.ok).toBe(true);
+      expect(execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not query the employee at all for a company-wide call', async () => {
+      aiEmployeeFindFirst.mockClear();
+      const call = await service.runTool({ companyId: 'c1' }, 'slack', 'send_message', {});
+      expect(call.ok).toBe(true);
+      expect(aiEmployeeFindFirst).not.toHaveBeenCalled();
+    });
+
+    it('scopes the permission lookup to the tenant', async () => {
+      aiEmployeeFindFirst.mockResolvedValue({ permissions: null });
+      await service.runTool({ companyId: 'c1', employeeId: 'e1' }, 'slack', 'send_message', {});
+      expect(aiEmployeeFindFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'e1', companyId: 'c1' } }),
+      );
+    });
+  });
 });
 
 describe('SkillsService.verifyConnection — adapterAvailable', () => {
@@ -111,6 +221,10 @@ describe('SkillsService.verifyConnection — adapterAvailable', () => {
       { record: jest.fn() } as never,
       new MetricsRegistry(),
       { findSuppressed: jest.fn().mockResolvedValue([]) } as never,
+      {} as never, // costCalculator — unused by these tests (runTool is never called here)
+      {} as never, // reservations — unused by these tests (runTool is never called here)
+      {} as never, // creditLimits — unused by these tests (runTool is never called here)
+      {} as never, // concurrencyGuard — unused by these tests (runTool is never called here)
     );
   }
 
@@ -178,6 +292,10 @@ describe('SkillsService.connectOAuth — verify before CONNECTED', () => {
       { record } as never,
       new MetricsRegistry(),
       { findSuppressed: jest.fn().mockResolvedValue([]) } as never,
+      {} as never, // costCalculator — unused by these tests (runTool is never called here)
+      {} as never, // reservations — unused by these tests (runTool is never called here)
+      {} as never, // creditLimits — unused by these tests (runTool is never called here)
+      {} as never, // concurrencyGuard — unused by these tests (runTool is never called here)
     );
     return { service, update, record };
   }

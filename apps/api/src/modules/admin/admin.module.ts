@@ -6,6 +6,7 @@ import { MarketingModule } from '../engines/marketing/marketing.module';
 import { HrModule } from '../hr/hr.module';
 import { RetentionModule } from '../retention/retention.module';
 import { WorkflowsModule } from '../workflows/workflows.module';
+import { CreditsModule } from '../credits/credits.module';
 import { AlertDispatchService } from './alert-dispatch.service';
 import { CronController } from './cron.controller';
 import { DlqController } from './dlq.controller';
@@ -15,6 +16,7 @@ import {
   WF_NODE_ATTEMPT_QUEUE,
   WF_RUN_ADVANCE_QUEUE,
 } from '../workflow-runtime/workflow-runtime.constants';
+import { CREDIT_RESERVATION_SWEEP_QUEUE } from '../credits/credit-reservation-sweep.constants';
 
 /**
  * Admin module (Unit C): the OWNER/ADMIN resilience surface — DLQ list/replay/
@@ -33,6 +35,7 @@ import {
     RetentionModule,
     EventsModule,
     MarketingModule,
+    CreditsModule,
     // WAVE 5 §5.3 — PRODUCER-side registration only, so the metrics controller
     // can ask each queue for its depth at scrape time. Registering a queue name
     // in a second module does not create a second consumer.
@@ -40,6 +43,7 @@ import {
       { name: WORKFLOW_RUN_QUEUE },
       { name: WF_RUN_ADVANCE_QUEUE },
       { name: WF_NODE_ATTEMPT_QUEUE },
+      { name: CREDIT_RESERVATION_SWEEP_QUEUE },
     ),
   ],
   controllers: [DlqController, CronController, MetricsController],

@@ -1,7 +1,9 @@
+import { Prisma } from '@prisma/client';
 import type { ConfigService } from '@nestjs/config';
 import { RealSkillExecutor } from './real-skill-executor';
 import type { SkillExecutor } from './skill-executor';
 import type { SchedulingService } from '../../scheduling/scheduling.service';
+import { ToolIdempotencyService } from '../../../common/idempotency/tool-idempotency.service';
 
 // Minimal stand-ins for the collaborators RealSkillExecutor doesn't exercise in
 // these postiz.* cases (no network config lookups, no scheduling, no fallback).
@@ -13,6 +15,19 @@ const schedulingMock = {} as unknown as SchedulingService;
 const chatwootClientMock = {} as any;
 const cryptoMock = {} as any;
 const planeClientMock = {} as any;
+// Transparent passthrough by default (runs `effect` and returns its result,
+// deduped:false) — tests that specifically exercise M-06 idempotency behavior
+// (schedule_post, reply_to_conversation) construct their own executor with a
+// real ToolIdempotencyService-shaped mock instead of using this one.
+const idempotencyMock = {
+  runIdempotent: jest.fn(async ({ effect }: { effect: () => Promise<unknown> }) => ({
+    result: await effect(),
+    deduped: false,
+  })),
+} as any;
+// M-08: only exercised by the 'marketing.check_consent' tests below, which
+// construct their own executor with a real SuppressionService-shaped mock.
+const suppressionMock = {} as any;
 
 const ctx = { companyId: 'c_1' };
 
@@ -43,6 +58,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -59,7 +76,7 @@ describe('RealSkillExecutor — postiz.*', () => {
           date: '2026-08-01T09:00:00Z',
         }),
       );
-      expect(result.result).toEqual({ scheduledPostId: 'sp_1', postizPostId: 'p_123' });
+      expect(result.result).toEqual({ scheduledPostId: 'sp_1', postizPostId: 'p_123', deduped: false });
     });
 
     it('fails without hitting Postiz when the SocialAccount is missing', async () => {
@@ -77,6 +94,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -86,6 +105,71 @@ describe('RealSkillExecutor — postiz.*', () => {
       );
       expect(result.ok).toBe(false);
       expect(postizClient.schedulePost).not.toHaveBeenCalled();
+    });
+
+    it('M-06: does NOT schedule twice for a retried identical schedule_post (real ToolIdempotencyService)', async () => {
+      // The bug this closes: schedule_post had NO idempotency at all, unlike
+      // its sibling publish_now — a retried TOOL_ACTION (queue redelivery, a
+      // crash-replay) scheduled the same content to the same account TWICE,
+      // a real, duplicate, public post at Postiz.
+      const postizClient = {
+        schedulePost: jest.fn().mockResolvedValue({ postizPostId: 'p_dup' }),
+      };
+      let existingRecord: any = null;
+      const prisma: any = {
+        socialAccount: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'sa_1',
+            companyId: 'c_1',
+            postizIntegrationId: 'int_1',
+          }),
+        },
+        scheduledPost: {
+          create: jest.fn().mockResolvedValue({ id: 'sp_dup' }),
+        },
+        toolIdempotencyRecord: {
+          create: jest.fn(async (args: any) => {
+            if (existingRecord) {
+              throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+                code: 'P2002',
+                clientVersion: 'test',
+              });
+            }
+            existingRecord = { id: 'rec_1', ...args.data, createdAt: new Date() };
+            return existingRecord;
+          }),
+          findUniqueOrThrow: jest.fn(async () => existingRecord),
+          update: jest.fn(async (args: any) => {
+            existingRecord = { ...existingRecord, ...args.data };
+            return existingRecord;
+          }),
+        },
+      };
+      const realIdempotency = new ToolIdempotencyService(prisma);
+      const args = { socialAccountId: 'sa_1', content: 'Hello world', publishAt: '2026-08-01T09:00:00Z' };
+
+      const executor = new RealSkillExecutor(
+        configMock,
+        fallbackMock,
+        schedulingMock,
+        postizClient as any,
+        prisma as any,
+        chatwootClientMock,
+        cryptoMock,
+        planeClientMock,
+        realIdempotency,
+        suppressionMock,
+      );
+
+      const first = await executor.execute('postiz', 'schedule_post', args, ctx);
+      const second = await executor.execute('postiz', 'schedule_post', args, ctx);
+
+      expect(first.ok).toBe(true);
+      expect(second.ok).toBe(true);
+      expect((second.result as any).deduped).toBe(true);
+      // The whole point: Postiz and the DB are each touched exactly once.
+      expect(postizClient.schedulePost).toHaveBeenCalledTimes(1);
+      expect(prisma.scheduledPost.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -118,6 +202,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -177,6 +263,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -213,6 +301,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute('postiz', 'list_connected_accounts', {}, ctx);
       expect(result.ok).toBe(true);
@@ -237,6 +327,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -260,6 +352,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute('postiz', 'start_connect_account', {}, ctx);
       expect(result.ok).toBe(false);
@@ -289,6 +383,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -326,6 +422,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -356,6 +454,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -364,6 +464,135 @@ describe('RealSkillExecutor — postiz.*', () => {
         ctx,
       );
       expect(result.ok).toBe(false);
+    });
+  });
+
+  describe('postiz.get_post_analytics (M-10)', () => {
+    it('resolves the local ScheduledPost then returns the real Postiz analytics', async () => {
+      const postizClient = {
+        getPostAnalytics: jest.fn().mockResolvedValue({ likes: 10, impressions: 500 }),
+      };
+      const prisma = {
+        scheduledPost: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'sp_1',
+            status: 'PUBLISHED',
+            postizPostId: 'p_123',
+          }),
+        },
+      };
+      const executor = new RealSkillExecutor(
+        configMock,
+        fallbackMock,
+        schedulingMock,
+        postizClient as any,
+        prisma as any,
+        chatwootClientMock,
+        cryptoMock,
+        planeClientMock,
+        idempotencyMock,
+        suppressionMock,
+      );
+      const result = await executor.execute(
+        'postiz',
+        'get_post_analytics',
+        { scheduledPostId: 'sp_1' },
+        ctx,
+      );
+      expect(postizClient.getPostAnalytics).toHaveBeenCalledWith('p_123');
+      expect(result.ok).toBe(true);
+      expect(result.result).toEqual({
+        scheduledPostId: 'sp_1',
+        postizPostId: 'p_123',
+        analytics: { likes: 10, impressions: 500 },
+      });
+    });
+
+    it('fails when the ScheduledPost is not found for this company', async () => {
+      const postizClient = { getPostAnalytics: jest.fn() };
+      const prisma = {
+        scheduledPost: { findFirst: jest.fn().mockResolvedValue(null) },
+      };
+      const executor = new RealSkillExecutor(
+        configMock,
+        fallbackMock,
+        schedulingMock,
+        postizClient as any,
+        prisma as any,
+        chatwootClientMock,
+        cryptoMock,
+        planeClientMock,
+        idempotencyMock,
+        suppressionMock,
+      );
+      const result = await executor.execute(
+        'postiz',
+        'get_post_analytics',
+        { scheduledPostId: 'sp_missing' },
+        ctx,
+      );
+      expect(result.ok).toBe(false);
+      expect(postizClient.getPostAnalytics).not.toHaveBeenCalled();
+    });
+
+    it('fails when the post has not been published yet (no postizPostId)', async () => {
+      const postizClient = { getPostAnalytics: jest.fn() };
+      const prisma = {
+        scheduledPost: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'sp_1', status: 'SCHEDULED', postizPostId: null }),
+        },
+      };
+      const executor = new RealSkillExecutor(
+        configMock,
+        fallbackMock,
+        schedulingMock,
+        postizClient as any,
+        prisma as any,
+        chatwootClientMock,
+        cryptoMock,
+        planeClientMock,
+        idempotencyMock,
+        suppressionMock,
+      );
+      const result = await executor.execute(
+        'postiz',
+        'get_post_analytics',
+        { scheduledPostId: 'sp_1' },
+        ctx,
+      );
+      expect(result.ok).toBe(false);
+      expect(postizClient.getPostAnalytics).not.toHaveBeenCalled();
+    });
+
+    it('surfaces the Postiz client error as a failed result rather than throwing', async () => {
+      const postizClient = {
+        getPostAnalytics: jest.fn().mockRejectedValue(new Error('Postiz getPostAnalytics failed: 500')),
+      };
+      const prisma = {
+        scheduledPost: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'sp_1', status: 'PUBLISHED', postizPostId: 'p_1' }),
+        },
+      };
+      const executor = new RealSkillExecutor(
+        configMock,
+        fallbackMock,
+        schedulingMock,
+        postizClient as any,
+        prisma as any,
+        chatwootClientMock,
+        cryptoMock,
+        planeClientMock,
+        idempotencyMock,
+        suppressionMock,
+      );
+      const result = await executor.execute(
+        'postiz',
+        'get_post_analytics',
+        { scheduledPostId: 'sp_1' },
+        ctx,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe('Postiz getPostAnalytics failed: 500');
     });
   });
 });
@@ -386,6 +615,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute('chatwoot', 'list_open_conversations', {}, ctx);
       expect(result.ok).toBe(true);
@@ -411,6 +642,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -439,6 +672,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -481,6 +716,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         chatwootClient as any,
         crypto as any,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -508,7 +745,7 @@ describe('RealSkillExecutor — chatwoot.*', () => {
           chatwootMessageId: 'cw_msg_1',
         },
       });
-      expect(result.result).toEqual({ messageId: 'msg_1', chatwootMessageId: 'cw_msg_1' });
+      expect(result.result).toEqual({ messageId: 'msg_1', chatwootMessageId: 'cw_msg_1', deduped: false });
     });
 
     it('fails without calling Chatwoot when there is no ChatwootAccount for this company', async () => {
@@ -527,6 +764,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         chatwootClient as any,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -553,6 +792,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         chatwootClient as any,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -563,15 +804,55 @@ describe('RealSkillExecutor — chatwoot.*', () => {
       expect(result.ok).toBe(false);
       expect(chatwootClient.sendReply).not.toHaveBeenCalled();
     });
+
+    it('S-13/C-06: refuses to reply when the conversation is ESCALATED to a human', async () => {
+      const conversation = {
+        id: 'conv_1',
+        companyId: 'c_1',
+        chatwootConversationId: 'cw_conv_1',
+        status: 'ESCALATED',
+      };
+      const prisma = {
+        supportConversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
+        chatwootAccount: { findFirst: jest.fn() },
+      };
+      const chatwootClient = { sendReply: jest.fn() };
+      const executor = new RealSkillExecutor(
+        configMock,
+        fallbackMock,
+        schedulingMock,
+        postizClientMock,
+        prisma as any,
+        chatwootClient as any,
+        cryptoMock,
+        planeClientMock,
+        idempotencyMock,
+        suppressionMock,
+      );
+      const result = await executor.execute(
+        'chatwoot',
+        'reply_to_conversation',
+        { conversationId: 'conv_1', content: 'Hi' },
+        ctx,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/escalated to a human/i);
+      expect(chatwootClient.sendReply).not.toHaveBeenCalled();
+      expect(prisma.chatwootAccount.findFirst).not.toHaveBeenCalled();
+    });
   });
 
   describe('chatwoot.resolve_conversation', () => {
-    it('updates the SupportConversation status to RESOLVED (companyId-scoped)', async () => {
+    // S-02: this tool has no live Chatwoot resolve/toggle-status call yet.
+    // It must report an honest failure rather than a fake success, and must
+    // NOT mutate the local mirror row (a status claiming RESOLVED while the
+    // real ticket is still open is a silent-success defect).
+    it('returns an honest NOT_IMPLEMENTED failure and does not touch the DB', async () => {
       const conversation = { id: 'conv_1', companyId: 'c_1', status: 'OPEN' };
       const prisma = {
         supportConversation: {
           findFirst: jest.fn().mockResolvedValue(conversation),
-          update: jest.fn().mockResolvedValue({ id: 'conv_1', status: 'RESOLVED' }),
+          update: jest.fn(),
         },
       };
       const executor = new RealSkillExecutor(
@@ -583,6 +864,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -590,15 +873,12 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         { conversationId: 'conv_1' },
         ctx,
       );
-      expect(result.ok).toBe(true);
+      expect(result.ok).toBe(false);
+      expect(result.error).toMatch(/NOT YET IMPLEMENTED/);
       expect(prisma.supportConversation.findFirst).toHaveBeenCalledWith({
         where: { id: 'conv_1', companyId: 'c_1' },
       });
-      expect(prisma.supportConversation.update).toHaveBeenCalledWith({
-        where: { id: 'conv_1' },
-        data: { status: 'RESOLVED' },
-      });
-      expect(result.result).toEqual({ id: 'conv_1', status: 'RESOLVED' });
+      expect(prisma.supportConversation.update).not.toHaveBeenCalled();
     });
 
     it('fails when the conversation is not found for this company', async () => {
@@ -614,6 +894,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -623,6 +905,108 @@ describe('RealSkillExecutor — chatwoot.*', () => {
       );
       expect(result.ok).toBe(false);
     });
+  });
+});
+
+describe('RealSkillExecutor — marketing.check_consent (M-08)', () => {
+  function build(suppression: any) {
+    return new RealSkillExecutor(
+      configMock,
+      fallbackMock,
+      schedulingMock,
+      {} as any,
+      {} as any,
+      chatwootClientMock,
+      cryptoMock,
+      planeClientMock,
+      idempotencyMock,
+      suppression,
+    );
+  }
+
+  it('reports allConsented=true only when every address is GRANTED and not suppressed', async () => {
+    const suppression = {
+      isSuppressed: jest.fn().mockResolvedValue(false),
+      latestConsent: jest.fn().mockResolvedValue({ status: 'GRANTED' }),
+    };
+    const executor = build(suppression);
+
+    const result = await executor.execute(
+      'marketing',
+      'check_consent',
+      { channel: 'EMAIL', addresses: 'alice@example.com' },
+      ctx,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toEqual({
+      allConsented: true,
+      checkedCount: 1,
+      missingConsent: [],
+      suppressed: [],
+    });
+    expect(suppression.isSuppressed).toHaveBeenCalledWith('c_1', 'EMAIL', 'alice@example.com');
+    expect(suppression.latestConsent).toHaveBeenCalledWith('c_1', 'EMAIL', 'alice@example.com');
+  });
+
+  it('never trusts a caller-supplied flag — queries real state per address, mixed batch', async () => {
+    // The whole point of M-08: this is a REAL query, not
+    // `{{trigger.consentVerified}}`. Three addresses, three different real
+    // outcomes, none of them assumed.
+    const suppression = {
+      isSuppressed: jest.fn(async (_c: string, _ch: string, addr: string) => addr === 'suppressed@example.com'),
+      latestConsent: jest.fn(async (_c: string, _ch: string, addr: string) => {
+        if (addr === 'granted@example.com') return { status: 'GRANTED' };
+        if (addr === 'withdrawn@example.com') return { status: 'WITHDRAWN' };
+        return null; // never consented at all
+      }),
+    };
+    const executor = build(suppression);
+
+    const result = await executor.execute(
+      'marketing',
+      'check_consent',
+      { channel: 'EMAIL', addresses: 'granted@example.com, withdrawn@example.com, suppressed@example.com' },
+      ctx,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.result).toEqual({
+      allConsented: false,
+      checkedCount: 3,
+      missingConsent: ['withdrawn@example.com', 'suppressed@example.com'],
+      suppressed: ['suppressed@example.com'],
+    });
+  });
+
+  it('fails with a clear error when no valid addresses are supplied', async () => {
+    const suppression = { isSuppressed: jest.fn(), latestConsent: jest.fn() };
+    const executor = build(suppression);
+
+    const result = await executor.execute(
+      'marketing',
+      'check_consent',
+      { channel: 'EMAIL', addresses: '   ' },
+      ctx,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(suppression.isSuppressed).not.toHaveBeenCalled();
+  });
+
+  it('fails on an unknown channel', async () => {
+    const suppression = { isSuppressed: jest.fn(), latestConsent: jest.fn() };
+    const executor = build(suppression);
+
+    const result = await executor.execute(
+      'marketing',
+      'check_consent',
+      { channel: 'CARRIER_PIGEON', addresses: 'alice@example.com' },
+      ctx,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(suppression.isSuppressed).not.toHaveBeenCalled();
   });
 });
 
@@ -646,6 +1030,8 @@ describe('RealSkillExecutor — plane.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute('plane', 'list_issues', { projectId: 'proj_1' }, ctx);
       expect(result.ok).toBe(true);
@@ -672,6 +1058,8 @@ describe('RealSkillExecutor — plane.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClientMock,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'plane',
@@ -711,6 +1099,8 @@ describe('RealSkillExecutor — plane.*', () => {
         chatwootClientMock,
         crypto as any,
         planeClient as any,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'plane',
@@ -756,6 +1146,8 @@ describe('RealSkillExecutor — plane.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClient as any,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'plane',
@@ -782,6 +1174,8 @@ describe('RealSkillExecutor — plane.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClient as any,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'plane',
@@ -829,6 +1223,8 @@ describe('RealSkillExecutor — plane.*', () => {
         chatwootClientMock,
         crypto as any,
         planeClient as any,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'plane',
@@ -866,6 +1262,8 @@ describe('RealSkillExecutor — plane.*', () => {
         chatwootClientMock,
         cryptoMock,
         planeClient as any,
+        idempotencyMock,
+        suppressionMock,
       );
       const result = await executor.execute(
         'plane',

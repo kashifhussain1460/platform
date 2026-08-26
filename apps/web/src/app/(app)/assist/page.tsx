@@ -23,6 +23,8 @@ import {
   useCreateAssistSession,
 } from '@/features/assist/hooks';
 import { useWorkflowTemplates } from '@/features/workflows/hooks';
+import { WORKFLOW_CATEGORY_LABELS } from '@/features/workflows/labels';
+import type { WorkflowCategory, WorkflowTemplateSummaryDto } from '@vaep/types';
 
 /**
  * Orlixa AI Assist — Landing (doc 31, Screen 1).
@@ -85,6 +87,35 @@ function rememberPrompt(prompt: string): void {
   }
 }
 
+/**
+ * Gap fix (2026-08-20): a plain `.slice(0, max)` on a `category ASC`-sorted
+ * list always shows the alphabetically-first category (HR) exclusively — a
+ * user who cares about Marketing (or anything else) never sees it in the
+ * default view. Round-robins one template per category instead, so the
+ * default "no filter selected" view is a genuine sample across every
+ * category rather than a slice of just one.
+ */
+export function diverseSample(
+  items: WorkflowTemplateSummaryDto[],
+  max: number,
+): WorkflowTemplateSummaryDto[] {
+  const byCategory = new Map<string, WorkflowTemplateSummaryDto[]>();
+  for (const item of items) {
+    const list = byCategory.get(item.category) ?? [];
+    list.push(item);
+    byCategory.set(item.category, list);
+  }
+  const buckets = Array.from(byCategory.values());
+  const out: WorkflowTemplateSummaryDto[] = [];
+  for (let round = 0; out.length < max && buckets.some((b) => round < b.length); round += 1) {
+    for (const bucket of buckets) {
+      if (out.length >= max) break;
+      if (round < bucket.length) out.push(bucket[round]);
+    }
+  }
+  return out;
+}
+
 export default function AssistPage() {
   const shellProps = useAppShellProps();
   const router = useRouter();
@@ -93,6 +124,7 @@ export default function AssistPage() {
 
   const [prompt, setPrompt] = useState('');
   const [recentPrompts, setRecentPrompts] = useState<string[]>([]);
+  const [templateCategory, setTemplateCategory] = useState<WorkflowCategory | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { data: suggestions, isLoading, isError } = useAssistSuggestions();
@@ -127,9 +159,16 @@ export default function AssistPage() {
     }
   };
 
-  const firstPartyTemplates = (templates ?? [])
-    .filter((t) => t.companyId === null)
-    .slice(0, 6);
+  const firstPartyTemplates = (templates ?? []).filter((t) => t.companyId === null);
+  // Gap fix (2026-08-20) — every category actually present, not just whichever
+  // one the raw list happens to lead with.
+  const availableCategories = Array.from(
+    new Set(firstPartyTemplates.map((t) => t.category)),
+  ).sort();
+  const categoryFiltered = templateCategory
+    ? firstPartyTemplates.filter((t) => t.category === templateCategory)
+    : diverseSample(firstPartyTemplates, 6);
+  const visibleTemplates = templateCategory ? categoryFiltered.slice(0, 6) : categoryFiltered;
 
   return (
     <AppShell {...shellProps}>
@@ -252,24 +291,65 @@ export default function AssistPage() {
                 View all
               </Link>
             </div>
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {firstPartyTemplates.map((t) => (
-                <li key={t.id}>
-                  <Link
-                    href="/workflows/templates"
-                    className="flex h-full flex-col rounded-2xl border border-app-border bg-app-surface p-4 transition-colors hover:border-violet/40 hover:bg-violet/[0.04]"
-                  >
-                    <span className="self-start rounded-full bg-app-tint px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet">
-                      {t.category}
-                    </span>
-                    <span className="mt-3 block text-sm font-semibold text-app-ink">{t.name}</span>
-                    <span className="mt-1.5 line-clamp-2 block text-[13px] leading-relaxed text-app-ink-2">
-                      {t.description ?? 'Ready to install and edit.'}
-                    </span>
-                  </Link>
-                </li>
+
+            {/* Category filter — gap fix: without this, the section below
+                always showed a slice of whatever category sorts first
+                (HR), with no way to see just the one you actually care
+                about (e.g. Marketing). */}
+            <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Filter templates by category">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={templateCategory === null}
+                onClick={() => setTemplateCategory(null)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                  templateCategory === null
+                    ? 'bg-violet text-white'
+                    : 'border border-app-border bg-app-surface text-app-ink-2 hover:border-violet/40'
+                }`}
+              >
+                All
+              </button>
+              {availableCategories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  role="tab"
+                  aria-selected={templateCategory === category}
+                  onClick={() => setTemplateCategory(category)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                    templateCategory === category
+                      ? 'bg-violet text-white'
+                      : 'border border-app-border bg-app-surface text-app-ink-2 hover:border-violet/40'
+                  }`}
+                >
+                  {WORKFLOW_CATEGORY_LABELS[category] ?? category}
+                </button>
               ))}
-            </ul>
+            </div>
+
+            {visibleTemplates.length > 0 ? (
+              <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {visibleTemplates.map((t) => (
+                  <li key={t.id}>
+                    <Link
+                      href="/workflows/templates"
+                      className="flex h-full flex-col rounded-2xl border border-app-border bg-app-surface p-4 transition-colors hover:border-violet/40 hover:bg-violet/[0.04]"
+                    >
+                      <span className="self-start rounded-full bg-app-tint px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet">
+                        {WORKFLOW_CATEGORY_LABELS[t.category] ?? t.category}
+                      </span>
+                      <span className="mt-3 block text-sm font-semibold text-app-ink">{t.name}</span>
+                      <span className="mt-1.5 line-clamp-2 block text-[13px] leading-relaxed text-app-ink-2">
+                        {t.description ?? 'Ready to install and edit.'}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-app-ink-3">No templates in this category yet.</p>
+            )}
           </section>
         ) : null}
 

@@ -22,6 +22,7 @@ import {
 } from '../approval-routing/approval-routing.service';
 import {
   toolRequiresApproval,
+  isCreditOnlyCompany,
   type ApprovalPolicyEmployee,
 } from '../skills/tool-approval-policy';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -92,14 +93,16 @@ export class ApprovalService {
    * `highRisk`, OR the employee's approvalRules require all tools, OR its
    * `requireApprovalForTools` includes `skillKey` or `skillKey:tool`.
    */
-  requiresApproval(
+  async requiresApproval(
     employee: ApprovalPolicyEmployee,
+    companyId: string,
     skillKey: string,
     tool: string,
-  ): boolean {
+  ): Promise<boolean> {
     // Delegates to the shared policy so the chat path and the workflow engine
     // can never drift apart again (gap G25). Do not re-implement this here.
-    return toolRequiresApproval(employee, skillKey, tool);
+    const creditOnly = await isCreditOnlyCompany(this.prisma, companyId);
+    return toolRequiresApproval(employee, skillKey, tool, creditOnly);
   }
 
   /**

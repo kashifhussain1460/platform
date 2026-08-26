@@ -68,4 +68,50 @@ export class MarketingSyncService {
     );
     return { reconciled };
   }
+
+  /**
+   * M-10: periodic analytics snapshot. Deliberately a SEPARATE method from
+   * `sweep()`, not folded into it — `sweep()` already runs on a 10-minute
+   * cadence against the same instance-wide 90/hr Postiz cap M-07/C-10
+   * finally enforces; adding N-companies × analytics calls to that cadence
+   * would immediately re-exhaust the budget that fix just closed. This is
+   * meant to be driven on a much lower-frequency schedule (daily), via
+   * `/admin/cron/marketing-analytics` — the same pattern as every other
+   * worker-only sweep exposed there.
+   *
+   * IMPLEMENTED_UNVERIFIED: PostizClientService.getIntegrationAnalytics's
+   * response shape has not been checked against a live Postiz instance.
+   */
+  async snapshotAnalytics(): Promise<{ snapshotted: number; failed: number }> {
+    const accounts = await this.prisma.socialAccount.findMany({
+      where: { status: 'CONNECTED' },
+      select: { id: true, companyId: true, postizIntegrationId: true },
+    });
+
+    let snapshotted = 0;
+    let failed = 0;
+    for (const account of accounts) {
+      try {
+        const analytics = await this.postizClient.getIntegrationAnalytics(
+          account.postizIntegrationId,
+        );
+        await this.prisma.marketingAnalyticsSnapshot.create({
+          data: {
+            companyId: account.companyId,
+            socialAccountId: account.id,
+            metrics: analytics as object,
+          },
+        });
+        snapshotted += 1;
+      } catch (err) {
+        failed += 1;
+        this.logger.warn(
+          `marketing-analytics snapshot failed for socialAccount=${account.id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    return { snapshotted, failed };
+  }
 }

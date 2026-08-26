@@ -1,11 +1,19 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, type AiEmployee, type Conversation } from '@prisma/client';
 import type {
   AiEmployeeDto,
   ConversationDto,
+  EmployeeDependenciesDto,
   MessageDto,
   RunResultDto,
 } from '@vaep/types';
+import { AuditLogService } from '../audit/audit-log.service';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/pagination';
@@ -33,6 +41,8 @@ function statusReason(status: string): string {
  */
 @Injectable()
 export class EmployeesService {
+  private readonly logger = new Logger(EmployeesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly runtime: AgentRuntimeService,
@@ -40,6 +50,9 @@ export class EmployeesService {
     private readonly usage: UsageService,
     // WAVE 2 §2.2 — the single authorization layer (global leaf module).
     private readonly authz: AuthorizationService,
+    // Phase 1 — archive/hard-delete are audited separately, like the workflow
+    // equivalents. AuditLogService is provided by the global AuditModule.
+    private readonly audit: AuditLogService,
   ) {}
 
   // --- Employees -----------------------------------------------------------
@@ -104,7 +117,10 @@ export class EmployeesService {
     actorUserId?: string,
   ): Promise<AiEmployeeDto[]> {
     const employees = await this.prisma.aiEmployee.findMany({
-      where: { companyId },
+      // Archived = deleted from the customer's point of view. The row survives
+      // so history, credentials and audit rows survive with it, but it leaves
+      // the roster — otherwise "delete" visibly does nothing.
+      where: { companyId, archivedAt: null },
       orderBy: { createdAt: 'desc' },
       take: clampLimit(limitRaw),
     });
@@ -171,6 +187,8 @@ export class EmployeesService {
         language: dto.language,
         knowledgeAccess: dto.knowledgeAccess,
         budgetLimit: dto.budgetLimit,
+        maxCreditsPerExecution: dto.maxCreditsPerExecution,
+        maxCreditsPerTask: dto.maxCreditsPerTask,
         permissions:
           dto.permissions === undefined
             ? undefined
@@ -196,10 +214,184 @@ export class EmployeesService {
     return toEmployeeDto(employee);
   }
 
-  async remove(companyId: string, id: string): Promise<void> {
-    await this.findOwnedEmployee(companyId, id);
-    // Cascades to conversations, messages and memories (onDelete: Cascade).
-    await this.prisma.aiEmployee.delete({ where: { id } });
+  /**
+   * What deleting this employee would take with it.
+   *
+   * Read-only, and returned to the caller BEFORE anything is destroyed — the
+   * workflow delete flow's "409 that names the blocker" idea, generalised so a
+   * hard delete is an informed choice rather than a surprise.
+   */
+  async dependencies(
+    companyId: string,
+    id: string,
+  ): Promise<EmployeeDependenciesDto> {
+    const employee = await this.findOwnedEmployee(companyId, id);
+    const [
+      ownedConnections,
+      conversations,
+      memories,
+      skillGrants,
+      skillExecutions,
+      approvalRequests,
+      pendingApprovals,
+      referencing,
+    ] = await Promise.all([
+      this.prisma.installedSkill.count({ where: { companyId, employeeId: id } }),
+      this.prisma.conversation.count({ where: { companyId, employeeId: id } }),
+      this.prisma.employeeMemory.count({ where: { companyId, employeeId: id } }),
+      this.prisma.employeeSkill.count({ where: { companyId, employeeId: id } }),
+      this.prisma.skillExecution.count({ where: { companyId, employeeId: id } }),
+      this.prisma.approvalRequest.count({ where: { companyId, employeeId: id } }),
+      this.prisma.approvalRequest.count({
+        where: { companyId, employeeId: id, status: 'PENDING' },
+      }),
+      this.workflowsReferencing(companyId, id),
+    ]);
+
+    const inFlightRuns =
+      referencing.length === 0
+        ? 0
+        : await this.prisma.workflowRun.count({
+            where: {
+              companyId,
+              workflowId: { in: referencing },
+              status: { in: ['PENDING', 'RUNNING', 'WAITING'] },
+            },
+          });
+
+    return {
+      employeeId: id,
+      name: employee.name,
+      ownedConnections,
+      conversations,
+      memories,
+      skillGrants,
+      skillExecutions,
+      approvalRequests,
+      pendingApprovals,
+      referencingWorkflows: referencing.length,
+      inFlightRuns,
+    };
+  }
+
+  /**
+   * Ids of this tenant's workflows whose graph names this employee.
+   *
+   * Matched on the serialized definition rather than a join, because there is
+   * no `WorkflowNode` table — `employeeId` lives inside the `definition` JSON
+   * (`AI_EMPLOYEE_STEP`/`AI_STEP`/`TOOL_ACTION`/`RETRIEVE` node configs). A
+   * substring match on a cuid is precise enough to be useful and is only ever
+   * used to WARN or BLOCK, never to widen anything.
+   */
+  private async workflowsReferencing(
+    companyId: string,
+    employeeId: string,
+  ): Promise<string[]> {
+    const rows = await this.prisma.workflow.findMany({
+      where: {
+        companyId,
+        // Archived workflows can't run, so they can't be broken by this.
+        archivedAt: null,
+        definition: { string_contains: employeeId },
+      },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Delete an AI employee.
+   *
+   * ## Why this is not `prisma.aiEmployee.delete()` any more
+   *
+   * It used to be exactly that, with one comment ("cascades to conversations,
+   * messages and memories") that undersold what it did. The real blast radius,
+   * from the schema's own `onDelete: Cascade` edges:
+   *
+   *   - `InstalledSkill` — the employee's PER-EMPLOYEE skill connections, i.e.
+   *     their **encrypted OAuth credentials**, silently destroyed.
+   *   - `Conversation` → `Message` — every chat transcript.
+   *   - `EmployeeMemory`, `EmployeeFeedback` — everything the employee learned.
+   *   - `EmployeeSkill` — the grant records an auditor would need to answer
+   *     "what was this employee allowed to do in Q1?".
+   *
+   * plus the loose references with no FK at all (`SkillExecution.employeeId`,
+   * `ApprovalRequest.employeeId`, `EmployeeCreditPeriodCounter.employeeId`,
+   * and `employeeId` inside workflow node configs), which were left dangling.
+   *
+   * This is the same defect class as G29 (workflow delete destroying run
+   * history) and gets the same, already-proven answer: **archive by default,
+   * `?hard=true` for a genuine erasure**, blocked on live dependencies and
+   * audited separately.
+   */
+  async remove(
+    companyId: string,
+    id: string,
+    actorUserId?: string,
+    opts: { hard?: boolean } = {},
+  ): Promise<void> {
+    const existing = await this.findOwnedEmployee(companyId, id);
+    const deps = await this.dependencies(companyId, id);
+
+    // Blocks BOTH paths: archiving an employee whose workflow is mid-run would
+    // strand that run just as surely as deleting it.
+    if (deps.inFlightRuns > 0) {
+      throw new ConflictException(
+        `Cannot delete "${existing.name}": ${deps.inFlightRuns} workflow run(s) that use it ` +
+          'are still in flight. Wait for them to finish or cancel them first.',
+      );
+    }
+    if (deps.pendingApprovals > 0) {
+      throw new ConflictException(
+        `Cannot delete "${existing.name}": ${deps.pendingApprovals} approval request(s) raised by ` +
+          'it are still awaiting a decision. Approve or reject them first.',
+      );
+    }
+
+    if (opts.hard) {
+      await this.prisma.aiEmployee.delete({ where: { id } });
+      this.logger.warn(
+        `employee.hard_delete employee=${id} company=${companyId} actor=${actorUserId ?? 'unknown'} ` +
+          `name="${existing.name}" — destroyed ${deps.conversations} conversation(s), ` +
+          `${deps.memories} memory/ies, ${deps.skillGrants} skill grant(s) and ` +
+          `${deps.ownedConnections} stored connection(s)`,
+      );
+      await this.audit.record({
+        companyId,
+        actorUserId,
+        action: 'employee.hard_delete',
+        entityType: 'AiEmployee',
+        entityId: id,
+        metadata: { name: existing.name, destroyed: { ...deps }, historyDestroyed: true },
+      });
+      return;
+    }
+
+    if (existing.archivedAt) {
+      // Idempotent: DELETE must be safe to repeat.
+      return;
+    }
+
+    // DISABLED (not PAUSED): a disabled employee is already refused by the chat
+    // runtime and does not hold a plan seat, which is exactly the semantics an
+    // archived employee needs. `archivedAt` is what distinguishes "retired by
+    // an admin" from "deleted", so the roster can hide the latter.
+    await this.prisma.aiEmployee.update({
+      where: { id },
+      data: { status: 'DISABLED', archivedAt: new Date() },
+    });
+    this.logger.log(
+      `employee.archive employee=${id} company=${companyId} actor=${actorUserId ?? 'unknown'} ` +
+        `name="${existing.name}" (history, credentials and audit rows retained)`,
+    );
+    await this.audit.record({
+      companyId,
+      actorUserId,
+      action: 'employee.archive',
+      entityType: 'AiEmployee',
+      entityId: id,
+      metadata: { name: existing.name, previousStatus: existing.status, retained: { ...deps } },
+    });
   }
 
   // --- Conversations -------------------------------------------------------
@@ -257,6 +449,7 @@ export class EmployeesService {
     companyId: string,
     conversationId: string,
     content: string,
+    idempotencyKey?: string | null,
   ): Promise<RunResultDto> {
     const conversation = await this.findOwnedConversation(
       companyId,
@@ -275,6 +468,7 @@ export class EmployeesService {
     // instruction. Read-only tools still run autonomously.
     return this.runtime.run(employee, conversation, content, {
       forceApprovalForExternalActions: true,
+      idempotencyKey: idempotencyKey ?? undefined,
     });
   }
 

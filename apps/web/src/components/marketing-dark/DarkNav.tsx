@@ -13,12 +13,12 @@ import { OrlixaLockup } from './OrlixaMark';
  * and it is the one thing a visitor will remember trying.
  */
 const NAV: { label: string; href: string | null }[] = [
-  { label: 'Product', href: null },
-  { label: 'AI Employees', href: null },
-  { label: 'Solutions', href: null },
+  { label: 'AI Employees', href: '/ai-employees' },
+  { label: 'Workflows', href: '/automation' },
+  { label: 'Integrations', href: '/integrations' },
   { label: 'Pricing', href: '/pricing' },
   { label: 'Resources', href: null },
-  { label: 'Company', href: null },
+  { label: 'Company', href: '/about' },
 ];
 
 /** Sticky nav — transparent at top, glass (blur + hairline) once scrolled. */

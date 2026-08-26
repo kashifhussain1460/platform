@@ -56,4 +56,15 @@ export const ALERT_RULES: AlertRule[] = [
     severity: 'warning',
     summary: 'OAuth token refreshes are failing — connectors will disconnect',
   },
+  {
+    // Credit system Phase 10, Task 10.3 (§25.3) — the internal-consistency
+    // leg is a structural invariant, not a rounding-tolerance comparison:
+    // ANY orphaned DEBIT (no traceable reservation) is a real bug, so the
+    // threshold is 1, not a tuned tolerance figure.
+    name: 'credit_reconciliation_discrepancy',
+    metric: METRIC.creditReconciliationDiscrepancyTotal,
+    threshold: 1,
+    severity: 'critical',
+    summary: 'Credit ledger reconciliation found an untraceable entry — see ReconciliationDiscrepancy',
+  },
 ];

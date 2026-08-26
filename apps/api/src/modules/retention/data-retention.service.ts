@@ -26,6 +26,10 @@ export interface RetentionCounts {
   conversations: number;
   skillExecutions: number;
   mediaAssets: number;
+  /** S-09: RESOLVED SupportConversation rows (Chatwoot-mirrored tickets). */
+  supportConversations: number;
+  /** S-09: SupportMessage rows removed as part of the above (cascade). */
+  supportMessages: number;
   /** Object-storage blobs removed alongside their rows. */
   attachments: number;
 }
@@ -51,6 +55,8 @@ const ZERO: RetentionCounts = {
   conversations: 0,
   skillExecutions: 0,
   mediaAssets: 0,
+  supportConversations: 0,
+  supportMessages: 0,
   attachments: 0,
 };
 
@@ -69,7 +75,31 @@ const ZERO: RetentionCounts = {
  *
  * This service covers the rest: workflow runs, step runs, step attempts, the
  * run-event outbox, provider snapshots (raw + canonical events), knowledge,
- * memory, conversations, skill executions and attachments.
+ * memory, conversations, skill executions, attachments, and (S-09) resolved
+ * Support conversations/messages.
+ *
+ * S-09 additions and a deliberate exclusion, stated explicitly rather than
+ * left to be rediscovered:
+ *
+ * - **SupportConversation/SupportMessage** (real customer PII in free text —
+ *   contactEmail, message content) had NO sweep at all before this. Only
+ *   RESOLVED conversations age out (mirrors rule 2 below); SupportMessage
+ *   cascades automatically (`onDelete: Cascade`).
+ * - **ChatwootAccount is NEVER swept here, on purpose** — it is the
+ *   connector/integration row, not customer data; pruning it would silently
+ *   disconnect the company's Chatwoot integration. Same reasoning already
+ *   protects `SocialAccount`/`PlaneWorkspace`, which this service has also
+ *   never touched.
+ * - **MarketingConsent/MarketingSuppression are NEVER swept here, on
+ *   purpose**, even though they are personal data (an email/phone address).
+ *   They are the EVIDENCE that email sends check against — deleting an old
+ *   `UNSUBSCRIBED`/`WITHDRAWN` row on a timer would silently re-enable
+ *   contacting someone who opted out, and destroys the exact record a
+ *   compliance dispute needs. This mirrors why `AuditLogService` has its own
+ *   365-day floor instead of aging out from here. A genuine GDPR
+ *   erasure-BY-REQUEST for a specific address is a different, narrower
+ *   capability than time-based aging and does not exist yet — tracked
+ *   separately, not solved by this sweep.
  *
  * Three rules it will not bend:
  *
@@ -293,6 +323,10 @@ export class DataRetentionService {
       dryRun,
     );
 
+    const support = await this.sweepSupportConversations(companyId, cutoff, dryRun);
+    counts.supportConversations = support.conversations;
+    counts.supportMessages = support.messages;
+
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total > 0 && !dryRun) {
       // §8.3 "audit evidence". Written after the deletion, and deliberately not
@@ -338,6 +372,59 @@ export class DataRetentionService {
     if (dryRun) return delegate.count({ where });
     const result = await delegate.deleteMany({ where });
     return result.count;
+  }
+
+  /**
+   * S-09: RESOLVED Support conversations older than the cutoff, and their
+   * messages (cascade). Mirrors the WorkflowRun sweep's rule 2 — only a
+   * TERMINAL state ages out; OPEN/PENDING/ESCALATED is live work a human or
+   * the AI may still act on, and deleting it would destroy an active
+   * conversation. Unlike WorkflowRun, nothing is archived first: this data
+   * is real customer PII (contactEmail, free-text message content) and the
+   * entire point of the sweep is to make it actually go away, not preserve
+   * a copy elsewhere.
+   */
+  private async sweepSupportConversations(
+    companyId: string,
+    cutoff: Date,
+    dryRun: boolean,
+  ): Promise<{ conversations: number; messages: number }> {
+    const where: Prisma.SupportConversationWhereInput = {
+      companyId,
+      status: 'RESOLVED',
+      lastMessageAt: { lt: cutoff },
+    };
+
+    if (dryRun) {
+      const conversations = await this.prisma.supportConversation.count({ where });
+      const messages = await this.prisma.supportMessage.count({
+        where: { conversation: { companyId, status: 'RESOLVED', lastMessageAt: { lt: cutoff } } },
+      });
+      return { conversations, messages };
+    }
+
+    let conversations = 0;
+    let messages = 0;
+    for (;;) {
+      const batch = await this.prisma.supportConversation.findMany({
+        where,
+        select: { id: true },
+        take: BATCH_SIZE,
+      });
+      if (batch.length === 0) break;
+      const ids = batch.map((c) => c.id);
+
+      // Counted before the cascade delete removes them.
+      messages += await this.prisma.supportMessage.count({
+        where: { conversationId: { in: ids } },
+      });
+      const removed = await this.prisma.supportConversation.deleteMany({
+        where: { id: { in: ids } },
+      });
+      conversations += removed.count;
+      if (batch.length < BATCH_SIZE) break;
+    }
+    return { conversations, messages };
   }
 
   /**

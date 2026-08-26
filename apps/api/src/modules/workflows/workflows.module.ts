@@ -31,6 +31,7 @@ import { RunStateModule } from '../workflow-runtime/run-state.module';
 import { WF_RUN_ADVANCE_QUEUE } from '../workflow-runtime/workflow-runtime.constants';
 import { WORKFLOW_RUN_QUEUE } from './workflows.constants';
 import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
+import { CreditsModule } from '../credits/credits.module';
 
 /**
  * Workflow builder module: tenant-scoped CRUD, run creation + a BullMQ
@@ -73,6 +74,7 @@ import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
     WorkflowPermissionsModule,
     // System email when a run pauses at an APPROVAL / high-risk gate (leaf module).
     NotificationsModule,
+    CreditsModule,
   ],
   controllers: [
     WorkflowsController,

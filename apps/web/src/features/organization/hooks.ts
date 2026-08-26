@@ -5,6 +5,7 @@ import type {
   AuditLogDto,
   CreateDepartmentDto,
   CreateTeamDto,
+  DepartmentDependenciesDto,
   DepartmentDto,
   SecurityPolicyDto,
   TeamDto,
@@ -13,12 +14,13 @@ import type {
   UpdateTeamDto,
 } from '@vaep/types';
 import type { NormalizedApiError } from '@/lib/apiClient';
-import { useCurrentRole } from '@/features/users/hooks';
+import { useCurrentRole, userKeys } from '@/features/users/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import {
   createDepartment,
   createTeam,
   deleteDepartment,
+  departmentDependencies,
   deleteTeam,
   getSecurityPolicy,
   listAuditLog,
@@ -32,6 +34,8 @@ import {
 export const orgKeys = {
   all: ['organization'] as const,
   departments: ['organization', 'departments'] as const,
+  departmentDependencies: (id: string) =>
+    ['organization', 'departments', id, 'dependencies'] as const,
   teams: ['organization', 'teams'] as const,
   securityPolicy: ['organization', 'security-policy'] as const,
   auditLog: ['organization', 'audit-log'] as const,
@@ -77,6 +81,10 @@ export function useCreateDepartment() {
         name: payload.name,
         description: payload.description ?? null,
         scopes: payload.scopes ?? [],
+        // A department nobody has been placed in yet — the honest starting
+        // point, and the refetch in onSettled corrects it if that changes.
+        memberCount: 0,
+        teamCount: 0,
         createdAt: new Date().toISOString(),
       };
       qc.setQueryData<DepartmentDto[]>(orgKeys.departments, (old) => [
@@ -130,28 +138,40 @@ export function useUpdateDepartment() {
   });
 }
 
-/** Delete (optimistic): remove the row; also refresh teams (SetNull cascade). */
+/** Preview a department delete. Enabled only when an id is supplied. */
+export function useDepartmentDependencies(id: string | null) {
+  return useQuery<DepartmentDependenciesDto, NormalizedApiError>({
+    queryKey: orgKeys.departmentDependencies(id ?? ''),
+    queryFn: () => departmentDependencies(id as string),
+    enabled: Boolean(id),
+    // Always refetch: the whole point is to show the CURRENT membership at the
+    // moment of the decision, not whatever it was earlier in the session.
+    staleTime: 0,
+  });
+}
+
+/**
+ * Delete a department.
+ *
+ * NOT optimistic, deliberately. The server can legitimately answer 409 ("still
+ * has members, tell me what to do with them"), and optimistically removing the
+ * row would make a refused delete look like it worked until the refetch put it
+ * back. Members and teams are invalidated too — a reassignment moves them.
+ */
 export function useDeleteDepartment() {
   const qc = useQueryClient();
-  return useMutation<void, NormalizedApiError, string, DepartmentsContext>({
+  return useMutation<
+    void,
+    NormalizedApiError,
+    { id: string; reassignTo?: string | null; force?: boolean }
+  >({
     mutationFn: deleteDepartment,
-    onMutate: async (id) => {
-      await qc.cancelQueries({ queryKey: orgKeys.departments });
-      const previous = qc.getQueryData<DepartmentDto[]>(orgKeys.departments);
-      qc.setQueryData<DepartmentDto[]>(orgKeys.departments, (old) =>
-        (old ?? []).filter((d) => d.id !== id),
-      );
-      return { previous };
-    },
-    onError: (_err, _id, context) => {
-      if (context?.previous) {
-        qc.setQueryData(orgKeys.departments, context.previous);
-      }
-    },
-    onSettled: () => {
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: orgKeys.departments });
-      // A department delete unassigns its teams (onDelete: SetNull).
+      // A delete either unassigns its teams (SetNull) or moves them.
       void qc.invalidateQueries({ queryKey: orgKeys.teams });
+      // Members' departmentId changed, which changes what they can see.
+      void qc.invalidateQueries({ queryKey: userKeys.list });
     },
   });
 }

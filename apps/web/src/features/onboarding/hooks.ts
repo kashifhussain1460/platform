@@ -22,6 +22,7 @@ import {
   onboardingStatusRequest,
   saveOnboardingAiEmployeesRequest,
   saveOnboardingCompanyRequest,
+  saveOnboardingDepartmentsRequest,
   saveOnboardingGoalsRequest,
 } from './api';
 
@@ -58,6 +59,22 @@ export function useSaveOnboardingAiEmployees() {
   return useMutation<OnboardingStatusDto, NormalizedApiError, string[]>({
     mutationFn: saveOnboardingAiEmployeesRequest,
     onSuccess: (s) => qc.setQueryData(onboardingKeys.status, s),
+  });
+}
+
+/**
+ * Step 4 — departments. Persists REAL `Department` rows, so the org screen's
+ * cache is invalidated too: the wizard is not a draft, it is the first write to
+ * the organization structure.
+ */
+export function useSaveOnboardingDepartments() {
+  const qc = useQueryClient();
+  return useMutation<OnboardingStatusDto, NormalizedApiError, string[]>({
+    mutationFn: saveOnboardingDepartmentsRequest,
+    onSuccess: (s) => {
+      qc.setQueryData(onboardingKeys.status, s);
+      void qc.invalidateQueries({ queryKey: orgKeys.departments });
+    },
   });
 }
 
@@ -112,6 +129,7 @@ export function useCompleteOnboarding() {
               company: { name: '', industry: null, size: null, website: null },
               selectedRoles: [],
               goals: [],
+              departments: [],
             },
       );
       return { previousStatus };

@@ -7,6 +7,7 @@ import type {
   NodeDefinitionDto,
   PublishWorkflowResultDto,
   UpdateWorkflowDto,
+  WorkflowCategory,
   WorkflowDefinition,
   WorkflowDto,
   WorkflowReadinessDto,
@@ -18,12 +19,18 @@ import type {
 
 // --- Workflow templates (P3-02 install) ------------------------------------
 
-/** The installable first-party + tenant template catalog. */
-export async function listWorkflowTemplates(): Promise<
-  WorkflowTemplateSummaryDto[]
-> {
-  const { data } =
-    await apiClient.get<WorkflowTemplateSummaryDto[]>('/workflow-templates');
+/**
+ * The installable first-party + tenant template catalog. `category` is
+ * optional (gap fix) — omitted, this is byte-identical to the old
+ * unfiltered call.
+ */
+export async function listWorkflowTemplates(
+  category?: WorkflowCategory,
+): Promise<WorkflowTemplateSummaryDto[]> {
+  const { data } = await apiClient.get<WorkflowTemplateSummaryDto[]>(
+    '/workflow-templates',
+    { params: category ? { category } : undefined },
+  );
   return data;
 }
 

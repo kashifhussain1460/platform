@@ -63,6 +63,8 @@ import { ChatwootClientService } from '../../src/modules/engines/support/chatwoo
 import { PlaneClientService } from '../../src/modules/engines/pm/plane-client.service';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { CryptoService } from '../../src/common/crypto/crypto.service';
+import { ToolIdempotencyService } from '../../src/common/idempotency/tool-idempotency.service';
+import { SuppressionService } from '../../src/modules/engines/marketing/suppression.service';
 
 describe('Support engine — schema', () => {
   const prisma = new PrismaClient();
@@ -129,10 +131,12 @@ describeIfDb('Support engine — full tool-calling loop', () => {
           chatwootClient: ChatwootClientService,
           crypto: CryptoService,
           planeClient: PlaneClientService,
+          idempotency: ToolIdempotencyService,
+          suppression: SuppressionService,
         ) => {
           const mock = new MockSkillExecutor();
           return new AutoSkillExecutor(
-            new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient),
+            new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient, idempotency, suppression),
             mock,
           );
         },
@@ -144,6 +148,8 @@ describeIfDb('Support engine — full tool-calling loop', () => {
           ChatwootClientService,
           CryptoService,
           PlaneClientService,
+          ToolIdempotencyService,
+          SuppressionService,
         ],
       })
       .compile();
@@ -267,5 +273,196 @@ describeIfDb('Support engine — full tool-calling loop', () => {
     });
     expect(execution?.status).toBe('ERROR');
     expect(execution?.error).toBe('SupportConversation not found for this company');
+  });
+});
+
+// --- S-04 / S-01: the workflow TOOL_ACTION path must be gated at least as
+// strictly as the chat path -----------------------------------------------
+describeIfDb('Support engine — workflow TOOL_ACTION approval gate (S-04, S-01)', () => {
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
+
+  jest.setTimeout(60_000);
+
+  beforeAll(async () => {
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    app = moduleRef.createNestApplication();
+    app.use(cookieParser());
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    await prisma.$disconnect();
+  });
+
+  const pollRun = async (token: string, id: string): Promise<{ status: string }> => {
+    let run = { status: 'PENDING' };
+    for (let i = 0; i < 40 && !['WAITING', 'COMPLETED', 'FAILED'].includes(run.status); i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const got = await request(app.getHttpServer())
+        .get(`/workflows/runs/${id}`)
+        .set(bearer(token))
+        .expect(200);
+      run = got.body;
+    }
+    return run;
+  };
+
+  it('a chatwoot.reply_to_conversation TOOL_ACTION auto-pauses (WAITING) with NO explicit APPROVAL node', async () => {
+    const ts = Date.now();
+    const reg = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        companyName: `S04 Co ${ts}`,
+        name: 'Owner',
+        email: `s04_${ts}@example.com`,
+        password: 'password123',
+      })
+      .expect(201);
+    const token = reg.body.tokens.accessToken as string;
+    const companyId = reg.body.company.id as string;
+
+    const wf = await request(app.getHttpServer())
+      .post('/workflows')
+      .set(bearer(token))
+      .send({
+        name: 'Auto-reply probe',
+        definition: {
+          nodes: [
+            { id: 't', type: 'TRIGGER', config: {} },
+            {
+              id: 'reply',
+              type: 'TOOL_ACTION',
+              config: {
+                skillKey: 'chatwoot',
+                tool: 'reply_to_conversation',
+                args: { conversationId: 'conv_does_not_matter', content: "we'll look into it" },
+              },
+            },
+            { id: 'done', type: 'TERMINATE', config: {} },
+          ],
+          edges: [
+            { from: 't', to: 'reply' },
+            { from: 'reply', to: 'done' },
+          ],
+        },
+      })
+      .expect(201);
+
+    const started = await request(app.getHttpServer())
+      .post(`/workflows/${wf.body.id}/run`)
+      .set(bearer(token))
+      .send({})
+      .expect(201);
+
+    const run = await pollRun(token, started.body.id);
+    expect(run.status).toBe('WAITING'); // paused BEFORE replying — no APPROVAL node authored this
+    const sent = await prisma.skillExecution.count({
+      where: { companyId, skillKey: 'chatwoot', tool: 'reply_to_conversation' },
+    });
+    expect(sent).toBe(0); // nothing sent to the customer
+  });
+
+  it('a low-confidence AI_EMPLOYEE_STEP draft forces approval on a downstream NON-highRisk TOOL_ACTION (S-01)', async () => {
+    const ts = Date.now();
+    const reg = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        companyName: `S01 Co ${ts}`,
+        name: 'Owner',
+        email: `s01_${ts}@example.com`,
+        password: 'password123',
+      })
+      .expect(201);
+    const token = reg.body.tokens.accessToken as string;
+    const companyId = reg.body.company.id as string;
+
+    const employee = await request(app.getHttpServer())
+      .post('/employees')
+      .set(bearer(token))
+      .send({ name: 'Support Drafter', role: 'SUPPORT' })
+      .expect(201);
+    const employeeId = employee.body.id as string;
+
+    // slack.send_message is NOT highRisk — isolates the S-01 mechanism (the
+    // context-carried validation concern) from S-04's catalog flag.
+    const wf = await request(app.getHttpServer())
+      .post('/workflows')
+      .set(bearer(token))
+      .send({
+        name: 'Ungrounded draft probe',
+        definition: {
+          nodes: [
+            { id: 't', type: 'TRIGGER', config: {} },
+            {
+              id: 'ai',
+              type: 'AI_EMPLOYEE_STEP',
+              config: {
+                employeeId,
+                instruction: 'Draft a reply. Recommend only.',
+                outputKey: 'draft',
+              },
+            },
+            {
+              id: 'notify',
+              type: 'TOOL_ACTION',
+              config: {
+                skillKey: 'slack',
+                tool: 'send_message',
+                args: { channel: '#support', text: '{{draft}}' },
+              },
+            },
+            { id: 'done', type: 'TERMINATE', config: {} },
+          ],
+          edges: [
+            { from: 't', to: 'ai' },
+            { from: 'ai', to: 'notify' },
+            { from: 'notify', to: 'done' },
+          ],
+        },
+      })
+      .expect(201);
+
+    const started = await request(app.getHttpServer())
+      .post(`/workflows/${wf.body.id}/run`)
+      .set(bearer(token))
+      .send({})
+      .expect(201);
+
+    // With no RETRIEVE step, ValidationService.validate() sees zero sources,
+    // so confidence=0.2 < APPROVAL_CONFIDENCE_THRESHOLD(0.5) → needsApproval
+    // is always true here — deterministic under the mock LLM, no flakiness.
+    const run = await pollRun(token, started.body.id);
+    expect(run.status).toBe('WAITING');
+    const sent = await prisma.skillExecution.count({
+      where: { companyId, skillKey: 'slack', tool: 'send_message' },
+    });
+    expect(sent).toBe(0);
+
+    const pending = await request(app.getHttpServer())
+      .get('/approvals?status=PENDING')
+      .set(bearer(token))
+      .expect(200);
+    const req = (pending.body as { id: string; workflowRunId: string | null }[]).find(
+      (a) => a.workflowRunId === started.body.id,
+    );
+    expect(req).toBeDefined();
+    await request(app.getHttpServer())
+      .post(`/approvals/${req!.id}/approve`)
+      .set(bearer(token))
+      .send({});
+
+    const after = await pollRun(token, started.body.id);
+    expect(after.status).toBe('COMPLETED');
+    expect(
+      await prisma.skillExecution.count({
+        where: { companyId, skillKey: 'slack', tool: 'send_message' },
+      }),
+    ).toBe(1);
   });
 });

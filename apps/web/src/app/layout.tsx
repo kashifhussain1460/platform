@@ -7,6 +7,8 @@ import './globals.css';
 import '@xyflow/react/dist/style.css';
 import { Providers } from './providers';
 import { MotionFlag } from '@/components/system/MotionFlag';
+import { SITE_URL } from '@/lib/seo';
+import { JsonLd, organizationSchema, websiteSchema } from '@/lib/jsonld';
 
 // Self-hosted at build time (no runtime request to fonts.googleapis.com) —
 // exposed as a CSS variable and opted into ONLY by the dark marketing
@@ -28,7 +30,12 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 });
 
+// No `title.template` here on purpose: existing pages (pricing, demo) already
+// spell out their own full "X — Orlixa" title, and a template would double
+// the suffix. Each page's own `metadata`/`buildMetadata()` call owns its full
+// title string.
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: 'Orlixa — Build your AI workforce',
   description:
     'Orlixa is the AI Workforce Platform — hire managed AI Employees, equip them with Skills, brief them with your Knowledge, chain them into Workflows, and gate every risky move behind human Approvals.',
@@ -46,6 +53,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
     >
       <body>
+        <JsonLd data={organizationSchema()} />
+        <JsonLd data={websiteSchema()} />
         <MotionFlag />
         <Providers>{children}</Providers>
       </body>

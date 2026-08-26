@@ -105,3 +105,57 @@ describe('MarketingSyncService.sweep', () => {
     expect(prisma.scheduledPost.update).not.toHaveBeenCalled();
   });
 });
+
+describe('MarketingSyncService.snapshotAnalytics (M-10)', () => {
+  const svc = (prisma: unknown, postizClient: unknown) =>
+    new MarketingSyncService(prisma as never, postizClient as never);
+
+  it('writes one MarketingAnalyticsSnapshot per CONNECTED social account', async () => {
+    const prisma = {
+      socialAccount: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'sa_1', companyId: 'c_1', postizIntegrationId: 'int_1' },
+          { id: 'sa_2', companyId: 'c_2', postizIntegrationId: 'int_2' },
+        ]),
+      },
+      marketingAnalyticsSnapshot: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const postizClient = {
+      getIntegrationAnalytics: jest.fn().mockResolvedValue({ impressions: 100 }),
+    };
+
+    const result = await svc(prisma, postizClient).snapshotAnalytics();
+
+    expect(prisma.socialAccount.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: 'CONNECTED' } }),
+    );
+    expect(postizClient.getIntegrationAnalytics).toHaveBeenCalledTimes(2);
+    expect(prisma.marketingAnalyticsSnapshot.create).toHaveBeenCalledWith({
+      data: { companyId: 'c_1', socialAccountId: 'sa_1', metrics: { impressions: 100 } },
+    });
+    expect(result).toEqual({ snapshotted: 2, failed: 0 });
+  });
+
+  it('one account failing does not stop the others, and is counted separately', async () => {
+    const prisma = {
+      socialAccount: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'sa_1', companyId: 'c_1', postizIntegrationId: 'int_1' },
+          { id: 'sa_2', companyId: 'c_2', postizIntegrationId: 'int_2' },
+        ]),
+      },
+      marketingAnalyticsSnapshot: { create: jest.fn().mockResolvedValue({}) },
+    };
+    const postizClient = {
+      getIntegrationAnalytics: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('Postiz down'))
+        .mockResolvedValueOnce({ impressions: 50 }),
+    };
+
+    const result = await svc(prisma, postizClient).snapshotAnalytics();
+
+    expect(result).toEqual({ snapshotted: 1, failed: 1 });
+    expect(prisma.marketingAnalyticsSnapshot.create).toHaveBeenCalledTimes(1);
+  });
+});

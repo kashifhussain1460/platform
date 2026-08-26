@@ -18,6 +18,7 @@ import { TenantModule } from './modules/tenant/tenant.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { HandoffModule } from './modules/handoff/handoff.module';
 import { SkillsModule } from './modules/skills/skills.module';
 import { MarketingModule } from './modules/engines/marketing/marketing.module';
 import { SupportModule } from './modules/engines/support/support.module';
@@ -28,10 +29,12 @@ import { EventsModule } from './modules/events/events.module';
 import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { CreditsModule } from './modules/credits/credits.module';
 import { MarketplaceModule } from './modules/marketplace/marketplace.module';
 import { AssistModule } from './modules/assist/assist.module';
 import { WorkflowTemplatesModule } from './modules/workflow-templates/workflow-templates.module';
 import { OrganizationModule } from './modules/organization/organization.module';
+import { ProductContextModule } from './modules/product-context/product-context.module';
 import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { HrModule } from './modules/hr/hr.module';
 import { RetentionModule } from './modules/retention/retention.module';
@@ -61,6 +64,7 @@ import { HealthModule } from './modules/health/health.module';
     KnowledgeModule,
     EmployeesModule,
     OnboardingModule,
+    HandoffModule,
     SchedulingModule,
     SkillsModule,
     MarketingModule,
@@ -72,10 +76,12 @@ import { HealthModule } from './modules/health/health.module';
     ApprovalsModule,
     AnalyticsModule,
     BillingModule,
+    CreditsModule,
     MarketplaceModule,
     WorkflowTemplatesModule,
     AssistModule,
     OrganizationModule,
+    ProductContextModule,
     HrModule,
     RetentionModule,
     AdminModule,

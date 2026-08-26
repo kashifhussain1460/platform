@@ -5,12 +5,15 @@ import {
   Headers,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type {
+  WorkflowCategory,
   WorkflowDto,
   WorkflowTemplateSummaryDto,
 } from '@vaep/types';
+import { WORKFLOW_CATEGORIES } from '@vaep/types';
 import type { AuthenticatedUser } from '../auth/auth.provider';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -31,11 +34,25 @@ import { WorkflowTemplatesService } from './workflow-templates.service';
 export class WorkflowTemplatesController {
   constructor(private readonly templates: WorkflowTemplatesService) {}
 
+  /**
+   * Gap fix (2026-08-20): this endpoint returned every published template
+   * with no way to narrow by category, and the templates themselves sort
+   * `category ASC` — so any UI that takes "the first N" (e.g. the AI Assist
+   * landing page) always showed HR first (alphabetically earliest),
+   * regardless of which AI Employee/role the user actually cared about.
+   * `category` is optional and additive — an omitted value is the exact
+   * previous behaviour.
+   */
   @Get()
   list(
     @CurrentTenant() companyId: string,
+    @Query('category') category?: string,
   ): Promise<WorkflowTemplateSummaryDto[]> {
-    return this.templates.list(companyId);
+    const validCategory =
+      category && (WORKFLOW_CATEGORIES as readonly string[]).includes(category)
+        ? (category as WorkflowCategory)
+        : undefined;
+    return this.templates.list(companyId, validCategory);
   }
 
   @Get(':id/parameters')

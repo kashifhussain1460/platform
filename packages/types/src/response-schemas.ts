@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type {
   AiEmployeeDto,
   ApprovalRequestDto,
+  ApprovalRoutingConfig,
   AssistMessageDto,
   AssistSessionDto,
   AssistSessionSummaryDto,
@@ -163,10 +164,30 @@ export const aiEmployeeDtoSchema = z.object({
   knowledgeAccess: z.enum(['ALL', 'NONE']),
   budgetLimit: z.number().nullable(),
   monthToDateCostUsd: z.number().nullable(),
-  permissions: z.record(z.string(), z.boolean()).nullable(),
-  approvalRules: jsonRecord.nullable(),
+  maxCreditsPerExecution: z.number().nullable(),
+  maxCreditsPerTask: z.number().nullable(),
+  // Phase 1 safety fix — these were open records, so the response contract
+  // could not tell a caller which flags actually mean anything. Now the exact
+  // enforced shape.
+  permissions: z
+    .object({
+      sendEmail: z.boolean().optional(),
+      contactCustomers: z.boolean().optional(),
+      makePayments: z.boolean().optional(),
+      accessKnowledge: z.boolean().optional(),
+    })
+    .nullable(),
+  approvalRules: z
+    .object({
+      requireApprovalForAllTools: z.boolean().optional(),
+      requireApprovalForTools: z.array(z.string()).optional(),
+      approveExternalMessages: z.boolean().optional(),
+      routing: z.custom<ApprovalRoutingConfig>().optional(),
+    })
+    .nullable(),
   goals: z.array(z.string()).nullable(),
   kpiTargets: kpiSchema.nullable(),
+  archivedAt: isoString.nullable(),
   createdAt: isoString,
 });
 export type _AssertAiEmployeeDto = Expect<
@@ -265,6 +286,7 @@ export const workflowStepRunDtoSchema = z.object({
   startedAt: isoString.nullable(),
   finishedAt: isoString.nullable(),
   createdAt: isoString,
+  creditsCharged: z.number().nullable(),
 });
 export type _AssertWorkflowStepRunDto = Expect<
   Equal<
@@ -302,6 +324,8 @@ export const workflowRunDtoSchema = z.object({
   startedAt: isoString.nullable(),
   finishedAt: isoString.nullable(),
   createdAt: isoString,
+  creditLimit: z.number().nullable(),
+  totalCreditsCharged: z.number(),
   steps: z.array(workflowStepRunDtoSchema).optional(),
 });
 export type _AssertWorkflowRunDto = Expect<

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EMBEDDING_DIM, type EmbeddingProvider } from './embedding.provider';
+import { EMBEDDING_DIM, type EmbeddingProvider, type EmbedResult } from './embedding.provider';
 
 /**
  * Opt-in local model provider (`EMBEDDINGS_PROVIDER=local`). Runs
@@ -13,14 +13,14 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   private pipe: ((text: string, opts: unknown) => Promise<{ data: Float32Array }>) | null =
     null;
 
-  async embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[]): Promise<EmbedResult> {
     const pipe = await this.getPipe();
     const out: number[][] = [];
     for (const text of texts) {
       const res = await pipe(text, { pooling: 'mean', normalize: true });
       out.push(Array.from(res.data));
     }
-    return out;
+    return { vectors: out, usage: undefined };
   }
 
   private async getPipe(): Promise<

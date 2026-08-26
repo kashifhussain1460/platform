@@ -2,6 +2,8 @@ import { createHmac } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { ChatwootClientService } from './chatwoot-client.service';
 import { CryptoService } from '../../../common/crypto/crypto.service';
+import { CircuitBreakerRegistry } from '../../../common/resilience/circuit-breaker.registry';
+import { RateLimiter } from '../../../common/resilience/rate-limiter';
 
 describe('ChatwootClientService', () => {
   const config = new ConfigService({
@@ -9,7 +11,11 @@ describe('ChatwootClientService', () => {
     CHATWOOT_PLATFORM_API_TOKEN: 'test-platform-token',
   });
   const crypto = new CryptoService(config);
-  const service = new ChatwootClientService(config, crypto);
+  // No Redis client (null) → the in-memory fallback path, per this repo's
+  // own resilience-unit-test convention.
+  const breakers = new CircuitBreakerRegistry(null, config);
+  const rateLimiter = new RateLimiter(null, config);
+  const service = new ChatwootClientService(config, crypto, breakers, rateLimiter);
 
   it('sends a reply using the per-company agent bot token, not the platform token', async () => {
     const fetchMock = jest.fn().mockResolvedValue({

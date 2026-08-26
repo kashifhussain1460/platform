@@ -12,6 +12,7 @@ import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
 import {
   SaveAiEmployeesDto,
   SaveCompanyDto,
+  SaveDepartmentsDto,
   SaveGoalsDto,
 } from './dto/onboarding-steps.dto';
 import { OnboardingService } from './onboarding.service';
@@ -65,6 +66,20 @@ export class OnboardingController {
     @Body() dto: SaveGoalsDto,
   ): Promise<OnboardingStatusDto> {
     return this.onboarding.saveGoals(companyId, dto.goals);
+  }
+
+  /**
+   * Step 4 — departments. Writes real `Department` rows as the user advances,
+   * so the step resumes from the database like every other step rather than
+   * from a client-side draft that a refresh would lose.
+   */
+  @Patch('departments')
+  @Roles('OWNER', 'ADMIN')
+  saveDepartments(
+    @CurrentTenant() companyId: string,
+    @Body() dto: SaveDepartmentsDto,
+  ): Promise<OnboardingStatusDto> {
+    return this.onboarding.saveDepartments(companyId, dto.departments);
   }
 
   @Post('complete')

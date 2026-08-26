@@ -12,6 +12,14 @@ export interface ExecutorContext {
   employeeId?: string | null;
   conversationId?: string | null;
   /**
+   * Credit system Phase 3, Task 3.5. Present only for a TOOL_ACTION workflow
+   * node — reservation keying prefers `workflowStepRunId` when set (§40.8:
+   * dedupes retries of the same step, the same reasoning as AI_STEP's and
+   * AI_EMPLOYEE_STEP's reservation keying).
+   */
+  workflowRunId?: string | null;
+  workflowStepRunId?: string | null;
+  /**
    * Connection details of the tenant's installed skill, RESOLVED lazily by
    * SkillsService.runTool ONLY for executors that set `usesInstalledCredentials`
    * (real/auto). These stay in-memory (never logged — the audit row records
@@ -30,6 +38,13 @@ export interface ExecutorContext {
    * rejected token must not land in SkillExecution or a run log (doc 06 §6.2.10).
    */
   secretValues?: string[];
+  /**
+   * Phase 8 (Enforcement), Task 8.5. Present only for a TOOL_ACTION workflow
+   * node (chat/manual calls have no `WorkflowStepAttempt`, so nothing to key
+   * on here — see `SkillExecutor.supportsIdempotencyKey`'s doc for why this
+   * is provider-side dedup, not the credit-side settle-once guarantee).
+   */
+  attemptIdempotencyKey?: string;
 }
 
 /** Outcome of executing a single tool. */
@@ -49,6 +64,20 @@ export interface SkillExecutor {
    * DB work; real/auto set it true.
    */
   readonly usesInstalledCredentials?: boolean;
+  /**
+   * Phase 8 (Enforcement), Task 8.5 (§14.4) — true when this executor
+   * actually forwards `ExecutorContext.attemptIdempotencyKey` to the
+   * PROVIDER (e.g. a Stripe-style `Idempotency-Key` header) so a retried
+   * attempt cannot re-issue an already-completed side effect at the
+   * provider itself. Defaults falsy — every executor in this codebase today
+   * (mock/real/auto) is `false`: none has real provider-side idempotency
+   * support yet. That gap is deliberately visible here, not hidden behind a
+   * silent "solved" claim — Task 3.6's settle-once guarantee is what
+   * actually protects the credit ledger from a resulting double-charge;
+   * this flag is about the EXTERNAL side effect (e.g. a duplicate email),
+   * which only a capable executor can prevent.
+   */
+  readonly supportsIdempotencyKey?: boolean;
   /** Execute `tool` of `skillKey` with `args`. Must not throw for tool-level failures. */
   execute(
     skillKey: string,

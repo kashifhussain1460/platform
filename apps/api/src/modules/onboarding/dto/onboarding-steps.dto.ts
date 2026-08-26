@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsIn,
@@ -46,4 +47,25 @@ export class SaveGoalsDto {
   @IsString({ each: true })
   @MaxLength(120, { each: true })
   goals!: string[];
+}
+
+/**
+ * PATCH /onboarding/departments — step 4.
+ *
+ * Names only. The wizard offers presets (`DEPARTMENT_PRESETS`) but a company
+ * may type anything, so this accepts free text bounded by `Department.name`'s
+ * own 120-char column limit. Blank and duplicate entries are dropped by
+ * `normalizeDepartmentNames` rather than rejected — a trailing empty row in a
+ * form is a UI artefact, not a client error worth a 400.
+ *
+ * `ArrayMaxSize(50)` is an abuse bound, not a product limit: no real company
+ * onboards with fifty departments, and without it one request could create an
+ * unbounded number of rows.
+ */
+export class SaveDepartmentsDto {
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(120, { each: true })
+  departments!: string[];
 }

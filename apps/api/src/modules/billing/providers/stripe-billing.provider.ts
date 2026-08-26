@@ -111,9 +111,38 @@ export class StripeBillingProvider implements BillingProvider {
     }
 
     const object = event.data?.object ?? {};
+    // Task 6.1 — every returned event carries the provider's own delivery id,
+    // its creation instant (Task 6.2's out-of-order guard), and the raw
+    // payload (audit/replay). Common to every branch, so factored out here.
+    const base = {
+      externalEventId: event.id as string,
+      createdAt: new Date((event.created as number) * 1000),
+      payload: event as unknown,
+    };
     switch (event.type) {
       case 'checkout.session.completed':
+        // Task 6.3 (§31.2.3/Q19) — a ONE-TIME credit-pack purchase
+        // (`mode:'payment'`, `metadata.packId` present) is a COMPLETELY
+        // different event shape from the existing subscription-checkout use
+        // of this same Stripe event type: it never touches `Subscription` at
+        // all, and must never be misread as a plan-activation event.
+        if (object.mode === 'payment' && object.metadata?.packId) {
+          return {
+            ...base,
+            type: event.type,
+            companyId: object.metadata?.companyId ?? null,
+            externalCustomerId: this.idOf(object.customer),
+            creditPurchase: {
+              packId: object.metadata.packId,
+              creditPackRateId: object.metadata.creditPackRateId,
+              sessionId: object.id,
+              amountTotalCents: object.amount_total ?? 0,
+              currency: object.currency ?? 'usd',
+            },
+          };
+        }
         return {
+          ...base,
           type: event.type,
           companyId: object.metadata?.companyId ?? null,
           externalCustomerId: this.idOf(object.customer),
@@ -123,6 +152,7 @@ export class StripeBillingProvider implements BillingProvider {
         };
       case 'customer.subscription.updated':
         return {
+          ...base,
           type: event.type,
           companyId: object.metadata?.companyId ?? null,
           externalCustomerId: this.idOf(object.customer),
@@ -133,6 +163,7 @@ export class StripeBillingProvider implements BillingProvider {
         };
       case 'customer.subscription.deleted':
         return {
+          ...base,
           type: event.type,
           companyId: object.metadata?.companyId ?? null,
           externalCustomerId: this.idOf(object.customer),
@@ -146,15 +177,83 @@ export class StripeBillingProvider implements BillingProvider {
       // transition into PAST_DUE either way.
       case 'invoice.payment_failed':
         return {
+          ...base,
           type: event.type,
           companyId: object.subscription_details?.metadata?.companyId ?? null,
           externalCustomerId: this.idOf(object.customer),
           externalSubscriptionId: this.idOf(object.subscription),
           status: 'PAST_DUE',
         };
+      // Task 7.2 (Phase 7) — the recurring-renewal grant. Stripe fires this
+      // event type for EVERY successful invoice, including the FIRST one
+      // (`billing_reason:'subscription_create'`) — explicitly excluded here
+      // (returns null, a no-op) so the plan's monthly allotment is never
+      // granted a second time on top of Phase 4's free-signup grant for a
+      // brand-new subscription's first period.
+      case 'invoice.payment_succeeded': {
+        if (object.billing_reason !== 'subscription_cycle') {
+          return null;
+        }
+        const periodEnd =
+          this.periodEnd(object.lines?.data?.[0]?.period?.end) ?? new Date();
+        return {
+          ...base,
+          type: event.type,
+          companyId: object.subscription_details?.metadata?.companyId ?? null,
+          externalCustomerId: this.idOf(object.customer),
+          externalSubscriptionId: this.idOf(object.subscription),
+          subscriptionRenewal: { currentPeriodEnd: periodEnd },
+        };
+      }
+      // Task 6.4 (§40.7) — `object` here is a Stripe Charge; `refunds.data[0]`
+      // carries the specific Refund object's own `re_...` id (the dedup key
+      // CreditRefundService keys on), distinct from the charge id itself.
+      case 'charge.refunded':
+        return {
+          ...base,
+          type: event.type,
+          companyId: object.metadata?.companyId ?? null,
+          externalCustomerId: this.idOf(object.customer),
+          refund: {
+            externalRefundId: object.refunds?.data?.[0]?.id ?? object.id,
+            chargeId: object.id,
+            amountCents: object.amount_refunded ?? 0,
+          },
+        };
       default:
         return null; // event we don't act on
     }
+  }
+
+  /**
+   * Credit system Phase 5, Task 5.2 — one-time `mode:'payment'` Checkout
+   * Session for a credit pack. `metadata.creditPackRateId` is the exact
+   * snapshotted `CreditPack` row id (not "current"), so Phase 6's webhook
+   * validates against the price active WHEN THIS SESSION WAS CREATED —
+   * closing kill-critic Q19.
+   */
+  async createCreditCheckoutSession(input: {
+    externalCustomerId: string;
+    companyId: string;
+    packId: string;
+    creditPackRateId: string;
+    stripePriceId: string;
+  }): Promise<{ url: string } | null> {
+    const stripe = await this.getClient();
+    const web = this.webOrigin();
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: input.externalCustomerId,
+      line_items: [{ price: input.stripePriceId, quantity: 1 }],
+      success_url: `${web}/billing?checkout=success`,
+      cancel_url: `${web}/billing?checkout=cancel`,
+      metadata: {
+        companyId: input.companyId,
+        packId: input.packId,
+        creditPackRateId: input.creditPackRateId,
+      },
+    });
+    return session.url ? { url: session.url as string } : null;
   }
 
   /** Hosted Stripe Customer Portal session (manage payment method, invoices, cancel). */

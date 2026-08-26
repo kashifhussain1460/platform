@@ -1,7 +1,4 @@
-import type {
-  EmployeeTemplateDto,
-  WorkflowTemplateDto,
-} from '@vaep/types';
+import type { EmployeeTemplateDto } from '@vaep/types';
 
 /**
  * The MARKETPLACE catalog — code, not DB (mirrors the Skills catalog and the
@@ -165,189 +162,32 @@ const EMPLOYEE_TEMPLATES: readonly EmployeeTemplateDto[] = [
   },
 ] as const;
 
-const WORKFLOW_TEMPLATES: readonly WorkflowTemplateDto[] = [
-  {
-    key: 'recruiting-resume-score-schedule',
-    name: 'Recruiting: resume → score → schedule',
-    category: 'Recruiting',
-    description:
-      'On a new resume, retrieve the role criteria, score the candidate, and ' +
-      'branch to scheduling an interview or sending a decline.',
-    definition: {
-      nodes: [
-        { id: 'trigger', type: 'TRIGGER', name: 'New resume received', config: {} },
-        {
-          id: 'criteria',
-          type: 'RETRIEVE',
-          name: 'Find role criteria',
-          config: {
-            query: 'hiring criteria and requirements for {{trigger.role}}',
-            k: 5,
-            outputKey: 'criteria',
-          },
-        },
-        {
-          id: 'score',
-          type: 'AI_STEP',
-          name: 'Score candidate',
-          config: {
-            prompt:
-              'Evaluate the resume against the role criteria.\n' +
-              'Resume: {{trigger.resume}}\nCriteria: {{criteria}}\n' +
-              'Answer with a single word: "yes" if the candidate qualifies, otherwise "no".',
-            outputKey: 'decision',
-          },
-        },
-        {
-          id: 'gate',
-          type: 'CONDITION',
-          name: 'Qualified?',
-          config: { left: '{{decision}}', op: 'contains', right: 'yes' },
-        },
-        {
-          id: 'schedule',
-          type: 'NOTIFY',
-          name: 'Schedule interview',
-          config: {
-            message:
-              'Qualified candidate — scheduling an interview for {{trigger.candidate}}.',
-          },
-        },
-        {
-          id: 'decline',
-          type: 'NOTIFY',
-          name: 'Send decline',
-          config: {
-            message:
-              'Candidate {{trigger.candidate}} did not meet the criteria; sending a polite decline.',
-          },
-        },
-      ],
-      edges: [
-        { from: 'trigger', to: 'criteria' },
-        { from: 'criteria', to: 'score' },
-        { from: 'score', to: 'gate' },
-        { from: 'gate', to: 'schedule', branch: 'true' },
-        { from: 'gate', to: 'decline', branch: 'false' },
-      ],
-    },
-  },
-  {
-    key: 'sales-outreach',
-    name: 'Sales outreach',
-    category: 'Sales',
-    description:
-      'On a new lead, retrieve relevant product context, draft an outreach ' +
-      'message, post it to Slack, and log the result.',
-    definition: {
-      nodes: [
-        { id: 'trigger', type: 'TRIGGER', name: 'New lead', config: {} },
-        {
-          id: 'context',
-          type: 'RETRIEVE',
-          name: 'Gather product context',
-          config: {
-            query: 'product details relevant to {{trigger.lead}}',
-            k: 5,
-            outputKey: 'context',
-          },
-        },
-        {
-          id: 'draft',
-          type: 'AI_STEP',
-          name: 'Draft outreach',
-          config: {
-            prompt:
-              'Write a short, friendly outreach message to {{trigger.lead}} ' +
-              'using this context: {{context}}. Keep it under 80 words.',
-            outputKey: 'message',
-          },
-        },
-        {
-          id: 'send',
-          type: 'TOOL_ACTION',
-          name: 'Post to Slack',
-          config: {
-            skillKey: 'slack',
-            tool: 'send_message',
-            args: { channel: '#sales', text: '{{message}}' },
-            outputKey: 'sent',
-          },
-        },
-        {
-          id: 'done',
-          type: 'NOTIFY',
-          name: 'Log outreach',
-          config: { message: 'Outreach sent to {{trigger.lead}}.' },
-        },
-      ],
-      edges: [
-        { from: 'trigger', to: 'context' },
-        { from: 'context', to: 'draft' },
-        { from: 'draft', to: 'send' },
-        { from: 'send', to: 'done' },
-      ],
-    },
-  },
-  {
-    key: 'support-triage',
-    name: 'Support triage',
-    category: 'Customer Support',
-    description:
-      'On a new support question, retrieve knowledge-base context, draft a ' +
-      'grounded reply, and log it for review.',
-    definition: {
-      nodes: [
-        { id: 'trigger', type: 'TRIGGER', name: 'New support ticket', config: {} },
-        {
-          id: 'kb',
-          type: 'RETRIEVE',
-          name: 'Search knowledge base',
-          config: { query: '{{trigger.question}}', k: 5, outputKey: 'kb' },
-        },
-        {
-          id: 'answer',
-          type: 'AI_STEP',
-          name: 'Draft reply',
-          config: {
-            prompt:
-              'Answer the customer question grounded in the knowledge base.\n' +
-              'Question: {{trigger.question}}\nContext: {{kb}}\n' +
-              'If the context is insufficient, say so and suggest escalation.',
-            outputKey: 'answer',
-          },
-        },
-        {
-          id: 'log',
-          type: 'NOTIFY',
-          name: 'Log draft reply',
-          config: { message: 'Draft reply ready: {{answer}}' },
-        },
-      ],
-      edges: [
-        { from: 'trigger', to: 'kb' },
-        { from: 'kb', to: 'answer' },
-        { from: 'answer', to: 'log' },
-      ],
-    },
-  },
+/**
+ * Phase 4 §4 — the three workflow templates this catalog used to install.
+ *
+ * Kept as a NAME LIST, not as graphs, so the removal is auditable rather than
+ * a silent deletion. Each used `AI_STEP` and `NOTIFY`, which doc 27 §0.4 bans
+ * and the DB catalog's boot-time `validateManifest` rejects, so porting them
+ * means rewriting the graphs into `AI_EMPLOYEE_STEP` + `TOOL_ACTION` — real
+ * work with real approval-gate implications, deliberately not rushed into a
+ * consolidation change.
+ *
+ * The DB catalog currently covers HR (11) and Marketing (11). These three were
+ * the only SALES and SUPPORT coverage, so that gap is now open and named.
+ */
+export const MARKETPLACE_RETIRED_WORKFLOWS: readonly string[] = [
+  'recruiting-resume-score-schedule',
+  'sales-outreach',
+  'support-triage',
 ] as const;
 
-/** Static registry over the built-in marketplace catalog. */
 export const MarketplaceCatalog = {
   employees(): EmployeeTemplateDto[] {
     return EMPLOYEE_TEMPLATES.map((t) => ({ ...t }));
-  },
-
-  workflows(): WorkflowTemplateDto[] {
-    return WORKFLOW_TEMPLATES.map((t) => ({ ...t }));
   },
 
   getEmployee(key: string): EmployeeTemplateDto | undefined {
     return EMPLOYEE_TEMPLATES.find((t) => t.key === key);
   },
 
-  getWorkflow(key: string): WorkflowTemplateDto | undefined {
-    return WORKFLOW_TEMPLATES.find((t) => t.key === key);
-  },
 };

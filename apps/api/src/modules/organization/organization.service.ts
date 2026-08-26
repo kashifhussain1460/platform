@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type Department, type SecurityPolicy, type Team } from '@prisma/client';
 import type {
+  DepartmentDependenciesDto,
   DepartmentDto,
   SecurityPolicyDto,
   TeamDto,
@@ -42,12 +43,80 @@ export class OrganizationService {
 
   // --- Departments ---------------------------------------------------------
 
+  /**
+   * Departments with their member/team counts.
+   *
+   * Two `groupBy` aggregates for the whole list rather than a count per row —
+   * the management screen renders every department at once, and the counts are
+   * what make a delete's consequence visible before the click rather than
+   * after it.
+   */
   async listDepartments(companyId: string): Promise<DepartmentDto[]> {
-    const rows = await this.prisma.department.findMany({
-      where: { companyId },
-      orderBy: { createdAt: 'asc' },
-    });
-    return rows.map(toDepartmentDto);
+    const [rows, memberRows, teamRows] = await Promise.all([
+      this.prisma.department.findMany({
+        where: { companyId },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.user.groupBy({
+        by: ['departmentId'],
+        where: { companyId, departmentId: { not: null } },
+        _count: { _all: true },
+      }),
+      this.prisma.team.groupBy({
+        by: ['departmentId'],
+        where: { companyId, departmentId: { not: null } },
+        _count: { _all: true },
+      }),
+    ]);
+    const members = new Map(
+      memberRows.map((r) => [r.departmentId as string, r._count._all]),
+    );
+    const teams = new Map(
+      teamRows.map((r) => [r.departmentId as string, r._count._all]),
+    );
+    return rows.map((d) =>
+      toDepartmentDto(d, {
+        memberCount: members.get(d.id) ?? 0,
+        teamCount: teams.get(d.id) ?? 0,
+      }),
+    );
+  }
+
+  /**
+   * What removing this department would affect.
+   *
+   * Exists because the delete below refuses to run blind. Tenant-scoped through
+   * `findOwnedDepartment`, so this cannot be used to enumerate another
+   * company's people.
+   */
+  async departmentDependencies(
+    companyId: string,
+    id: string,
+  ): Promise<DepartmentDependenciesDto> {
+    const dept = await this.findOwnedDepartment(companyId, id);
+    const [members, teams] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { companyId, departmentId: id },
+        select: { id: true, name: true, email: true, role: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.team.findMany({
+        where: { companyId, departmentId: id },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+    return {
+      departmentId: dept.id,
+      name: dept.name,
+      members,
+      teams,
+      scopes: dept.scopes,
+      // The case that must never happen silently: a department that actually
+      // restricts something, with people in it. Deleting it turns every one of
+      // them into an unrestricted, company-wide reader.
+      wouldWidenAccess: dept.scopes.length > 0 && members.length > 0,
+    };
   }
 
   async createDepartment(
@@ -96,10 +165,102 @@ export class OrganizationService {
     }
   }
 
-  async removeDepartment(companyId: string, id: string): Promise<void> {
-    await this.findOwnedDepartment(companyId, id);
-    // Teams reference departmentId with onDelete: SetNull → teams survive, unassigned.
-    await this.prisma.department.delete({ where: { id } });
+  /**
+   * Remove a department — safely.
+   *
+   * ## What this used to do, and why that was wrong
+   *
+   * `await this.prisma.department.delete({ where: { id } })`, with one comment
+   * about teams surviving. The comment was true and beside the point: the
+   * dangerous edge is `User.departmentId onDelete: SetNull`. Deleting a
+   * department with `scopes: ['HR']` and three members placed in it silently
+   * turned all three into UNSCOPED users — company-wide readers of Marketing,
+   * Finance and everything else — with no prompt, no audit detail and nothing
+   * on screen to suggest access had just been widened.
+   *
+   * Privilege escalation by deletion is still privilege escalation.
+   *
+   * ## What it does now
+   *
+   * A department with members requires an explicit decision:
+   *   - `reassignTo` — move every member AND team to another department of the
+   *     same tenant (the safe default the UI offers first), or
+   *   - `force` — proceed, accepting that members become company-wide.
+   * With neither, it returns 409 naming exactly who would be affected.
+   *
+   * An EMPTY department (no members) deletes freely: there is no one to widen.
+   * Teams alone never block it — they carry no authorization weight, they just
+   * get unassigned, which is what `SetNull` already did.
+   */
+  async removeDepartment(
+    companyId: string,
+    id: string,
+    actorUserId?: string,
+    opts: { reassignTo?: string | null; force?: boolean } = {},
+  ): Promise<void> {
+    const dept = await this.findOwnedDepartment(companyId, id);
+    const deps = await this.departmentDependencies(companyId, id);
+
+    // Tenant isolation: a reassignment target must be a department of THIS
+    // company. Without this an admin could hand their users to another tenant's
+    // department id, and the policy compares ids — the placement would scope
+    // them against a department they cannot see (the same hole `users.service`
+    // already closes for direct assignment).
+    let target: Department | null = null;
+    if (opts.reassignTo) {
+      if (opts.reassignTo === id) {
+        throw new BadRequestException(
+          'Cannot reassign a department to itself — pick a different department.',
+        );
+      }
+      target = await this.findOwnedDepartment(companyId, opts.reassignTo);
+    }
+
+    if (deps.members.length > 0 && !target && !opts.force) {
+      throw new ConflictException(
+        `"${dept.name}" still has ${deps.members.length} member(s)` +
+          (deps.scopes.length > 0
+            ? `, and it limits them to [${deps.scopes.join(', ')}]. Deleting it would give them ` +
+              'company-wide access. '
+            : '. ') +
+          'Move them to another department first, or confirm you want them to become company-wide.',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (target) {
+        // Move people and teams BEFORE the delete, so the SetNull cascade has
+        // nothing left to blank out.
+        await tx.user.updateMany({
+          where: { companyId, departmentId: id },
+          data: { departmentId: target.id },
+        });
+        await tx.team.updateMany({
+          where: { companyId, departmentId: id },
+          data: { departmentId: target.id },
+        });
+      }
+      await tx.department.delete({ where: { id } });
+    });
+
+    await this.auditLog.record({
+      companyId,
+      actorUserId,
+      action: 'department.deleted',
+      entityType: 'Department',
+      entityId: id,
+      metadata: {
+        name: dept.name,
+        scopes: dept.scopes,
+        memberCount: deps.members.length,
+        teamCount: deps.teams.length,
+        reassignedToDepartmentId: target?.id ?? null,
+        reassignedToName: target?.name ?? null,
+        // The security-relevant fact, recorded explicitly rather than left to
+        // be inferred from the absence of a reassignment target.
+        accessWidened: !target && deps.wouldWidenAccess,
+      },
+    });
   }
 
   // --- Teams ---------------------------------------------------------------

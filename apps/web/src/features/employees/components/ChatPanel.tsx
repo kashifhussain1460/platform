@@ -6,6 +6,8 @@ import { useForm } from 'react-hook-form';
 import { AlertTriangle, RotateCcw, Send } from 'lucide-react';
 import type { AiEmployeeDto } from '@vaep/types';
 import { Button } from '@/components/ui/Button';
+import { CreditExhaustedModal } from '@/components/app-shell/CreditExhaustedModal';
+import { isCreditExhaustedError } from '@/lib/credit-exhausted';
 import { useMessages, useSendMessage } from '../hooks';
 import { sendMessageSchema, type SendMessageDto } from '../schemas';
 import { MessageBubble } from './MessageBubble';
@@ -22,6 +24,7 @@ export function ChatPanel({
   const { data: messages } = useMessages(conversationId);
   const send = useSendMessage(conversationId);
   const [failedText, setFailedText] = useState<string | null>(null);
+  const [showExhaustedModal, setShowExhaustedModal] = useState(false);
   const {
     register,
     handleSubmit,
@@ -56,7 +59,10 @@ export function ChatPanel({
       {
         onSuccess: () => reset(),
         // Keep what they typed so a failure costs a click, not a retype.
-        onError: () => setFailedText(content),
+        onError: (err) => {
+          setFailedText(content);
+          if (isCreditExhaustedError(err)) setShowExhaustedModal(true);
+        },
         onSettled: () => {
           inFlight.current = false;
         },
@@ -68,6 +74,9 @@ export function ChatPanel({
 
   return (
     <section className="flex h-[70vh] flex-col rounded-2xl border border-app-border bg-app-surface">
+      {showExhaustedModal && (
+        <CreditExhaustedModal onClose={() => setShowExhaustedModal(false)} />
+      )}
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
         {(messages ?? []).length === 0 && !send.isPending ? (
           <p className="text-sm text-app-ink-3">
@@ -79,6 +88,20 @@ export function ChatPanel({
           ))
         )}
         {send.isPending && <ThinkingBubble name={employee.name} />}
+        {send.isPending && (
+          <p className="text-xs text-app-ink-3">Estimating usage…</p>
+        )}
+        {/* Chat is one synchronous request/response — the estimate and the
+            settled figure both arrive together, so both are shown together
+            rather than presenting only the settled number as if no estimate
+            ever existed (§14.3's "never collapses to one figure" rule). */}
+        {send.isSuccess && send.data.creditsCharged !== null && (
+          <p className="text-xs text-app-ink-3">
+            {send.data.estimatedCredits !== null
+              ? `Estimated usage: ${send.data.estimatedCredits} credits — used ${send.data.creditsCharged}`
+              : `Used ${send.data.creditsCharged} credits`}
+          </p>
+        )}
         <div ref={bottomRef} />
       </div>
 

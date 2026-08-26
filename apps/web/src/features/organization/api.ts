@@ -3,6 +3,7 @@ import type {
   AuditLogDto,
   CreateDepartmentDto,
   CreateTeamDto,
+  DepartmentDependenciesDto,
   DepartmentDto,
   SecurityPolicyDto,
   TeamDto,
@@ -36,8 +37,33 @@ export async function updateDepartment(vars: {
   return data;
 }
 
-export async function deleteDepartment(id: string): Promise<void> {
-  await apiClient.delete(`/departments/${id}`);
+/** Who and what a delete would affect — read BEFORE offering the delete. */
+export async function departmentDependencies(
+  id: string,
+): Promise<DepartmentDependenciesDto> {
+  const { data } = await apiClient.get<DepartmentDependenciesDto>(
+    `/departments/${id}/dependencies`,
+  );
+  return data;
+}
+
+/**
+ * Remove a department.
+ *
+ * `reassignTo` moves its people and teams somewhere else first (the safe path).
+ * `force` accepts that its members become company-wide. With neither, the API
+ * answers 409 rather than silently widening access.
+ */
+export async function deleteDepartment(vars: {
+  id: string;
+  reassignTo?: string | null;
+  force?: boolean;
+}): Promise<void> {
+  const params = new URLSearchParams();
+  if (vars.reassignTo) params.set('reassignTo', vars.reassignTo);
+  if (vars.force) params.set('force', 'true');
+  const query = params.toString();
+  await apiClient.delete(`/departments/${vars.id}${query ? `?${query}` : ''}`);
 }
 
 // --- Teams -----------------------------------------------------------------

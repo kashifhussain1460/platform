@@ -880,11 +880,45 @@ export class WorkflowsService {
   ): Promise<WorkflowRunDto> {
     const run = await this.prisma.workflowRun.findFirst({
       where: { id: runId, companyId },
-      select: { workflowId: true, trigger: true, dryRun: true },
+      select: { workflowId: true, trigger: true, dryRun: true, engineMode: true },
     });
     if (!run) {
       throw new NotFoundException('Workflow run not found');
     }
+
+    // Credit system Phase 8, Task 8.4 (§28.3/§40.11's Q22 fix) — a hard
+    // prerequisite for enabling billing at all on `legacy_walk`: that engine
+    // has no idempotency-key threading for a retry, so retrying a run with a
+    // billable node RE-SPENDS instead of resuming (the exact re-charge risk
+    // this blocks). `engineMode` null (a pre-Phase-8 run) is treated as
+    // `legacy_walk` — the more conservative assumption. Companies not yet on
+    // enforcement retain today's behavior, including its known, pre-existing
+    // re-charge risk, unchanged.
+    if (run.engineMode !== 'state_machine') {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { creditEnforcementEnabledAt: true },
+      });
+      if (company?.creditEnforcementEnabledAt != null) {
+        const workflow = await this.prisma.workflow.findFirst({
+          where: { id: run.workflowId, companyId },
+          select: { definition: true },
+        });
+        const def = (workflow?.definition ?? {}) as Partial<WorkflowDefinition>;
+        const nodes = Array.isArray(def.nodes) ? def.nodes : [];
+        const hasBillableNode = nodes.some((n) =>
+          ['AI_STEP', 'AI_EMPLOYEE_STEP', 'TOOL_ACTION'].includes(n?.type ?? ''),
+        );
+        if (hasBillableNode) {
+          throw new ConflictException(
+            'This run cannot be retried: it used the legacy workflow engine, which ' +
+              'cannot safely resume a billable step without re-spending credits already ' +
+              'charged. Start a new run instead.',
+          );
+        }
+      }
+    }
+
     const trigger = (run.trigger as Record<string, unknown> | null) ?? undefined;
     return this.createRun(companyId, run.workflowId, userId, trigger, run.dryRun);
   }
@@ -967,6 +1001,12 @@ export class WorkflowsService {
           triggerEventId: opts?.triggerEventId ?? null,
           correlationId: opts?.correlationId ?? randomUUID(),
           idempotencyKey,
+          // Phase 8, Task 8.4 (Q22) — snapshotted once, at creation; never
+          // re-derived from the company's (possibly later-changed) engine
+          // mode setting.
+          engineMode: this.engineMode.usesStateMachine(companyId)
+            ? 'state_machine'
+            : 'legacy_walk',
         },
       });
     } catch (e) {

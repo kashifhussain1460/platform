@@ -66,7 +66,7 @@ export class ToolExecutorService {
     const gated =
       forceApproval ||
       (forceApprovalForExternalActions && isExternalActionTool(skillKey, tool)) ||
-      this.approvals.requiresApproval(employee, skillKey, tool);
+      (await this.approvals.requiresApproval(employee, ctx.companyId, skillKey, tool));
     if (gated) {
       const request = await this.approvals.createRequest({
         companyId: ctx.companyId,

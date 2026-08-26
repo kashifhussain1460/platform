@@ -241,29 +241,46 @@ enum SubscriptionStatus {
   CANCELED
 }
 
+/// Credit system (docs/architecture/orlixa-ai-credit-usage-billing-plan.md
+/// Phase 1, §28.2.5). A small, closed, rarely-changing state machine — a real
+/// Prisma enum, matching StepRunStatus's precedent (unlike the money
+/// TAXONOMY fields on CreditLedger, which stay String — see §28.0).
+enum CreditReservationStatus {
+  PENDING
+  SETTLED
+  RELEASED
+  EXPIRED_UNKNOWN
+}
+
+/// Credit system (same plan, §28.2.6).
+enum CreditRefundStatus {
+  COMPLETED
+  REJECTED
+}
+
 model Company {
-  id          String    @id @default(cuid())
-  name        String
-  slug        String    @unique
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
   // Company profile (Step 2 richer registration + onboarding wizard). Optional.
-  industry    String?
-  size        String?
-  country     String?
-  timezone    String?
-  website     String?
-  logoUrl     String?
-  description String?
+  industry        String?
+  size            String?
+  country         String?
+  timezone        String?
+  website         String?
+  logoUrl         String?
+  description     String?
   // Set when the AI Onboarding Wizard is completed; null = not yet onboarded.
-  onboardedAt DateTime?
+  onboardedAt     DateTime?
   // Resumable minimal onboarding (server-side, survives refresh/logout/device):
   // onboardingStep = furthest step reached; onboardingRoles = the AI Employees
   // selected in step 2 (source of truth for goal reconciliation, distinct from
   // hired employees which are never destructively removed); businessGoals =
   // step-3 preferences (NOT authorization — never consulted for RBAC).
   onboardingStep  String?
-  onboardingRoles String[] @default([])
-  businessGoals   String[] @default([])
-  createdAt   DateTime  @default(now())
+  onboardingRoles String[]  @default([])
+  businessGoals   String[]  @default([])
+  createdAt       DateTime  @default(now())
 
   users                       User[]
   knowledgeDocuments          KnowledgeDocument[]
@@ -291,6 +308,8 @@ model Company {
   chatwootAccount             ChatwootAccount?
   supportConversations        SupportConversation[]
   supportMessages             SupportMessage[]
+  handoffRequests             HandoffRequest[]
+  toolIdempotencyRecords      ToolIdempotencyRecord[]
   planeWorkspace              PlaneWorkspace?
   planeProjects               PlaneProject[]
   trackedIssues               TrackedIssue[]
@@ -298,6 +317,16 @@ model Company {
   workflowTemplates           WorkflowTemplate[]
   workflowPermissions         WorkflowPermission[]
   assistSessions              AssistSession[]
+  // Credit system (Phase 1 foundation) — Convention A 1:1 tables only; the
+  // financial-history tables (CreditLedger, CreditReservation, etc.) use
+  // Convention B (plain companyId, no relation), same as SkillExecution.
+  companyCreditBalance        CompanyCreditBalance?
+  enterpriseCreditAgreement   EnterpriseCreditAgreement?
+  // Phase 8 (Enforcement), Task 8.3/8.4 — the per-company canary allowlist.
+  // Null = not enrolled (shadow mode only, regardless of the global
+  // CREDIT_ENFORCEMENT_ENABLED flag's OTHER-company default). Set via
+  // Phase 10/12's PlatformAdminGuard-only endpoint — never self-serve.
+  creditEnforcementEnabledAt  DateTime?
 }
 
 // Minimal who-did-what trail (founder-market-readiness-audit.md §6/§4: full
@@ -323,11 +352,11 @@ model AuditLog {
   /// advisory lock, which is what makes the hash chain linear: without a
   /// serialised sequence, two concurrent writes could both chain off the same
   /// predecessor and the "chain" would silently fork.
-  seq         BigInt   @default(0)
+  seq           BigInt  @default(0)
   /// USER | AI_EMPLOYEE | SYSTEM. A null actorUserId is ambiguous on its own —
   /// it could be a background sweep or an AI Employee acting autonomously, and
   /// an audit trail that cannot distinguish those is not an audit trail.
-  actorType   String   @default("USER")
+  actorType     String  @default("USER")
   employeeId    String?
   workflowId    String?
   workflowRunId String?
@@ -410,8 +439,103 @@ model UsageEvent {
   estimatedCostUsd Float
   createdAt        DateTime @default(now())
 
+  // Credit system (Phase 1 foundation, plan §28.3) — closes gap G11 (no
+  // workflow-run/step attribution on cost telemetry). Plain columns, no
+  // formal @relation: diverges from this model's own Convention-A companyId
+  // relation on purpose, so UsageEvent retention stays independent of
+  // WorkflowRun retention (see the Retention design).
+  workflowRunId     String?
+  workflowStepRunId String?
+
   @@index([companyId, createdAt])
   @@index([companyId, employeeId, createdAt])
+}
+
+/// Credit system Phase 10, Task 10.1 (§31.5/§32.3) — a structurally distinct
+/// identity axis, NEVER a company `Role` value. No relation to `Company`/`User`
+/// at all: a company OWNER cannot become one by any role change, only by a
+/// platform engineer running `seed-platform-operator.ts` out-of-band (same
+/// provisioning story as `ENCRYPTION_KEY`). Tokens for this identity are
+/// signed with a SEPARATE secret (`PLATFORM_ADMIN_JWT_SECRET`) so a company
+/// JWT can never satisfy `PlatformAdminGuard`, even under a Role-logic bug.
+model PlatformOperator {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  status    String   @default("ACTIVE") // ACTIVE | DISABLED
+  createdAt DateTime @default(now())
+}
+
+/// Credit system Phase 10, Task 10.3 (§25.3) — one row per daily reconciliation
+/// sweep. Platform-wide (no companyId): reconciliation compares aggregates
+/// ACROSS all tenants against Stripe/provider totals, not one company's books.
+model ReconciliationRun {
+  id            String                      @id @default(cuid())
+  /// The UTC day this run covers (truncated to midnight).
+  dateUtc       DateTime
+  startedAt     DateTime                    @default(now())
+  finishedAt    DateTime?
+  /// RUNNING | COMPLETED | FAILED.
+  status        String                      @default("RUNNING")
+  discrepancies ReconciliationDiscrepancy[]
+
+  @@index([dateUtc])
+}
+
+model ReconciliationDiscrepancy {
+  id        String            @id @default(cuid())
+  runId     String
+  run       ReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  /// REVENUE | COST | INTERNAL_CONSISTENCY (§25.3's three legs).
+  leg       String
+  /// HIGH | LOW — HIGH pages (see alert-rules.ts), LOW is "not yet reconciled".
+  severity  String
+  message   String
+  metadata  Json?
+  createdAt DateTime          @default(now())
+
+  @@index([runId])
+}
+
+/// §25.3's cost-leg input — an operator manually records each provider
+/// invoice from the OpenAI/Anthropic billing portal (no automated ingestion
+/// exists or is proposed; provider invoices are monthly, this job is daily).
+model ProviderInvoice {
+  id          String   @id @default(cuid())
+  provider    String
+  periodStart DateTime
+  periodEnd   DateTime
+  amountUsd   Decimal  @db.Decimal(12, 2)
+  importedAt  DateTime @default(now())
+
+  @@index([provider, periodStart])
+}
+
+/// Credit system Phase 10, Task 10.4 (§24/§27) — a nightly-populated summary
+/// table. `PlatformAdminGuard`-gated finance reporting queries ONLY this
+/// table, never the raw ledger, for cross-tenant scans (§24.3 would defer
+/// this at current scale; §27 recommends building it now for early founder
+/// margin/cost visibility — the later, more specific call this task follows).
+/// `employeeId` is `""` (NOT null) for the company-level row for that day —
+/// a real, non-nullable sentinel rather than `null`, because Postgres treats
+/// multiple NULLs in a unique index as DISTINCT (they would never dedupe,
+/// breaking `upsert`'s ability to find "the" company-level row for a day).
+model CreditUsageDailyRollup {
+  id               String    @id @default(cuid())
+  companyId        String
+  employeeId       String    @default("")
+  day              DateTime
+  creditsGranted   Decimal   @default(0) @db.Decimal(18, 6)
+  creditsConsumed  Decimal   @default(0) @db.Decimal(18, 6)
+  creditsRefunded  Decimal   @default(0) @db.Decimal(18, 6)
+  /// Gap fix (Task 10.4): manual ADJUSTMENT entries (Task 10.2) were
+  /// silently absent from every rollup row. Signed (unlike the three above,
+  /// which are always same-direction) — a correction can move either way.
+  creditsAdjusted  Decimal   @default(0) @db.Decimal(18, 6)
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([companyId, employeeId, day])
+  @@index([day])
 }
 
 model User {
@@ -443,14 +567,14 @@ model User {
 
   // --- P3-05 §8.0.4 org-structure links (required for DEPARTMENT/TEAM/EMPLOYEE_MANAGER
   // approval routing to resolve to a decider). All nullable/additive.
-  departmentId     String?
-  department       Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  teamId           String?
-  team             Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  managerUserId    String?
-  manager          User?        @relation("UserManager", fields: [managerUserId], references: [id], onDelete: SetNull)
-  directReports    User[]       @relation("UserManager")
-  managedEmployees AiEmployee[] @relation("AiEmployeeManager")
+  departmentId        String?
+  department          Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  teamId              String?
+  team                Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  managerUserId       String?
+  manager             User?                @relation("UserManager", fields: [managerUserId], references: [id], onDelete: SetNull)
+  directReports       User[]               @relation("UserManager")
+  managedEmployees    AiEmployee[]         @relation("AiEmployeeManager")
   passwordResetTokens PasswordResetToken[]
   refreshTokens       RefreshToken[]
 
@@ -542,36 +666,50 @@ model KnowledgeChunk {
 // Message). Retrieval reuses the Knowledge module's pgvector search.
 
 model AiEmployee {
-  id                String          @id @default(cuid())
-  companyId         String
-  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name              String
-  role              EmployeeRole
-  status            EmployeeStatus  @default(ACTIVE)
-  persona           String?
-  model             String?
+  id                     String          @id @default(cuid())
+  companyId              String
+  company                Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name                   String
+  role                   EmployeeRole
+  status                 EmployeeStatus  @default(ACTIVE)
+  persona                String?
+  model                  String?
   // Rich employee configuration (Step 5). All optional; sensible defaults apply.
-  department        String?
-  managerName       String?
+  department             String?
+  managerName            String?
   // P3-05 §8.0.4 — real FK for EMPLOYEE_MANAGER approval routing (managerName kept as display fallback).
-  managerUserId     String?
-  managerUser       User?           @relation("AiEmployeeManager", fields: [managerUserId], references: [id], onDelete: SetNull)
-  workingHoursStart String?
-  workingHoursEnd   String?
-  timezone          String?
-  language          String?
+  managerUserId          String?
+  managerUser            User?           @relation("AiEmployeeManager", fields: [managerUserId], references: [id], onDelete: SetNull)
+  workingHoursStart      String?
+  workingHoursEnd        String?
+  timezone               String?
+  language               String?
   // Whether this employee may retrieve from the company knowledge base.
-  knowledgeAccess   KnowledgeAccess @default(ALL)
-  budgetLimit       Int?
+  knowledgeAccess        KnowledgeAccess @default(ALL)
+  budgetLimit            Int?
+  // Credit system (Phase 1 foundation, plan §20/§45) — additive employee-level
+  // ceilings, alongside budgetLimit (EXTEND, never replace). Enforcement
+  // (EmployeeCreditPeriodCounter) lands in a later phase; these columns are
+  // inert until then.
+  maxCreditsPerExecution Int?
+  maxCreditsPerTask      Int?
   // Free-form permission flags + approval rules (enforced by a future Approval Center).
-  permissions       Json?
-  approvalRules     Json?
+  permissions            Json?
+  approvalRules          Json?
   // Goals + configurable KPI targets (P1 #6). goals is a string[]; kpiTargets is
   // { tasksPerWeek?, successRatePct?, approvalsMax? }. Both nullable/optional so
   // existing employees are unaffected; analytics computes attainment when set.
-  goals             Json?
-  kpiTargets        Json?
-  createdAt         DateTime        @default(now())
+  goals                  Json?
+  kpiTargets             Json?
+  // Phase 1 safety fix — soft delete, mirroring `Workflow.archivedAt` (gap
+  // G29's fix for the same defect class). `DELETE /employees/:id` used to be an
+  // unguarded `prisma.aiEmployee.delete()` that cascaded to conversations,
+  // messages, memories, feedback, skill grants AND `InstalledSkill` — i.e. it
+  // silently destroyed the employee's encrypted per-employee credentials along
+  // with every audit-relevant record. Delete now archives; `?hard=true` is
+  // OWNER-only, blocked on live dependencies, and separately audited.
+  archivedAt             DateTime?
+  createdAt              DateTime        @default(now())
 
   conversations   Conversation[]
   memories        EmployeeMemory[]
@@ -580,6 +718,7 @@ model AiEmployee {
   installedSkills InstalledSkill[]
 
   @@index([companyId])
+  @@index([companyId, archivedAt])
 }
 
 model Conversation {
@@ -605,6 +744,14 @@ model Message {
   metadata       Json?
   createdAt      DateTime     @default(now())
 
+  // Credit system prerequisite (Phase 1, Task 1.3 — kill-critic Q3(a)): a
+  // real, client-supplied dedup key for the user turn. Chat idempotency
+  // cannot be safely keyed off Message.id alone, since message creation had
+  // zero dedup before this. Optional — omitted keys never collide (Postgres
+  // treats multiple NULLs in a unique index as distinct).
+  idempotencyKey String?
+
+  @@unique([conversationId, idempotencyKey])
   @@index([companyId])
 }
 
@@ -717,6 +864,12 @@ model SkillExecution {
   error          String?
   createdAt      DateTime             @default(now())
 
+  // Credit system (Phase 1 foundation, plan §28.3) — closes the confirmed gap
+  // (no cost/creditsUsed/duration ever persisted here). Inert until Phase 3
+  // wires a writer.
+  creditsUsed Decimal? @db.Decimal(18, 6)
+  durationMs  Int?
+
   @@index([companyId])
 }
 
@@ -785,6 +938,13 @@ model Workflow {
   // Partial-unique per tenant (mirrors WorkflowRun.idempotencyKey).
   installIdempotencyKey String?
 
+  // Credit system (Phase 1 foundation, plan §20/§28.3) — additive
+  // workflow-level ceilings, sibling to the existing blockedBySubscription()
+  // gate. Inert until a later enforcement phase.
+  maxCreditsPerRun  Int?
+  maxRunsPerPeriod  Int?
+  maxRunsPeriodUnit String?
+
   runs        WorkflowRun[]
   // P2-01: stored variable VALUES and secret REFERENCES. Both are keyed to the
   // workflow, not a version — values are mutable and outlive any one version.
@@ -841,6 +1001,23 @@ model WorkflowRun {
   actingEmployeeId String?
   startedByUserId  String?
 
+  // Credit system (Phase 1 foundation, plan §14.2/§20/§28.3) — the per-run
+  // rollup + override ceiling. totalCreditsCharged is incremented via a
+  // guarded floor-checked updateMany once Phase 3 wires a writer; inert until
+  // then. NOTE: `engineMode` (kill-critic Q22's legacy-engine re-billing
+  // guard) is a deliberate Phase 8 addition, not included here.
+  creditLimit         Decimal? @db.Decimal(18, 6)
+  totalCreditsCharged Decimal  @default(0) @db.Decimal(18, 6)
+
+  /// Phase 8 (Enforcement), Task 8.4 (kill-critic Q22's hard prerequisite) —
+  /// snapshotted at run creation from EngineModeService, never re-derived
+  /// later: a company's global/per-company engine mode can change after
+  /// this run started, but THIS run's own re-billing risk profile is fixed
+  /// at whichever engine actually executed it. Nullable for rows created
+  /// before this column existed — treated as `legacy_walk` (the more
+  /// conservative assumption) by `WorkflowsService.retryRun`'s guard.
+  engineMode          String?
+
   steps    WorkflowStepRun[]
   attempts WorkflowStepAttempt[]
   timers   WorkflowRunTimer[]
@@ -883,12 +1060,16 @@ model WorkflowStepRun {
   attempt  Int                   @default(1)
   attempts WorkflowStepAttempt[]
 
+  // Credit system (Phase 1 foundation, plan §14.2/§28.3) — per-node charge.
+  // Null = not a cost-bearing node type. Inert until Phase 3.
+  creditsCharged Decimal? @db.Decimal(18, 6)
+
   /// WAVE 1 (gap W1-b): the outgoing edge label this node selected — 'true'/'false'
   /// for a CONDITION, the case name for a SWITCH, null for a node that does not
   /// branch. PERSISTED, not derived, because the durable advance worker may run
   /// long after the step (reaper re-enqueue, redeploy, Redis flush) and must be
   /// able to recompute routing from Postgres alone.
-  branch   String?
+  branch String?
 
   @@index([companyId])
   // LIVE DEFECT FIX: WorkflowsService.getRun() polls this table via
@@ -992,6 +1173,392 @@ model Subscription {
   currentPeriodEnd       DateTime?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
+
+  // Credit system (Phase 1 foundation, plan §28.3 — kill-critic Q16 fix):
+  // `applyWebhookEvent` overwrites fields unconditionally with no ordering
+  // guard against an out-of-order/delayed webhook redelivery. Both fields
+  // must gate every overwritten field (plan, status, currentPeriodEnd), not
+  // just one. Inert until Phase 6/7 wire a writer/check.
+  lastAppliedEventId        String?
+  lastAppliedEventCreatedAt DateTime?
+}
+
+// --- Credits / Usage Billing (Phase 1 foundation) --------------------------
+// docs/architecture/orlixa-ai-credit-usage-billing-plan.md, Part 4 §28.
+// Every table below is CREATE NEW and deliberately INERT in Phase 1: nothing
+// in the running application reads or writes them yet (Task 1.5's
+// CreditsModule ships empty). They exist now so the migration is a single,
+// additive, long-soak deploy, per the plan's own Phase 1 rationale.
+//
+// Convention (cross-checked against this schema, not assumed, §28.0): two
+// conventions coexist for companyId — Convention A, a formal @relation with
+// onDelete: Cascade (Subscription, UsageEvent), and Convention B, a plain
+// column with no relation (SkillExecution). All financial-HISTORY tables
+// below (CreditLedger, CreditLot, CreditLotConsumption, CreditReservation,
+// CreditRefund, ProcessedWebhookEvent, EmployeeCreditPeriodCounter) use
+// Convention B, so they stay insertable/queryable independent of
+// company/employee/run lifecycle. The two current-STATE tables
+// (CompanyCreditBalance, EnterpriseCreditAgreement) use Convention A,
+// matching Subscription, because they should legitimately disappear on a
+// full company delete.
+
+/// The single, insert-only, immutable source of truth for every
+/// credit-affecting event, company-wide. No UPDATE/DELETE is ever issued
+/// against this table outside a documented legal-hold/retention exception.
+model CreditLedger {
+  id                    String  @id @default(cuid())
+  companyId             String
+  employeeId            String?
+  workflowId            String?
+  workflowRunId         String?
+  workflowStepRunId     String?
+  conversationId        String?
+  executionId           String?
+  /// Which CreditReservation this row settles/releases. Null for
+  /// CREDIT/REFUND/ADJUSTMENT/EXPIRATION.
+  reservationId         String?
+  /// Which CreditPack funded a PACK_PURCHASE grant.
+  packId                String?
+  /// Which EnterpriseCreditAgreement authorized an ENTERPRISE_ALLOTMENT grant.
+  enterpriseAgreementId String?
+  /// Set only on the CREDIT row that originates exactly one CreditLot (1:1).
+  /// Multi-lot debits use CreditLotConsumption instead.
+  lotId                 String?
+
+  /// §9.7 Option A (single fungible pool) — PROPOSED, REQUIRES FOUNDER
+  /// APPROVAL; column kept so Option B/C need no migration.
+  creditType      String  @default("PLATFORM")
+  /// DEBIT | CREDIT | RESERVATION | RELEASE | REFUND | ADJUSTMENT | EXPIRATION.
+  /// String, not an enum — this taxonomy is expected to grow (§28.0).
+  transactionType String
+  /// Only set when transactionType='CREDIT': PLAN_ALLOTMENT | PACK_PURCHASE |
+  /// PROMOTIONAL | MANUAL_ADMIN | ENTERPRISE_ALLOTMENT.
+  grantKind       String?
+
+  amount        Decimal @db.Decimal(18, 6)
+  balanceBefore Decimal @db.Decimal(18, 6)
+  /// Can be negative post-reconciliation — NOT floor-clamped at write time.
+  /// See CompanyCreditBalance's negative-balance invariant.
+  balanceAfter  Decimal @db.Decimal(18, 6)
+
+  /// Self-reference: a REFUND row reverses the DEBIT it refunds.
+  reversesLedgerEntryId String?
+  reversesLedgerEntry   CreditLedger?  @relation("LedgerReversal", fields: [reversesLedgerEntryId], references: [id])
+  reversedBy            CreditLedger[] @relation("LedgerReversal")
+
+  /// Required (service-enforced) on any DEBIT/RESERVATION row priced from an
+  /// LLM call — kill-critic Q18 fix: freezes which rate version produced
+  /// `amount`, independent of `metadata`.
+  modelCostRateId String?
+  /// Same, for tool/SkillExecution-priced rows.
+  toolCostRateId  String?
+
+  reason         String
+  /// SYSTEM | USER | WEBHOOK | ADMIN.
+  source         String
+  idempotencyKey String
+  /// Additive only, e.g. {promptTokens, model}. NOT the rate-freeze mechanism
+  /// (that's modelCostRateId/toolCostRateId above).
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  /// The core anti-double-charge constraint (P2002 → find-then-return, §11).
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, createdAt])
+  @@index([companyId, employeeId, createdAt])
+  @@index([companyId, workflowRunId])
+  @@index([companyId, transactionType, createdAt])
+  @@index([reservationId])
+}
+
+/// Tracks each individual grant ("batch") of credits — a subscription
+/// month's allotment, one pack purchase, one promotional grant — as its own
+/// shrinking pool (kill-critic Q9 fix), so an EXPIRATION sweep subtracts only
+/// what that specific batch actually has left.
+model CreditLot {
+  id                  String    @id @default(cuid())
+  companyId           String
+  /// The CREDIT row that created this lot — enforces exactly one lot per grant.
+  originLedgerEntryId String    @unique
+  grantKind           String
+  grantedAmount       Decimal   @db.Decimal(18, 6)
+  /// Only ever decremented via the guarded pattern in CreditLotConsumption —
+  /// never a raw UPDATE.
+  remaining           Decimal   @db.Decimal(18, 6)
+  /// Null = never expires (purchased packs, §18 Option C).
+  expiresAt           DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([companyId, expiresAt])
+  @@index([companyId, createdAt])
+}
+
+/// The join table that makes CreditLot.remaining an atomically-correct,
+/// auditable value (Q9 corollary) rather than a second ungoverned counter.
+model CreditLotConsumption {
+  id                     String   @id @default(cuid())
+  companyId              String
+  lotId                  String
+  /// The DEBIT, RESERVATION, ADJUSTMENT, or EXPIRATION CreditLedger row that
+  /// drew this amount.
+  consumingLedgerEntryId String
+  /// Always positive; sign lives on the parent ledger row.
+  amountDrawn            Decimal  @db.Decimal(18, 6)
+  createdAt              DateTime @default(now())
+
+  /// A single debit draws from a given lot at most once (spans multiple lots
+  /// via multiple rows instead) — doubles as a duplicate-write guard.
+  @@unique([lotId, consumingLedgerEntryId])
+  @@index([lotId])
+  @@index([companyId, consumingLedgerEntryId])
+}
+
+/// The fast-read, always-reconcilable cache of a company's current spendable
+/// balance (§9.2's "materialized counter, never authoritative" pattern) and
+/// the authoritative Layer-1 hard stop (§45). Convention A (1:1 with Company).
+model CompanyCreditBalance {
+  companyId        String    @id
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// Spendable balance. NOT floor-protected at the type level — a negative
+  /// value is a valid, expected, gated state (kill-critic Q14 fix): it can
+  /// only arise at reconciliation (a settling DEBIT whose real cost exceeds
+  /// the pessimistic reservation), never at RESERVE time, which stays
+  /// provably non-negative via the guarded updateMany pattern.
+  balance          Decimal   @db.Decimal(18, 6)
+  /// The "held" sub-balance (the RESERVATION/RELEASE pair).
+  reservedBalance  Decimal   @default(0) @db.Decimal(18, 6)
+  /// When the nightly full-sum reconciliation last ran.
+  lastReconciledAt DateTime?
+  updatedAt        DateTime  @updatedAt
+}
+
+/// The Reserve→Execute→Settle hold record (§10). Idempotency-key derivation
+/// and release wiring are HARDENED past the original design per kill-critic
+/// Q2/Q3/Q8 — see the plan's §28.2.5 for the full reasoning; the short
+/// version: the key is derived from WorkflowStepRun.id (the logical step),
+/// NOT nodeId, so it cannot collide across LOOP iterations (each iteration
+/// opens a new WorkflowStepRun row while reusing the same static nodeId).
+model CreditReservation {
+  id                String                  @id @default(cuid())
+  companyId         String
+  employeeId        String?
+  workflowRunId     String?
+  /// The idempotency anchor for workflow-triggered reservations.
+  workflowStepRunId String?
+  conversationId    String?
+  /// Correlates to SkillExecution.id once the tool call is dispatched.
+  executionId       String?
+  /// LLM_CALL | TOOL_CALL.
+  resourceType      String
+  status            CreditReservationStatus @default(PENDING)
+  /// A pessimistic UPPER BOUND derived from ModelCostRate/ToolCostRate × the
+  /// call's configured ceiling — not a flat placeholder (kill-critic Q14 fix).
+  estimatedCredits  Decimal                 @db.Decimal(18, 6)
+  /// Populated at settle.
+  actualCredits     Decimal?                @db.Decimal(18, 6)
+  idempotencyKey    String
+  /// This reservation's own lease window. Default value is an open founder
+  /// parameter (§28.2.5) — Option A (reuse AttemptLeaseService's constant) is
+  /// PROPOSED.
+  leaseExpiresAt    DateTime
+  createdAt         DateTime                @default(now())
+  settledAt         DateTime?
+  releasedAt        DateTime?
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, status])
+  @@index([workflowRunId])
+  @@index([workflowStepRunId])
+  /// The chat/assist fallback sweep — cross-tenant by design, mirroring
+  /// WorkflowStepAttempt's cross-tenant @@index([leaseExpiresAt]) convention.
+  @@index([status, leaseExpiresAt])
+}
+
+/// Resolves kill-critic Q10's hedge ("a partial unique index... or a
+/// dedicated CreditRefund row") in favor of the dedicated table — this is
+/// the dedup-and-authorization record; the REFUND row it produces still
+/// lands in CreditLedger for the permanent trail.
+model CreditRefund {
+  id                     String             @id @default(cuid())
+  companyId              String
+  /// Service-level assertion, enforced before insert: must resolve to a
+  /// CreditLedger row with transactionType='DEBIT', and amount must not
+  /// exceed what remains refundable from that original debit.
+  originalLedgerEntryId  String
+  /// Stripe's own re_... id for Stripe-sourced refunds; for manual/admin
+  /// refunds, a synthetic "admin:{requestIdempotencyKey}" value — ONE
+  /// uniqueness mechanism covers both paths.
+  externalRefundId       String
+  /// Positive; capped per the assertion above (purchased packs never push
+  /// past what remains refundable from the original debit).
+  amount                 Decimal            @db.Decimal(18, 6)
+  /// The REFUND-type CreditLedger row this refund produced (1:1).
+  resultingLedgerEntryId String
+  reason                 String
+  /// ADMIN:{userId} | SYSTEM | WEBHOOK.
+  initiatedBy            String
+  /// A refund that fails the amount/target-type assertion is REJECTED, never
+  /// silently clamped without a record.
+  status                 CreditRefundStatus @default(COMPLETED)
+  createdAt              DateTime           @default(now())
+
+  @@unique([companyId, externalRefundId])
+  @@index([companyId, originalLedgerEntryId])
+}
+
+/// Confirmed NOT FOUND anywhere in the pre-existing billing module — the
+/// core Stripe webhook replay/redelivery dedup (kill-critic Q5/Q6).
+model ProcessedWebhookEvent {
+  id              String   @id @default(cuid())
+  /// "stripe".
+  provider        String
+  /// Stripe's own event.id.
+  externalEventId String
+  /// e.g. "checkout.session.completed".
+  eventType       String
+  /// Nullable — a malformed/unresolvable event may still need a dedup row
+  /// without a resolved tenant.
+  companyId       String?
+  /// Raw event, for audit/replay/debugging.
+  payload         Json
+  /// Row exists ONLY IF the whole processing transaction committed — the
+  /// insert must be the transaction's first statement, and any P2002 handling
+  /// must wrap the ENTIRE $transaction call, never a catch inside the
+  /// callback (mirrors workflow-templates.service.ts's proven idiom).
+  processedAt     DateTime @default(now())
+
+  @@unique([provider, externalEventId])
+  @@index([companyId, processedAt])
+  @@index([eventType, processedAt])
+}
+
+/// Versioned per-(provider, model) LLM cost rate — direct response to
+/// kill-critic Q18 ("version usage-rates.ts itself... so 'what rate was live
+/// on date D' is answerable independent of the ledger row's own metadata"),
+/// generalized past the existing flat $3/$15 constants
+/// (apps/api/src/modules/usage/usage-rates.ts) to per-provider/per-model rows.
+model ModelCostRate {
+  id                     String    @id @default(cuid())
+  /// openai | anthropic | mock.
+  provider               String
+  /// e.g. gpt-5.6-terra, claude-sonnet-5.
+  model                  String
+  promptRatePer1MUsd     Decimal   @db.Decimal(12, 6)
+  completionRatePer1MUsd Decimal   @db.Decimal(12, 6)
+  /// The USD-to-credit conversion factor — PROPOSED, REQUIRES FOUNDER
+  /// APPROVAL (no such number exists anywhere in the repo today).
+  creditsPerUsd          Decimal   @db.Decimal(12, 6)
+  effectiveFrom          DateTime
+  /// Null = currently active. At-most-one-current-row-per-(provider,model) is
+  /// enforced at the SERVICE layer (close the old row in the same transaction
+  /// that opens the new one), not a partial unique index.
+  effectiveTo            DateTime?
+  createdAt              DateTime  @default(now())
+
+  @@unique([provider, model, effectiveFrom])
+  @@index([provider, model, effectiveTo])
+}
+
+/// Sibling of ModelCostRate for tool/skill-call cost (§14.1's "rate keyed by
+/// skillKey/tool").
+model ToolCostRate {
+  id             String    @id @default(cuid())
+  skillKey       String
+  tool           String
+  /// Flat per-invocation rate — PROPOSED, REQUIRES FOUNDER APPROVAL for
+  /// actual values.
+  creditsPerCall Decimal   @db.Decimal(12, 6)
+  effectiveFrom  DateTime
+  effectiveTo    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([skillKey, tool, effectiveFrom])
+  @@index([skillKey, tool, effectiveTo])
+}
+
+/// A DB table, not a TS catalog file (deliberate deviation from §18's literal
+/// recommendation — kill-critic Q19/Q20 require historical price versioning
+/// and ops-manageable definitions without a deploy, which a TS constant
+/// cannot give). Mirrors PLAN_CATALOG's 4-tier convention.
+model CreditPack {
+  id            String    @id @default(cuid())
+  /// e.g. "SMALL"/"MEDIUM"/"LARGE" — PROPOSED, REQUIRES FOUNDER APPROVAL for
+  /// actual sizes.
+  packKey       String
+  displayName   String
+  creditAmount  Decimal   @db.Decimal(18, 6)
+  /// PROPOSED, REQUIRES FOUNDER APPROVAL for values.
+  bonusPercent  Decimal   @default(0) @db.Decimal(5, 2)
+  priceUsd      Decimal   @db.Decimal(12, 2)
+  /// Mirrors the existing STRIPE_PRICE_<PLAN> env-var-lookup pattern,
+  /// extended to STRIPE_PRICE_CREDITS_<packKey>.
+  stripePriceId String?
+  /// Kill-critic Q19 fix: lets the webhook handler compare
+  /// checkout.session.completed's amount_total against the price ACTIVE WHEN
+  /// THE CHECKOUT SESSION WAS CREATED (stamped into session metadata at
+  /// creation time), never whatever price is live when the webhook is
+  /// processed.
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  @@unique([packKey, effectiveFrom])
+  @@unique([stripePriceId])
+  @@index([packKey, effectiveTo])
+}
+
+/// Direct response to kill-critic Q20 ("specify an explicit Enterprise
+/// allocation mechanism... tied to some durable record of the negotiated
+/// deal terms, rather than leaving Enterprise's monthly credits as an
+/// unspecified manual process"). Convention A (1:1 with Company).
+model EnterpriseCreditAgreement {
+  companyId                String    @id
+  company                  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// Negotiated, not catalog-driven.
+  includedCreditsPerPeriod Decimal   @db.Decimal(18, 6)
+  periodMonths             Int       @default(1)
+  /// PO/contract id — free text, the durable record of negotiated deal terms
+  /// Q20 requires.
+  dealReference            String
+  approvedByUserId         String
+  startsAt                 DateTime
+  endsAt                   DateTime?
+  active                   Boolean   @default(true)
+  /// Bookkeeping for the recurring-grant cron — avoids re-deriving "which
+  /// periods already got a grant" from a ledger scan every run.
+  lastGrantedPeriodStart   DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  /// The recurring-grant cron's "which agreements are due" scan — cross-tenant
+  /// by design, mirroring WorkflowRun's @@index([status, deadlineAt]) convention.
+  @@index([active, endsAt])
+}
+
+/// Direct response to kill-critic Q13: budgetLimit today is check-then-act
+/// (SUM then compare), and closes the identical non-atomic pattern the
+/// original credit-layering design re-shipped one layer down. This is the
+/// atomic counter that closes it.
+model EmployeeCreditPeriodCounter {
+  id                  String   @id @default(cuid())
+  companyId           String
+  employeeId          String
+  /// Real absolute instants — never locally recomputed at check time (the
+  /// same lesson as kill-critic Q17's timezone finding).
+  periodStart         DateTime
+  periodEnd           DateTime
+  spent               Decimal  @default(0) @db.Decimal(18, 6)
+  /// The employee's credit-denominated limit AS OF period start — captured so
+  /// a later limit change doesn't retroactively reinterpret a closed period's
+  /// enforcement history.
+  budgetLimitSnapshot Int?
+  updatedAt           DateTime @updatedAt
+
+  /// Exactly one counter per employee per period, created lazily.
+  @@unique([employeeId, periodStart])
+  @@index([companyId, employeeId, periodStart])
+  @@index([companyId, periodStart])
 }
 
 // --- Organization: Security Policies / Teams / Departments (P1 #7) ---------
@@ -1020,7 +1587,7 @@ model Department {
   /// tenant has no scopes configured, so department isolation ships inert and is
   /// enabled per-tenant by one write. An authorization change that silently
   /// starts denying real users reads as an outage, not as a security control.
-  scopes      String[] @default([])
+  scopes String[] @default([])
 
   teams Team[]
   users User[] // P3-05 §8.1.5 mechanical inverse of User.department
@@ -1238,7 +1805,7 @@ model ScheduledPost {
   /// and returned the provider id. A retried TOOL_ACTION therefore published the
   /// same post to the same social account a second time — a real, public,
   /// irreversible duplicate. This key makes the retry a no-op.
-  idempotencyKey    String?
+  idempotencyKey String?
 
   /// Partial by nature: NULL keys do not collide in Postgres, so scheduled posts
   /// authored without one are unaffected.
@@ -1304,7 +1871,13 @@ model ChatwootAccount {
   id                String                @id @default(cuid())
   companyId         String                @unique
   company           Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  chatwootAccountId String
+  /// S-07: unique, not just indexed. This is the webhook's OWN authentication
+  /// lookup key (support-webhook.controller.ts resolves the account by this
+  /// field before trusting anything else) — a duplicate here is a real
+  /// cross-tenant risk (two companies' webhook deliveries could resolve to
+  /// the same row), not merely a data-quality one. Manual provisioning
+  /// (S-10, still stubbed) makes a copy-paste duplicate realistic.
+  chatwootAccountId String                @unique
   agentBotId        String
   agentBotToken     String // CryptoService-encrypted at rest
   webhookSecret     String // CryptoService-encrypted at rest
@@ -1318,6 +1891,10 @@ enum SupportConversationStatus {
   OPEN
   RESOLVED
   PENDING
+  /// S-13/C-06: the AI has paused itself on this ONE conversation pending a
+  /// HandoffRequest decision. Distinct from PENDING (which precedes this
+  /// enum addition and has no defined runtime meaning today).
+  ESCALATED
 }
 
 model SupportConversation {
@@ -1331,9 +1908,15 @@ model SupportConversation {
   status                 SupportConversationStatus @default(OPEN)
   lastMessageAt          DateTime                  @default(now())
   messages               SupportMessage[]
+  handoffRequests        HandoffRequest[]
 
   @@index([companyId])
-  @@index([companyId, chatwootConversationId])
+  /// S-07: unique, not just indexed. The old plain index left a TOCTOU race in
+  /// support-webhook.controller.ts's findFirst-then-create — two near-
+  /// simultaneous first messages on a brand-new conversation could both miss
+  /// and both create, silently splitting message history. The constraint
+  /// forces the controller onto an atomic upsert instead.
+  @@unique([companyId, chatwootConversationId])
 }
 
 enum SupportMessageDirection {
@@ -1354,6 +1937,72 @@ model SupportMessage {
 
   @@index([companyId])
   @@index([conversationId])
+}
+
+enum HandoffStatus {
+  PENDING
+  RESOLVED
+  CANCELLED
+}
+
+/// S-13/C-06: the shared "AI escalated to a human" mechanism. Deliberately
+/// NOT a second ApprovalRequest kind — a handoff gates an entire
+/// conversation's future AI turns, not one tool call or workflow run, a
+/// different lifecycle — but reuses ApprovalRoutingService's resolver in full
+/// (approverRuleType/approverRuleValue/assigneeUserId mirror
+/// ApprovalRequest's own routing columns on purpose, so the same resolver
+/// output slots in unchanged).
+model HandoffRequest {
+  id                String              @id @default(cuid())
+  companyId         String
+  company           Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversationId    String
+  conversation      SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  employeeId        String
+  reason            String
+  status            HandoffStatus       @default(PENDING)
+  approverRuleType  ApproverRuleType?
+  approverRuleValue String?
+  assigneeUserId    String?
+  resolvedById      String?
+  resolvedAt        DateTime?
+  note              String?
+  createdAt         DateTime            @default(now())
+
+  @@index([companyId, status])
+  @@index([conversationId])
+}
+
+enum ToolIdempotencyStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+/// M-06: the generic, engine-agnostic idempotency primitive. Extracted from
+/// postiz.publish_now's own bespoke ScheduledPost.idempotencyKey pattern
+/// (which stays as-is — already correct, not rewritten) so any FUTURE tool
+/// with an external side effect (postiz.schedule_post today; a future
+/// payment/CRM-mutation tool tomorrow) gets record-before-effect for free
+/// without inventing a new dedicated column on its own table. Never names a
+/// specific provider — `skillKey`/`tool` are plain strings.
+model ToolIdempotencyRecord {
+  id             String                 @id @default(cuid())
+  companyId      String
+  company        Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  skillKey       String
+  tool           String
+  idempotencyKey String
+  status         ToolIdempotencyStatus  @default(PENDING)
+  /// The tool's own result shape, JSON-serialized, replayed verbatim on a
+  /// deduped call within the window.
+  resultJson     Json?
+  errorMessage   String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([companyId, skillKey, tool, idempotencyKey])
+  @@index([companyId, skillKey, tool, createdAt])
 }
 
 model PlaneWorkspace {
@@ -1888,22 +2537,22 @@ model AssistMessage {
 /// nowhere to keep a PKCE verifier. This row is what makes the state ONE-TIME
 /// and makes PKCE possible.
 model OAuthAuthorizationRequest {
-  id        String   @id @default(cuid())
+  id               String    @id @default(cuid())
   /// The `nonce` carried in the signed state; the lookup key on callback.
-  nonce     String   @unique
-  companyId String
+  nonce            String    @unique
+  companyId        String
   /// Who started the flow. A callback that completes is attributed to them.
-  userId    String?
+  userId           String?
   installedSkillId String
   skillKey         String
   /// PKCE (RFC 7636) verifier. Never leaves the server; only its S256 hash is
   /// sent to the provider, so a stolen authorization code is useless without it.
-  codeVerifier String
-  returnTo     String?
+  codeVerifier     String
+  returnTo         String?
   /// Set the instant the callback consumes it — the one-time-use guard.
-  usedAt    DateTime?
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  usedAt           DateTime?
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
 
   /// The expiry sweep.
   @@index([expiresAt])

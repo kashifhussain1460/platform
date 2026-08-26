@@ -1,4 +1,8 @@
 import type { SkillDefinitionDto, ToolDefinitionDto } from '@vaep/types';
+import {
+  executionSupportFor,
+  isRealExecutionSupported,
+} from './executors/real-execution-support';
 
 /**
  * The built-in SKILLS CATALOG — code, not DB. This is the single source of
@@ -14,7 +18,15 @@ import type { SkillDefinitionDto, ToolDefinitionDto } from '@vaep/types';
 export type ToolDefinition = ToolDefinitionDto;
 export type SkillDefinition = SkillDefinitionDto;
 
-const CATALOG: readonly SkillDefinition[] = [
+/**
+ * The shape actually AUTHORED below. `executionSupport` (per skill) and
+ * `simulated` (per tool) are DERIVED from `real-execution-support.ts` when the
+ * registry hands an entry out — never hand-written here, so the catalog cannot
+ * claim a skill is real while the executor has no `case` for it.
+ */
+type CatalogEntry = Omit<SkillDefinitionDto, 'executionSupport'>;
+
+const CATALOG: readonly CatalogEntry[] = [
   {
     key: 'slack',
     name: 'Slack',
@@ -687,6 +699,46 @@ const CATALOG: readonly SkillDefinition[] = [
           required: ['scheduledPostId'],
         },
       },
+      {
+        // M-10: read-only, so NOT highRisk. IMPLEMENTED_UNVERIFIED — see
+        // PostizClientService's own doc comment; do not present these numbers
+        // to a customer as fact before a real-provider verification pass.
+        name: 'get_post_analytics',
+        description: "Get a previously scheduled/published post's engagement analytics from Postiz.",
+        parameters: {
+          type: 'object',
+          properties: {
+            scheduledPostId: { type: 'string', description: 'Orlixa ScheduledPost id.' },
+          },
+          required: ['scheduledPostId'],
+        },
+      },
+    ],
+  },
+  {
+    // M-08: an internal, no-OAuth skill (same shape as 'scheduling') backing
+    // real consent enforcement for Marketing workflow templates — replaces
+    // trusting a workflow-trigger-supplied boolean with a real query against
+    // MarketingConsent/MarketingSuppression.
+    key: 'marketing',
+    name: 'Marketing Compliance',
+    description: 'Check real, recorded consent and suppression state before a marketing send.',
+    category: 'marketing',
+    connection: { type: 'none' },
+    configSchema: [],
+    tools: [
+      {
+        name: 'check_consent',
+        description: 'Check whether every given address has current, GRANTED consent and is not suppressed for a channel — queries MarketingConsent/MarketingSuppression directly, never trusts a caller-supplied flag.',
+        parameters: {
+          type: 'object',
+          properties: {
+            channel: { type: 'string', enum: ['EMAIL', 'SMS', 'SOCIAL'], description: 'Suppression/consent channel.' },
+            addresses: { type: 'string', description: 'Recipient address(es) — a single address, or comma/semicolon-separated.' },
+          },
+          required: ['channel', 'addresses'],
+        },
+      },
     ],
   },
   {
@@ -716,6 +768,12 @@ const CATALOG: readonly SkillDefinition[] = [
       {
         name: 'reply_to_conversation',
         description: 'Send a reply into a customer support conversation.',
+        // HIGH-RISK (S-04): customer-facing external communication, exactly
+        // like postiz.schedule_post/publish_now above — always routed to the
+        // Approval Center by default, both from chat and from a workflow
+        // TOOL_ACTION node. Do not remove without an explicit, separate
+        // approval-routing decision.
+        highRisk: true,
         parameters: {
           type: 'object',
           properties: {
@@ -728,6 +786,12 @@ const CATALOG: readonly SkillDefinition[] = [
       {
         name: 'resolve_conversation',
         description: 'Mark a conversation as resolved.',
+        // HIGH-RISK (S-04): same reasoning as reply_to_conversation — a
+        // customer-facing support action should never be gated more loosely
+        // than an equivalent Marketing action. Currently always returns a
+        // NOT_IMPLEMENTED failure (S-02); this flag is kept ready for when a
+        // real Chatwoot resolve call is added.
+        highRisk: true,
         parameters: {
           type: 'object',
           properties: {
@@ -786,16 +850,40 @@ const CATALOG: readonly SkillDefinition[] = [
   },
 ];
 
+/**
+ * Decorate an authored entry with the execution-reality fields.
+ *
+ * Done on the way OUT (rather than baked into the literal) so there is exactly
+ * one place that can answer "is this real?", and it is the same place the
+ * executor asks.
+ */
+function decorate(entry: CatalogEntry): SkillDefinition {
+  return {
+    ...entry,
+    executionSupport: executionSupportFor(
+      entry.key,
+      entry.tools.map((t) => t.name),
+    ),
+    tools: entry.tools.map((t) => ({
+      ...t,
+      // Only ever set to `true`; leaving it absent for real tools keeps every
+      // existing snapshot/response assertion on real tools unchanged.
+      ...(isRealExecutionSupported(entry.key, t.name) ? {} : { simulated: true }),
+    })),
+  };
+}
+
 /** Static registry over the built-in catalog. */
 export const SkillCatalog = {
   /** All built-in skills (with their tools). */
   list(): SkillDefinition[] {
-    return CATALOG.map((s) => ({ ...s }));
+    return CATALOG.map(decorate);
   },
 
   /** Look up a skill by its key. */
   get(key: string): SkillDefinition | undefined {
-    return CATALOG.find((s) => s.key === key);
+    const entry = CATALOG.find((s) => s.key === key);
+    return entry ? decorate(entry) : undefined;
   },
 
   /** True when the key names a built-in skill. */

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { requireRealProviderInProduction } from '../../common/config/require-real-provider';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { CreditsModule } from '../credits/credits.module';
 import { BillingController } from './billing.controller';
 import { BillingWebhookController } from './billing-webhook.controller';
 import { BillingService } from './billing.service';
@@ -12,6 +13,11 @@ import {
 } from './billing.provider';
 import { MockBillingProvider } from './providers/mock-billing.provider';
 import { StripeBillingProvider } from './providers/stripe-billing.provider';
+import { CreditPackCatalogService } from './credit-packs';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
+import { PlatformAdminCreditsController } from './platform-admin/platform-admin-credits.controller';
+import { FinanceReportingController } from './platform-admin/finance-reporting.controller';
+import { EnforcementCohortController } from './platform-admin/enforcement-cohort.controller';
 
 /**
  * Pick the billing backend from BILLING_PROVIDER (default: mock — offline,
@@ -38,17 +44,24 @@ function billingProviderFactory(config: ConfigService): BillingProvider {
  * JWT passport strategy is registered globally by AuthModule.
  */
 @Module({
-  imports: [NotificationsModule],
-  controllers: [BillingController, BillingWebhookController],
+  imports: [NotificationsModule, CreditsModule, PlatformAdminModule],
+  controllers: [
+    BillingController,
+    BillingWebhookController,
+    PlatformAdminCreditsController,
+    FinanceReportingController,
+    EnforcementCohortController,
+  ],
   providers: [
     BillingService,
     PlanGuard,
+    CreditPackCatalogService,
     {
       provide: BILLING_PROVIDER_TOKEN,
       inject: [ConfigService],
       useFactory: billingProviderFactory,
     },
   ],
-  exports: [BillingService, PlanGuard],
+  exports: [BillingService, PlanGuard, CreditPackCatalogService],
 })
 export class BillingModule {}

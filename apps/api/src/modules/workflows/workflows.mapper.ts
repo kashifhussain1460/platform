@@ -3,6 +3,7 @@ import type {
   WorkflowRun,
   WorkflowStepRun,
 } from '@prisma/client';
+import { decimalToNumber } from '../credits/credits.types';
 import type {
   TriggerConfig,
   TriggerType,
@@ -89,6 +90,7 @@ export function toWorkflowStepRunDto(s: WorkflowStepRun): WorkflowStepRunDto {
     startedAt: s.startedAt?.toISOString() ?? null,
     finishedAt: s.finishedAt?.toISOString() ?? null,
     createdAt: s.createdAt.toISOString(),
+    creditsCharged: s.creditsCharged == null ? null : decimalToNumber(s.creditsCharged),
   };
 }
 
@@ -114,6 +116,8 @@ export function toWorkflowRunDto(
     startedAt: r.startedAt?.toISOString() ?? null,
     finishedAt: r.finishedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
+    creditLimit: r.creditLimit == null ? null : decimalToNumber(r.creditLimit),
+    totalCreditsCharged: decimalToNumber(r.totalCreditsCharged),
     steps: r.steps ? r.steps.map(toWorkflowStepRunDto) : undefined,
   };
 }

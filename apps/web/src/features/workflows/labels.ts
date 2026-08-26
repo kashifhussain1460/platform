@@ -21,9 +21,24 @@ import type {
   NodeType,
   StepRunStatus,
   TriggerType,
+  WorkflowCategory,
   WorkflowRunStatus,
   WorkflowStatus,
 } from '@vaep/types';
+
+/** Human label per workflow-template category (gap fix, 2026-08-20). */
+export const WORKFLOW_CATEGORY_LABELS: Record<WorkflowCategory, string> = {
+  HR: 'HR',
+  RECRUITMENT: 'Recruitment',
+  MARKETING: 'Marketing',
+  SALES: 'Sales',
+  SUPPORT: 'Support',
+  FINANCE: 'Finance',
+  OPERATIONS: 'Operations',
+  IT: 'IT',
+  COMPLIANCE: 'Compliance',
+  CUSTOM: 'Custom',
+};
 
 /** Human labels for each node type. */
 export const NODE_LABELS: Record<NodeType, string> = {

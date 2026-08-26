@@ -149,7 +149,11 @@ describeIfDb('Onboarding e2e (register profile -> wizard -> employee config)', (
         knowledgeAccess: 'NONE',
         budgetLimit: 5000,
         permissions: { sendEmail: true, makePayments: false },
-        approvalRules: { approveOverBudget: true },
+        // Phase 1: `approveOverBudget` is deliberately NOT accepted any more
+        // (budgetLimit is a hard block, not an approval trigger — there was
+        // nothing to enforce). Sent here on purpose to prove it is dropped
+        // rather than stored as a rule nothing reads.
+        approvalRules: { approveOverBudget: true, approveExternalMessages: true },
       })
       .expect(200);
     expect(patch.body.knowledgeAccess).toBe('NONE');
@@ -168,6 +172,7 @@ describeIfDb('Onboarding e2e (register profile -> wizard -> employee config)', (
     expect(get.body.knowledgeAccess).toBe('NONE');
     expect(get.body.budgetLimit).toBe(5000);
     expect(get.body.permissions).toEqual({ sendEmail: true, makePayments: false });
-    expect(get.body.approvalRules).toEqual({ approveOverBudget: true });
+    // Only the enforced flag survives; the unenforceable one is gone.
+    expect(get.body.approvalRules).toEqual({ approveExternalMessages: true });
   });
 });

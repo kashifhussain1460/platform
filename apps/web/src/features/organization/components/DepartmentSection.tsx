@@ -3,14 +3,17 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { DEPARTMENT_PRESETS } from '@vaep/types';
 import { Button } from '@/components/ui/Button';
 import {
   useCanManageOrg,
   useCreateDepartment,
-  useDeleteDepartment,
   useDepartments,
   useUpdateDepartment,
 } from '../hooks';
+import { DeleteDepartmentDialog } from './DeleteDepartmentDialog';
+import { DepartmentScopeEditor } from './DepartmentScopeEditor';
+import { formatScope } from '../labels';
 import {
   createDepartmentSchema,
   type CreateDepartmentDto,
@@ -23,17 +26,20 @@ const dangerBtnClass =
   'rounded-lg border border-app-border-strong bg-app-surface px-3.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50';
 const labelClass = 'mb-1 block text-sm font-medium text-app-ink-2';
 
-/** One department row: display + (OWNER/ADMIN) inline edit / remove. */
+/** One department row: display + (OWNER/ADMIN) inline edit / access / remove. */
 function DepartmentRow({
   dept,
+  allDepartments,
   canManage,
 }: {
   dept: DepartmentDto;
+  allDepartments: DepartmentDto[];
   canManage: boolean;
 }) {
   const update = useUpdateDepartment();
-  const del = useDeleteDepartment();
   const [editing, setEditing] = useState(false);
+  const [scoping, setScoping] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [name, setName] = useState(dept.name);
   const [description, setDescription] = useState(dept.description ?? '');
 
@@ -86,35 +92,69 @@ function DepartmentRow({
   }
 
   return (
-    <li className="flex items-center justify-between gap-3 px-4 py-3">
-      <div>
-        <div className="font-medium text-app-ink">{dept.name}</div>
-        {dept.description && (
-          <div className="text-xs text-app-ink-3">{dept.description}</div>
+    <li className="px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-app-ink">{dept.name}</span>
+            {/* The access state, always visible — not hidden behind an edit
+                click. "Sees everything" is the honest label for no scopes. */}
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                dept.scopes.length > 0
+                  ? 'bg-violet/15 text-violet'
+                  : 'bg-app-raised text-app-ink-3'
+              }`}
+            >
+              {dept.scopes.length > 0
+                ? `Limited to ${dept.scopes.map(formatScope).join(', ')}`
+                : 'Sees everything'}
+            </span>
+          </div>
+          {dept.description && (
+            <div className="mt-0.5 text-xs text-app-ink-3">{dept.description}</div>
+          )}
+          <div className="mt-0.5 text-xs text-app-ink-3">
+            {dept.memberCount} {dept.memberCount === 1 ? 'person' : 'people'}
+            {dept.teamCount > 0 &&
+              ` · ${dept.teamCount} ${dept.teamCount === 1 ? 'team' : 'teams'}`}
+          </div>
+        </div>
+        {canManage && (
+          <div className="flex shrink-0 gap-2">
+            <button type="button" className={secondaryBtnClass} onClick={() => setEditing(true)}>
+              Edit
+            </button>
+            <button
+              type="button"
+              className={secondaryBtnClass}
+              onClick={() => setScoping((v) => !v)}
+            >
+              Access
+            </button>
+            <button
+              type="button"
+              className={dangerBtnClass}
+              onClick={() => setDeleting(true)}
+            >
+              Remove
+            </button>
+          </div>
         )}
       </div>
-      {canManage && (
-        <div className="flex shrink-0 gap-2">
-          <button type="button" className={secondaryBtnClass} onClick={() => setEditing(true)}>
-            Edit
-          </button>
-          <button
-            type="button"
-            className={dangerBtnClass}
-            disabled={del.isPending}
-            onClick={() => {
-              if (
-                typeof window !== 'undefined' &&
-                !window.confirm(`Remove department "${dept.name}"?`)
-              ) {
-                return;
-              }
-              del.mutate(dept.id);
-            }}
-          >
-            Remove
-          </button>
+
+      {scoping && (
+        <div className="mt-3">
+          <DepartmentScopeEditor dept={dept} onDone={() => setScoping(false)} />
         </div>
+      )}
+
+      {deleting && (
+        <DeleteDepartmentDialog
+          dept={dept}
+          allDepartments={allDepartments}
+          onClose={() => setDeleting(false)}
+        />
       )}
     </li>
   );
@@ -148,9 +188,37 @@ export function DepartmentSection() {
 
   const rows = departments ?? [];
 
+  // Presets not already created — a one-click way to add the common ones
+  // without re-typing them. Purely a shortcut: a preset department is created
+  // exactly like a typed one, with no scopes and therefore no restrictions.
+  const missingPresets = DEPARTMENT_PRESETS.filter(
+    (p) => !rows.some((d) => d.name.toLowerCase() === p.toLowerCase()),
+  );
+
   return (
     <section className="rounded-2xl border border-app-border bg-app-surface p-5">
-      <h2 className="mb-4 text-sm font-medium text-app-ink-2">Departments</h2>
+      <h2 className="mb-1 text-sm font-medium text-app-ink-2">Departments</h2>
+      <p className="mb-4 text-xs text-app-ink-3">
+        Group your people and decide what each group can work on. A new department
+        can see everything until you limit it.
+      </p>
+
+      {canManage && missingPresets.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-app-ink-3">Quick add:</span>
+          {missingPresets.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-xs font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:opacity-50"
+              disabled={create.isPending}
+              onClick={() => create.mutate({ name: preset })}
+            >
+              + {preset}
+            </button>
+          ))}
+        </div>
+      )}
 
       {canManage && (
         <form onSubmit={onSubmit} className="mb-4 space-y-3" noValidate>
@@ -202,7 +270,12 @@ export function DepartmentSection() {
       ) : (
         <ul className="divide-y divide-app-border rounded-xl border border-app-border">
           {rows.map((d) => (
-            <DepartmentRow key={d.id} dept={d} canManage={canManage} />
+            <DepartmentRow
+              key={d.id}
+              dept={d}
+              allDepartments={rows}
+              canManage={canManage}
+            />
           ))}
         </ul>
       )}

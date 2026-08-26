@@ -7,10 +7,13 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import type { DepartmentDto } from '@vaep/types';
+import type { DepartmentDependenciesDto, DepartmentDto } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.provider';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthorizationGuard } from '../authorization/authorization.guard';
 import { RequirePermission } from '../authorization/require-permission.decorator';
@@ -53,13 +56,43 @@ export class DepartmentsController {
     return this.org.updateDepartment(companyId, id, dto);
   }
 
+  /**
+   * Who and what a delete would affect. Any member may read it — it returns
+   * counts and names inside their own tenant, which the roster already shows.
+   */
+  @Get(':id/dependencies')
+  dependencies(
+    @CurrentTenant() companyId: string,
+    @Param('id') id: string,
+  ): Promise<DepartmentDependenciesDto> {
+    return this.org.departmentDependencies(companyId, id);
+  }
+
+  /**
+   * Remove a department.
+   *
+   * Returns 409 when it still has members and the caller has not said what
+   * should happen to them — because `User.departmentId` is `onDelete: SetNull`,
+   * so an unguarded delete silently promotes every member to company-wide
+   * access.
+   *
+   * `?reassignTo=<departmentId>` moves members and teams there first (the safe
+   * path). `?force=true` accepts the widening explicitly. Both are audited,
+   * with `accessWidened` recorded either way.
+   */
   @Delete(':id')
   @RequirePermission('organization:manage')
   @HttpCode(204)
   remove(
     @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
+    @Query('reassignTo') reassignTo?: string,
+    @Query('force') force?: string,
   ): Promise<void> {
-    return this.org.removeDepartment(companyId, id);
+    return this.org.removeDepartment(companyId, id, user.userId, {
+      reassignTo: reassignTo?.trim() || null,
+      force: force === 'true',
+    });
   }
 }

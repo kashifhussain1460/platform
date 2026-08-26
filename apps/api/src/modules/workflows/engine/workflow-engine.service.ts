@@ -13,7 +13,12 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { BillingService } from '../../billing/billing.service';
 import { ApprovalRoutingService } from '../../approval-routing/approval-routing.service';
 import { NotificationsService } from '../../notifications/notifications.service';
-import { toolRequiresApproval } from '../../skills/tool-approval-policy';
+import {
+  contextHasUnresolvedValidationConcern,
+  extractValidationConcern,
+  toolRequiresApproval,
+  validationContextKey,
+} from '../../skills/tool-approval-policy';
 import { EngineModeService } from '../../workflow-runtime/engine-mode';
 import {
   WF_ADVANCE_JOB,
@@ -592,6 +597,21 @@ export class WorkflowEngine {
    * not the next one — the tool has not run yet. Re-entry finds the APPROVED
    * request below and falls through to execute exactly once.
    */
+  /**
+   * S-01 support: mirrors ApprovalGateService's identical helper for the
+   * durable runtime — see its doc comment for why this guard exists.
+   */
+  private async hasAnyGrantedApprovalThisRun(
+    companyId: string,
+    runId: string,
+  ): Promise<boolean> {
+    const approved = await this.prisma.approvalRequest.findFirst({
+      where: { companyId, workflowRunId: runId, status: 'APPROVED' },
+      select: { id: true },
+    });
+    return Boolean(approved);
+  }
+
   private async pauseIfToolNeedsApproval(
     run: RunWithWorkflow,
     companyId: string,
@@ -619,7 +639,20 @@ export class WorkflowEngine {
         })
       : null;
 
-    if (!toolRequiresApproval(employee, skillKey, tool)) {
+    // S-01: an earlier node's unresolved validation concern (low confidence /
+    // ungrounded AI draft) forces the same gate as a catalog highRisk flag —
+    // otherwise a low-confidence Support reply could reach TOOL_ACTION
+    // ungated simply because reply_to_conversation's own risk classification
+    // wasn't the reason it needed review. Guarded by
+    // hasAnyGrantedApprovalThisRun so a concern from an earlier node doesn't
+    // force a SECOND, redundant gate on a later, unrelated, non-highRisk tool
+    // once a human has already approved something in this run (e.g. an
+    // explicit APPROVAL node between the draft and this step) — see the
+    // identical guard in approval-gate.service.ts's evaluateToolAction.
+    const gatedByConcern =
+      contextHasUnresolvedValidationConcern(context) &&
+      !(await this.hasAnyGrantedApprovalThisRun(companyId, run.id));
+    if (!toolRequiresApproval(employee, skillKey, tool) && !gatedByConcern) {
       return false;
     }
 
@@ -741,6 +774,7 @@ export class WorkflowEngine {
         companyId,
         workflowId,
         runId,
+        step.id,
         node,
         context,
         dryRun,
@@ -756,6 +790,11 @@ export class WorkflowEngine {
           : '');
       if (outputKey && result.contextValue !== undefined) {
         context[outputKey] = result.contextValue;
+      }
+      // S-01: thread any validation concern into context, regardless of
+      // whether the author also set an outputKey.
+      if (extractValidationConcern(result.output)) {
+        context[validationContextKey(node.id)] = true;
       }
 
       await this.prisma.workflowStepRun.update({
@@ -1124,13 +1163,14 @@ export class WorkflowEngine {
     companyId: string,
     workflowId: string,
     runId: string,
+    stepRunId: string,
     node: WorkflowNode,
     context: Record<string, unknown>,
     dryRun: boolean,
   ): Promise<NodeResult> | NodeResult {
     return this.registry
       .get(node.type)
-      .execute({ companyId, workflowId, runId, node, context, dryRun });
+      .execute({ companyId, workflowId, runId, stepRunId, node, context, dryRun });
   }
 
   /** Coerce the persisted Json definition into a safe {nodes, edges} shape. */

@@ -7,6 +7,7 @@ import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
 import { RunFailureCard } from '@/features/runs/components/RunFailureCard';
 import { RunTimeline } from '@/features/runs/components/RunTimeline';
+import { RunCreditPanel } from '@/features/workflows/components/RunCreditPanel';
 import { RunStatusPill, formatDuration } from '@/features/runs/components/RunsTable';
 import {
   useCancelRun,
@@ -141,6 +142,10 @@ export default function RunDetailPage({
       {cancel.isError && (
         <p className="mb-4 text-sm text-sl-failed">{cancel.error.message}</p>
       )}
+
+      <div className="mb-6">
+        <RunCreditPanel run={run} />
+      </div>
 
       <h2 className="mb-3 font-display text-base font-semibold text-app-ink">
         What happened

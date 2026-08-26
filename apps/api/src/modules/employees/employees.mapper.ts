@@ -7,14 +7,17 @@ import type {
 } from '@prisma/client';
 import type {
   AiEmployeeDto,
+  ApprovalRules,
   ConversationDto,
   EmployeeFeedbackDto,
   EmployeeMemoryDto,
+  EmployeePermissions,
   KpiTargets,
   MemorySource,
   MessageDto,
   MessageMetadataDto,
 } from '@vaep/types';
+import { EMPLOYEE_PERMISSION_KEYS } from '@vaep/types';
 
 /** Prisma row → public DTO mappers (shared by the service + runtime). */
 
@@ -45,12 +48,59 @@ export function toEmployeeDto(
     knowledgeAccess: e.knowledgeAccess,
     budgetLimit: e.budgetLimit,
     monthToDateCostUsd,
-    permissions: (e.permissions as Record<string, boolean> | null) ?? null,
-    approvalRules: (e.approvalRules as Record<string, unknown> | null) ?? null,
+    maxCreditsPerExecution: e.maxCreditsPerExecution,
+    maxCreditsPerTask: e.maxCreditsPerTask,
+    // Projected through the enforced shapes rather than echoed as open
+    // records: a flag the response advertises is now a flag the runtime reads.
+    permissions: toEmployeePermissions(e.permissions),
+    approvalRules: toApprovalRules(e.approvalRules),
     goals: (e.goals as string[] | null) ?? null,
     kpiTargets: (e.kpiTargets as KpiTargets | null) ?? null,
+    archivedAt: e.archivedAt ? e.archivedAt.toISOString() : null,
     createdAt: e.createdAt.toISOString(),
   };
+}
+
+/**
+ * Narrow the stored JSON to the four ENFORCED permission keys.
+ *
+ * A total, key-by-key projection rather than a cast — a cast would happily
+ * re-publish `approveOverBudget`-style legacy junk as though it meant
+ * something, which is the exact defect this phase exists to remove (and the
+ * `cast-is-not-a-conversion` lesson from the AI Assist workspace outage).
+ */
+function toEmployeePermissions(
+  value: AiEmployee['permissions'],
+): EmployeePermissions | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const out: EmployeePermissions = {};
+  for (const key of EMPLOYEE_PERMISSION_KEYS) {
+    if (typeof raw[key] === 'boolean') out[key] = raw[key] as boolean;
+  }
+  return out;
+}
+
+/** Same treatment for approval rules: publish only what a policy actually reads. */
+function toApprovalRules(value: AiEmployee['approvalRules']): ApprovalRules | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const out: ApprovalRules = {};
+  if (typeof raw.requireApprovalForAllTools === 'boolean') {
+    out.requireApprovalForAllTools = raw.requireApprovalForAllTools;
+  }
+  if (Array.isArray(raw.requireApprovalForTools)) {
+    out.requireApprovalForTools = raw.requireApprovalForTools.filter(
+      (t): t is string => typeof t === 'string',
+    );
+  }
+  if (typeof raw.approveExternalMessages === 'boolean') {
+    out.approveExternalMessages = raw.approveExternalMessages;
+  }
+  if (raw.routing && typeof raw.routing === 'object') {
+    out.routing = raw.routing as ApprovalRules['routing'];
+  }
+  return out;
 }
 
 export function toConversationDto(c: Conversation): ConversationDto {

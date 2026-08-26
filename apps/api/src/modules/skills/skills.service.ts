@@ -44,6 +44,7 @@ import {
 import { CreditReservationService } from '../credits/credit-reservation.service';
 import { CompanyConcurrencyGuardService } from '../credits/company-concurrency-guard.service';
 import { SkillCatalog, type SkillDefinition } from './catalog';
+import { permissionDenialFor } from './employee-permission-policy';
 import {
   getProviderAdapter,
   runVerification,
@@ -314,6 +315,7 @@ export class SkillsService {
   ): Promise<InstalledSkillDto> {
     const installed = await this.findOwnedInstalled(companyId, id);
     const def = this.defFor(installed.skillKey);
+    this.assertNotSimulatedInProduction(def);
 
     // Merge with any existing (decrypted) creds, then persist only the ciphertext.
     const mergedCreds = {
@@ -560,6 +562,64 @@ export class SkillsService {
   }
 
   /**
+   * Phase 1 safety fix — a SIMULATED skill must never reach `CONNECTED`.
+   *
+   * hubspot and jira have a working OAuth authorization-code flow and no real
+   * executor. Without this a customer authorises their live account, the
+   * connector badge turns green, and every subsequent write is answered by the
+   * sandbox. The green badge is the lie; refusing the connection is the fix.
+   *
+   * Production only. In development and in the e2e suite the mock executor IS
+   * the intended backend, and blocking the connect path there would break the
+   * offline test story for no safety gain.
+   */
+  private assertNotSimulatedInProduction(def: SkillDefinition): void {
+    if (process.env.NODE_ENV !== 'production') return;
+    if (def.executionSupport !== 'SIMULATED') return;
+    throw new BadRequestException(
+      `"${def.name}" has no real integration in this build — connecting it would show ` +
+        'a live connection that cannot perform any real action. It has been left ' +
+        'disconnected on purpose. Use a skill marked as supporting real execution.',
+    );
+  }
+
+  /**
+   * Phase 1 safety fix — the acting employee's PERMISSION flags, enforced.
+   *
+   * Separate from `employeeMayUseSkill` on purpose: that is the GRANT layer
+   * ("was this skill assigned?"), this is the RESTRICTION layer ("is the
+   * capability it provides switched off for this employee?"). Both must hold.
+   *
+   * Placed at this choke point for the same reason suppression is: every path
+   * that can reach a provider — the chat ACT loop, `AI_EMPLOYEE_STEP`, a
+   * workflow `TOOL_ACTION`, the manual run endpoint — funnels through
+   * `runTool`. A rule enforced in one caller is a rule the next caller forgets.
+   *
+   * Returns the denial reason, or null when permitted. A call with no
+   * `employeeId` is out of employee scope (company-wide manual run) and has no
+   * per-employee flags to apply, exactly as with the grant check above.
+   */
+  private async employeePermissionDenial(
+    ctx: ExecutorContext,
+    skillKey: string,
+    tool: string,
+  ): Promise<string | null> {
+    if (!ctx.employeeId) return null;
+    const employee = await this.prisma.aiEmployee.findFirst({
+      where: { id: ctx.employeeId, companyId: ctx.companyId },
+      select: { permissions: true },
+    });
+    if (!employee) return null;
+    const denial = permissionDenialFor(employee.permissions, skillKey, tool);
+    if (!denial) return null;
+    this.logger.warn(
+      `permission DENY company=${ctx.companyId} employee=${ctx.employeeId} ` +
+        `tool=${skillKey}.${tool} permission=${denial.permission} capability=${denial.capability}`,
+    );
+    return denial.reason;
+  }
+
+  /**
    * Execute a tool via the SkillExecutor and WRITE a SkillExecution audit row.
    * Never throws for tool-level failures — returns a ToolCallDto with ok:false
    * so the caller (runtime or manual endpoint) can surface it.
@@ -629,6 +689,10 @@ export class SkillsService {
     );
 
     let outcome: SkillExecutionResult;
+    // Assigned inside the guard chain below (one DB read, only when the grant
+    // check has already passed) so the denial reason is available to the
+    // branch that reports it without querying twice.
+    let permissionDenied: string | null = null;
     if (suppressed) {
       outcome = {
         ok: false,
@@ -653,6 +717,23 @@ export class SkillsService {
         ok: false,
         error: `Skill "${skillKey}" is not assigned to this AI employee`,
       };
+      this.metrics.counter(
+        METRIC.skillFailureTotal,
+        'Tool calls that failed',
+        { skill: skillKey, tool, reason: 'not_assigned' },
+      );
+    } else if ((permissionDenied = await this.employeePermissionDenial(ctx, skillKey, tool))) {
+      // Phase 1 — the employee's own permission flags. Checked AFTER the grant
+      // so the message names the more specific cause, and BEFORE any executor
+      // runs so a denied capability can never produce a side effect or a
+      // fabricated success. Fails closed: `ok:false`, a real SkillExecution
+      // audit row, and zero credits (priced only in the execution branch).
+      outcome = { ok: false, error: permissionDenied };
+      this.metrics.counter(
+        METRIC.skillFailureTotal,
+        'Tool calls that failed',
+        { skill: skillKey, tool, reason: 'permission_denied' },
+      );
     } else {
       // Real/auto executors need the tenant's decrypted credentials + config +
       // connection status. The default mock leaves usesInstalledCredentials
@@ -1264,6 +1345,10 @@ export class SkillsService {
     tokens: Record<string, unknown>,
   ): Promise<void> {
     const installed = await this.findOwnedInstalled(companyId, installedSkillId);
+    // Same gate as the api_key path — hubspot and jira reach CONNECTED through
+    // HERE, not through connectSkill(), so guarding only the other door would
+    // have left the actual one open.
+    this.assertNotSimulatedInProduction(this.defFor(installed.skillKey));
     const merged = {
       ...this.readCredentials(installed.credentials),
       ...tokens,

@@ -5,7 +5,10 @@ import type { ApprovalNodeConfig, WorkflowNode } from '@vaep/types';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { ApprovalRoutingService } from '../../approval-routing/approval-routing.service';
 import { NotificationsService } from '../../notifications/notifications.service';
-import { toolRequiresApproval } from '../../skills/tool-approval-policy';
+import {
+  contextHasUnresolvedValidationConcern,
+  toolRequiresApproval,
+} from '../../skills/tool-approval-policy';
 import { resolveArgs, resolveTemplate } from './template';
 
 export type ApprovalGateDecision =
@@ -52,6 +55,27 @@ export class ApprovalGateService {
   /** APPROVAL nodes configured `autoApprove: true` skip the human gate. */
   private isAutoApprove(node: WorkflowNode): boolean {
     return node.config?.autoApprove === true;
+  }
+
+  /**
+   * S-01 support: an unresolved validation concern (§tool-approval-policy.ts)
+   * persists in run context once written — it is not tied to one node — so a
+   * LATER, unrelated TOOL_ACTION (e.g. a Slack notify after an already-approved
+   * AI_EMPLOYEE_STEP → APPROVAL → notify chain) must not be gated a SECOND time
+   * purely because an earlier node's concern is still sitting in context. Once
+   * a human has approved ANYTHING in this run, the concern is considered
+   * addressed for every node from then on (the catalog `highRisk` flag still
+   * gates independently, regardless of this).
+   */
+  private async hasAnyGrantedApprovalThisRun(
+    companyId: string,
+    runId: string,
+  ): Promise<boolean> {
+    const approved = await this.prisma.approvalRequest.findFirst({
+      where: { companyId, workflowRunId: runId, status: 'APPROVED' },
+      select: { id: true },
+    });
+    return Boolean(approved);
   }
 
   async evaluate(input: {
@@ -165,7 +189,18 @@ export class ApprovalGateService {
         })
       : null;
 
-    if (!toolRequiresApproval(employee, skillKey, tool)) {
+    // S-01: an earlier node's unresolved validation concern (low confidence /
+    // ungrounded AI draft) forces the same gate as a catalog highRisk flag —
+    // see tool-approval-policy.ts's doc comment for why this must not diverge
+    // from the legacy walk's identical check in workflow-engine.service.ts.
+    // Guarded by hasAnyGrantedApprovalThisRun so a concern from an earlier
+    // node doesn't force a SECOND, redundant gate on a later, unrelated,
+    // non-highRisk tool once a human has already approved something in this
+    // run (e.g. an explicit APPROVAL node between the draft and this step).
+    const gatedByConcern =
+      contextHasUnresolvedValidationConcern(context) &&
+      !(await this.hasAnyGrantedApprovalThisRun(companyId, runId));
+    if (!toolRequiresApproval(employee, skillKey, tool) && !gatedByConcern) {
       return { kind: 'PROCEED' };
     }
 

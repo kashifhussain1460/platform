@@ -16,8 +16,10 @@ import { LlmRouterService } from './runtime/llm-router.service';
 import { MemoryService } from './runtime/memory.service';
 import { PlannerService } from './runtime/planner.service';
 import { RetrievalService } from './runtime/retrieval.service';
+import { SensitiveScenarioService } from './runtime/sensitive-scenario.service';
 import { ToolExecutorService } from './runtime/tool-executor.service';
 import { ValidationService } from './runtime/validation.service';
+import { CreditsModule } from '../credits/credits.module';
 
 /**
  * AI Employee runtime module. Imports KnowledgeModule so RetrievalService can
@@ -41,6 +43,7 @@ import { ValidationService } from './runtime/validation.service';
     LlmModule,
     BillingModule,
     WorkflowsModule,
+    CreditsModule,
   ],
   controllers: [EmployeesController, ConversationsController, LearningController],
   providers: [
@@ -52,6 +55,7 @@ import { ValidationService } from './runtime/validation.service';
     PlannerService,
     RetrievalService,
     MemoryService,
+    SensitiveScenarioService,
     ToolExecutorService,
     ValidationService,
   ],

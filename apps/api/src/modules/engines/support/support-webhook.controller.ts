@@ -84,12 +84,11 @@ export class SupportWebhookController {
       throw new UnauthorizedException('Missing account context');
     }
 
-    // Resolve which company this claims to be from. chatwootAccountId is not
-    // declared @unique in the schema (only companyId is) — see report for a
-    // flagged follow-up to add that constraint — so this is a findFirst, not
-    // findUnique. This is a read, not a write, and is required before we can
-    // even know which secret to verify the signature against.
-    const account = await this.prisma.chatwootAccount.findFirst({
+    // Resolve which company this claims to be from. S-07: chatwootAccountId
+    // is now @unique (it is the webhook's own auth lookup key — a duplicate
+    // here would be a cross-tenant risk, not just a data-quality one), so
+    // this is a findUnique, not the findFirst it used to be.
+    const account = await this.prisma.chatwootAccount.findUnique({
       where: { chatwootAccountId },
     });
     if (!account) {
@@ -198,26 +197,29 @@ export class SupportWebhookController {
     }
 
     const contactEmail = payload.sender?.email ?? undefined;
-    const existing = await this.prisma.supportConversation.findFirst({
-      where: { companyId, chatwootConversationId },
+    // S-07: an atomic upsert, not a findFirst-then-create/update. The old
+    // check-then-act had a real TOCTOU window — two near-simultaneous first
+    // messages on a brand-new conversation could both miss the findFirst and
+    // both create, silently splitting message history. Postgres resolves the
+    // race at the constraint level (INSERT ... ON CONFLICT DO UPDATE), so
+    // whichever request loses the race is routed into the update branch by
+    // the DB itself instead of throwing.
+    const conversation = await this.prisma.supportConversation.upsert({
+      where: {
+        companyId_chatwootConversationId: { companyId, chatwootConversationId },
+      },
+      update: {
+        lastMessageAt: new Date(),
+        ...(contactEmail ? { contactEmail } : {}),
+      },
+      create: {
+        companyId,
+        chatwootAccountId: chatwootAccountRowId,
+        chatwootConversationId,
+        contactEmail,
+        lastMessageAt: new Date(),
+      },
     });
-    const conversation = existing
-      ? await this.prisma.supportConversation.update({
-          where: { id: existing.id },
-          data: {
-            lastMessageAt: new Date(),
-            ...(contactEmail ? { contactEmail } : {}),
-          },
-        })
-      : await this.prisma.supportConversation.create({
-          data: {
-            companyId,
-            chatwootAccountId: chatwootAccountRowId,
-            chatwootConversationId,
-            contactEmail,
-            lastMessageAt: new Date(),
-          },
-        });
 
     // Only an inbound customer message becomes a SupportMessage row here;
     // outbound replies are recorded where they're sent (RealSkillExecutor's

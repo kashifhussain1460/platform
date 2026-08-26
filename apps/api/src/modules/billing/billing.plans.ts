@@ -18,6 +18,9 @@ export const PLAN_CATALOG: Readonly<Record<Plan, PlanDto>> = {
       'Limited tasks per month',
       'Community support',
     ],
+    // §35.4/Master List #15 Option C: a $0 tier does not get a recurring
+    // trickle on top of its one-time signup grant (Phase 4).
+    includedCreditsPerMonth: null,
   },
   PRO: {
     plan: 'PRO',
@@ -30,6 +33,9 @@ export const PLAN_CATALOG: Readonly<Record<Plan, PlanDto>> = {
       'Basic automations',
       'Email support',
     ],
+    // FOUNDER-PENDING: illustrative — roughly the plan's own $/credit peg
+    // applied to the plan price, pending founder approval (§18/§40).
+    includedCreditsPerMonth: 4_000,
   },
   BUSINESS: {
     plan: 'BUSINESS',
@@ -43,6 +49,8 @@ export const PLAN_CATALOG: Readonly<Record<Plan, PlanDto>> = {
       'Analytics dashboard',
       'Priority support',
     ],
+    // FOUNDER-PENDING: illustrative.
+    includedCreditsPerMonth: 18_000,
   },
   ENTERPRISE: {
     plan: 'ENTERPRISE',
@@ -60,6 +68,10 @@ export const PLAN_CATALOG: Readonly<Record<Plan, PlanDto>> = {
       // it's actually built, or once a specific Enterprise deal is asking
       // for it and paying to fund building it.
     ],
+    // Enterprise's recurring allotment is its own mechanism
+    // (EnterpriseCreditAgreement, Task 7.4) — never this flat per-plan
+    // number, which is why it is null here regardless of the custom price.
+    includedCreditsPerMonth: null,
   },
 };
 
@@ -74,4 +86,21 @@ export const PLAN_LIST: readonly PlanDto[] = [
 /** Soft employee cap for a plan (null = unlimited). */
 export function maxEmployeesFor(plan: Plan): number | null {
   return PLAN_CATALOG[plan].maxEmployees;
+}
+
+const PLAN_RANK: Record<Plan, number> = {
+  STARTER: 0,
+  PRO: 1,
+  BUSINESS: 2,
+  ENTERPRISE: 3,
+};
+
+/**
+ * The single canonical plan-tier comparison — kill-critic gap fix (2026-08-20):
+ * `workflow-templates.service.ts` previously kept its own copy of this exact
+ * table (`PLAN_RANK`) rather than importing from here, the source of truth
+ * for plan tier order.
+ */
+export function planMeetsMinimum(plan: Plan, minPlan: Plan): boolean {
+  return PLAN_RANK[plan] >= PLAN_RANK[minPlan];
 }

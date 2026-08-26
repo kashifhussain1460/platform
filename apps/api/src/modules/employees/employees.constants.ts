@@ -28,6 +28,21 @@ export const MAX_ACT_ITERATIONS = 3;
 /** How many recent conversation messages the MemoryService loads for context. */
 export const RECENT_MESSAGE_LIMIT = 10;
 
+/**
+ * Credit system Phase 3, Task 3.3 — the pessimistic upper bound a chat
+ * turn's RESERVATION is priced against (§28.2.5: "not a flat placeholder").
+ * No tokenizer exists in this codebase to size the actual system prompt +
+ * retrieved knowledge + memory + tool-result echoes, so this is a generous,
+ * documented approximation rather than an exact count — safe because it
+ * only affects how much is HELD during the turn (never released above the
+ * true actual cost) and this phase never blocks on it (shadow mode).
+ * `COMPLETION` mirrors both real `LlmProvider`s' own `DEFAULT_MAX_TOKENS`
+ * (4096), scaled by the worst case of `MAX_ACT_ITERATIONS` tool-calling
+ * completions plus one final safety-net completion.
+ */
+export const CHAT_TURN_PROMPT_TOKEN_CEILING_ESTIMATE = 8_000;
+export const CHAT_TURN_COMPLETION_TOKEN_CEILING = 4_096 * (MAX_ACT_ITERATIONS + 1);
+
 /** How many recent employee memories to recall (by recency). */
 export const RECENT_MEMORY_LIMIT = 5;
 

@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { creditLedgerEnabled } from '../../common/config/credit-config';
 import { EngineModeService } from './engine-mode';
 import { RunStateWriter } from './run-state-writer.service';
 import {
@@ -174,6 +175,26 @@ export class ReaperService {
               leaseExpiresAt: null,
             },
           });
+          // Credit system Phase 3, Task 3.6 — same transaction as the
+          // attempt's own `outcomeUnknown` flag, and BEFORE `transitionStep`
+          // below: a lease expiry means the side effect MAY have already
+          // happened, so any open reservation for this step must NOT be
+          // auto-released back to spendable balance (that would be wrong if
+          // the action actually succeeded) — it moves to `EXPIRED_UNKNOWN`
+          // for a human/finance review instead. Flipping it here, first,
+          // means `transitionStep`'s own generic resolution hook (which
+          // would otherwise RELEASE a plain FAILED step's reservation) finds
+          // nothing left `PENDING` to act on.
+          if (creditLedgerEnabled()) {
+            await tx.creditReservation.updateMany({
+              where: {
+                workflowStepRunId: attempt.stepId,
+                companyId: attempt.companyId,
+                status: 'PENDING',
+              },
+              data: { status: 'EXPIRED_UNKNOWN' },
+            });
+          }
           await this.state.transitionStep(
             {
               stepId: attempt.stepId,

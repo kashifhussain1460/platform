@@ -21,7 +21,10 @@ describe('SupportWebhookController', () => {
   function buildController() {
     const prisma = {
       chatwootAccount: {
-        findFirst: jest.fn().mockResolvedValue({
+        // S-07: the controller now calls findUnique (chatwootAccountId is
+        // @unique) — findFirst is deliberately absent from this mock so a
+        // regression back to the old, race-prone lookup fails loudly here.
+        findUnique: jest.fn().mockResolvedValue({
           id: chatwootAccountRowId,
           companyId,
           chatwootAccountId,
@@ -29,9 +32,12 @@ describe('SupportWebhookController', () => {
         }),
       },
       supportConversation: {
+        // Still used by enrichForMapping's isFirstMessage check (unchanged,
+        // documented residual — see the report's "P2 follow-up" note).
         findFirst: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue({ id: 'conv-1' }),
-        update: jest.fn().mockResolvedValue({ id: 'conv-1' }),
+        // S-07: applyPayload now does one atomic upsert instead of a
+        // findFirst-then-create/update.
+        upsert: jest.fn().mockResolvedValue({ id: 'conv-1' }),
       },
       supportMessage: {
         create: jest.fn().mockResolvedValue({ id: 'msg-1' }),
@@ -40,9 +46,13 @@ describe('SupportWebhookController', () => {
     const crypto = {
       decrypt: jest.fn((env: string) => env.replace('encrypted(', '').replace(')', '')),
     } as unknown as CryptoService;
+    // Only verifyWebhookSignature (pure) is exercised here — breaker/rate
+    // limiter are never invoked, so lightweight stubs are enough.
     const chatwootClient = new ChatwootClientService(
       { get: () => undefined } as any,
       crypto,
+      {} as any,
+      {} as any,
     );
     // WAVE 3 §3.4 — the canonical pipeline stands between verification and the
     // local write. Default: not a duplicate, so existing behaviour is unchanged.
@@ -87,14 +97,13 @@ describe('SupportWebhookController', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
 
     expect(prisma.supportConversation.findFirst).not.toHaveBeenCalled();
-    expect(prisma.supportConversation.create).not.toHaveBeenCalled();
-    expect(prisma.supportConversation.update).not.toHaveBeenCalled();
+    expect(prisma.supportConversation.upsert).not.toHaveBeenCalled();
     expect(prisma.supportMessage.create).not.toHaveBeenCalled();
   });
 
   it('rejects when no ChatwootAccount matches the payload account id, before any Support* write', async () => {
     const { controller, prisma } = buildController();
-    prisma.chatwootAccount.findFirst.mockResolvedValueOnce(null);
+    prisma.chatwootAccount.findUnique.mockResolvedValueOnce(null);
     const body = JSON.stringify({ account: { id: 999 }, conversation: { id: 7 } });
     const ts = String(Math.floor(Date.now() / 1000));
     const signature = sign(body, ts);
@@ -103,7 +112,7 @@ describe('SupportWebhookController', () => {
       controller.receive(fakeReq(body), signature, ts),
     ).rejects.toBeInstanceOf(UnauthorizedException);
 
-    expect(prisma.supportConversation.create).not.toHaveBeenCalled();
+    expect(prisma.supportConversation.upsert).not.toHaveBeenCalled();
     expect(prisma.supportMessage.create).not.toHaveBeenCalled();
   });
 
@@ -114,7 +123,7 @@ describe('SupportWebhookController', () => {
     await expect(
       controller.receive(fakeReq(body), undefined, undefined),
     ).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(prisma.supportConversation.create).not.toHaveBeenCalled();
+    expect(prisma.supportConversation.upsert).not.toHaveBeenCalled();
   });
 
   it('accepts a correctly signed incoming message and creates conversation + IN message', async () => {
@@ -133,14 +142,17 @@ describe('SupportWebhookController', () => {
     const result = await controller.receive(fakeReq(body), signature, ts);
 
     expect(result).toEqual({ ok: true });
-    expect(prisma.supportConversation.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        companyId,
-        chatwootAccountId: chatwootAccountRowId,
-        chatwootConversationId: '7',
-        contactEmail: 'customer@example.com',
+    expect(prisma.supportConversation.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { companyId_chatwootConversationId: { companyId, chatwootConversationId: '7' } },
+        create: expect.objectContaining({
+          companyId,
+          chatwootAccountId: chatwootAccountRowId,
+          chatwootConversationId: '7',
+          contactEmail: 'customer@example.com',
+        }),
       }),
-    });
+    );
     expect(prisma.supportMessage.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         companyId,
@@ -166,7 +178,7 @@ describe('SupportWebhookController', () => {
     const result = await controller.receive(fakeReq(body), signature, ts);
 
     expect(result).toEqual({ ok: true });
-    expect(prisma.supportConversation.create).toHaveBeenCalled();
+    expect(prisma.supportConversation.upsert).toHaveBeenCalled();
     expect(prisma.supportMessage.create).not.toHaveBeenCalled();
   });
 
@@ -224,7 +236,7 @@ describe('SupportWebhookController', () => {
 
     // 200 so the provider stops retrying, and nothing else happens.
     expect(res).toEqual({ ok: true });
-    expect(prisma.supportConversation.create).not.toHaveBeenCalled();
+    expect(prisma.supportConversation.upsert).not.toHaveBeenCalled();
     expect(prisma.supportMessage.create).not.toHaveBeenCalled();
   });
 

@@ -368,8 +368,36 @@ export const employeeConfigSchema = z.object({
   language: z.string().max(80).optional(),
   knowledgeAccess: z.enum(['ALL', 'NONE']).optional(),
   budgetLimit: z.number().int().min(0).max(100000000).nullable().optional(),
-  permissions: z.record(z.boolean()).optional(),
-  approvalRules: z.record(z.unknown()).optional(),
+  // Credit system §20 — validate identically to `budgetLimit` (int, [0, ceiling], nullable).
+  maxCreditsPerExecution: z.number().int().min(0).max(100000000).nullable().optional(),
+  maxCreditsPerTask: z.number().int().min(0).max(100000000).nullable().optional(),
+  // Phase 1 safety fix: both were `z.record(...)` — any key at all was accepted
+  // and persisted, which is exactly how the settings panel came to write seven
+  // flags that no runtime path read. Narrowed to the keys that ARE enforced;
+  // zod's default object behaviour strips anything else, so a legacy client
+  // still sending `approveOverBudget`/`approveRefunds` no longer stores a flag
+  // that does nothing.
+  permissions: z
+    .object({
+      sendEmail: z.boolean().optional(),
+      contactCustomers: z.boolean().optional(),
+      makePayments: z.boolean().optional(),
+      accessKnowledge: z.boolean().optional(),
+    })
+    .optional(),
+  approvalRules: z
+    .object({
+      requireApprovalForAllTools: z.boolean().optional(),
+      requireApprovalForTools: z.array(z.string().min(1).max(120)).max(200).optional(),
+      approveExternalMessages: z.boolean().optional(),
+      // P3-05 routing is a nested config object owned by the approvals module;
+      // passed through untouched rather than re-declared here. `z.custom` (not
+      // `z.unknown`) so the inferred form type stays assignable to
+      // `ApprovalRules` — otherwise every consumer has to re-cast it, which is
+      // how a shape drifts.
+      routing: z.custom<ApprovalRoutingConfig>().optional(),
+    })
+    .optional(),
   // Goals + KPI targets (P1 #6). goals is a free-form checklist of objectives;
   // kpiTargets configures the actual-vs-target attainment shown in analytics.
   goals: z.array(z.string().min(1).max(200)).max(50).optional(),
@@ -419,13 +447,54 @@ export interface AiEmployeeDto {
    * this employee's UsageEvent rows) -- enforced against budgetLimit for
    * chat and workflow AI_STEP; null when budgetLimit itself is unset. */
   monthToDateCostUsd: number | null;
-  permissions: Record<string, boolean> | null;
-  approvalRules: Record<string, unknown> | null;
+  /**
+   * Credit system §20 — a per-single-execution credit ceiling, additive
+   * alongside `budgetLimit` (the existing MONTHLY dollar cap). Null =
+   * unlimited. Not yet enforced by any runtime check (Task 9.8 is the
+   * settings-field UI only); a future phase wires the actual gate.
+   */
+  maxCreditsPerExecution: number | null;
+  /** Same, scoped to one task/tool-call rather than a whole run. Null = unlimited. */
+  maxCreditsPerTask: number | null;
+  /** Capability permissions. Key absent = allowed; `false` = denied at runtime. */
+  permissions: EmployeePermissions | null;
+  approvalRules: ApprovalRules | null;
   /** Free-form list of objectives for this employee (P1 #6); null when unset. */
   goals: string[] | null;
   /** Configurable KPI targets driving analytics attainment (P1 #6); null when unset. */
   kpiTargets: KpiTargets | null;
+  /**
+   * Set when the employee was ARCHIVED via `DELETE /employees/:id` (the soft
+   * default). Mirrors `Workflow.archivedAt`: history, credentials and audit
+   * rows are retained, the employee simply leaves the active roster. Null for a
+   * live employee — including one merely PAUSED or DISABLED by hand.
+   */
+  archivedAt: string | null;
   createdAt: string;
+}
+
+/**
+ * What `DELETE /employees/:id` would destroy, returned so the caller can decide
+ * between archiving and erasing. Mirrors the workflow delete flow's 409 body.
+ */
+export interface EmployeeDependenciesDto {
+  employeeId: string;
+  name: string;
+  /** Per-employee skill connections — deleting the employee deletes their stored credentials. */
+  ownedConnections: number;
+  conversations: number;
+  memories: number;
+  skillGrants: number;
+  /** Historical tool-execution audit rows attributed to this employee. */
+  skillExecutions: number;
+  /** Approval requests raised by this employee (any status). */
+  approvalRequests: number;
+  /** Approval requests still awaiting a human decision — blocks a hard delete. */
+  pendingApprovals: number;
+  /** Workflows whose graph names this employee in a node config. */
+  referencingWorkflows: number;
+  /** Runs of those workflows still in flight — blocks any delete. */
+  inFlightRuns: number;
 }
 
 /** A conversation thread with one AI employee. */
@@ -435,6 +504,23 @@ export interface ConversationDto {
   employeeId: string;
   title: string | null;
   createdAt: string;
+}
+
+/** S-06: the sensitive-scenario categories `SensitiveScenarioService` detects. */
+export type SensitiveScenarioCategory =
+  | 'ACCOUNT_DELETION'
+  | 'LEGAL_THREAT'
+  | 'SECURITY_INCIDENT'
+  | 'PII_EXPOSURE'
+  | 'IDENTITY_VERIFICATION'
+  | 'REFUND'
+  | 'HUMAN_REQUESTED'
+  | 'HIGH_RISK_SENTIMENT';
+
+/** A detected sensitive scenario — which category, and how it was matched. */
+export interface SensitiveScenarioSignal {
+  category: SensitiveScenarioCategory;
+  method: 'KEYWORD' | 'SENTIMENT';
 }
 
 /** Verdict produced by the runtime ValidationService for an answer. */
@@ -491,6 +577,22 @@ export interface RunResultDto {
    * work sends the next step off with nothing.
    */
   outOfScope?: boolean;
+  /**
+   * Credit system Phase 9, Task 9.7 — the ceiling-based estimate priced at
+   * reservation time (before the completion ran), alongside the actual
+   * settled figure below. Chat is a single synchronous request/response, so
+   * the frontend never sees this before `creditsCharged` — both arrive
+   * together — but showing both is what makes the estimate-then-settle
+   * relationship honest rather than presenting one number as if it were the
+   * whole story.
+   */
+  estimatedCredits: number | null;
+  /**
+   * Actual credits settled for this turn's LLM completion. Null when the
+   * ledger is disabled/shadow-mode couldn't price the call (never blocks the
+   * chat response itself).
+   */
+  creditsCharged: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -635,11 +737,22 @@ export function allowedGoalsForRoles(roles: readonly string[]): string[] {
 /** GET /onboarding/status response. */
 export interface OnboardingStatusDto {
   completed: boolean;
-  /** Resumable step marker: NOT_STARTED | COMPANY_SETUP | AI_EMPLOYEE_SELECTION | BUSINESS_GOALS | COMPLETED. */
+  /** Resumable step marker: NOT_STARTED | COMPANY_SETUP | AI_EMPLOYEE_SELECTION | BUSINESS_GOALS | DEPARTMENTS | COMPLETED. */
   step: string;
   company: { name: string; industry: string | null; size: string | null; website: string | null };
   selectedRoles: string[];
   goals: string[];
+  /**
+   * The department names ALREADY PERSISTED for this company — read back from
+   * the `Department` table, not from a wizard draft.
+   *
+   * Status used to say nothing about departments while the wizard sent
+   * `departments: []` on every signup, so "onboarding complete" was reported
+   * for companies that had no organization structure at all. Reading the real
+   * rows means the wizard can rehydrate accurately AND the status can never
+   * claim a department that does not exist.
+   */
+  departments: string[];
 }
 
 /** POST /onboarding/complete body. */
@@ -651,7 +764,15 @@ export const completeOnboardingSchema = z.object({
       description: z.string().max(2000).optional(),
     })
     .optional(),
-  departments: z.array(z.string().max(40)),
+  /**
+   * Department NAMES to create for this company.
+   *
+   * Widened from 40 to 120 chars to match `Department.name`'s own limit — the
+   * wizard now lets a company type its own names, and "Customer Success &
+   * Renewals" is a real department, not an abuse case. Blank entries are
+   * dropped server-side rather than becoming empty placeholder rows.
+   */
+  departments: z.array(z.string().max(120)),
   employees: z.array(
     z.object({
       role: z.enum([
@@ -786,6 +907,14 @@ export interface ToolDefinitionDto {
    */
   highRisk?: boolean;
   /**
+   * True when this tool has NO real executor implementation — calling it can
+   * only ever produce a sandbox result. Populated from `RealExecutionSupport`
+   * so the UI can say so before a user relies on it, and so the executor can
+   * fail closed rather than fabricate a success in a real-execution
+   * deployment.
+   */
+  simulated?: boolean;
+  /**
    * Which installed skill owns this tool, when the caller populated it (e.g.
    * SkillsService.getToolsForEmployee tags every tool with its skill). Tool
    * NAMES are only unique within one skill — two different skills can both
@@ -810,7 +939,24 @@ export interface SkillDefinitionDto {
   connection: SkillConnectionDto;
   /** Company-specific configuration fields (data-driven form). */
   configSchema: ConfigFieldDto[];
+  /**
+   * Whether this skill can actually reach its real backend.
+   *
+   * `REAL`      — every tool has a real executor implementation.
+   * `PARTIAL`   — some tools are real, others are simulated.
+   * `SIMULATED` — NO tool has a real executor. The skill can still be installed
+   *               and (for oauth skills) genuinely connected, but every call is
+   *               answered by the offline sandbox executor.
+   *
+   * Exists because hubspot/jira/github/stripe had real OAuth and no real
+   * executor, so a customer could connect a live account, see CONNECTED, and
+   * watch every write "succeed" without anything leaving the building.
+   * Computed from `RealExecutionSupport`, not hand-maintained.
+   */
+  executionSupport: SkillExecutionSupport;
 }
+
+export type SkillExecutionSupport = 'REAL' | 'PARTIAL' | 'SIMULATED';
 
 /** A skill a company has installed (turns a catalog entry on for the tenant). */
 export interface InstalledSkillDto {
@@ -1944,6 +2090,12 @@ export interface WorkflowStepRunDto {
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+  /**
+   * Credit system Phase 9, Task 9.6 — actual credits settled for this step's
+   * one reservation. Null for a control-flow node (WAIT/CONDITION/etc, which
+   * has no reservation) and for a step still in flight.
+   */
+  creditsCharged: number | null;
 }
 
 /** A single execution of a workflow. `steps` is included when polling one run. */
@@ -1990,6 +2142,10 @@ export interface WorkflowRunDto {
   startedAt: string | null;
   finishedAt: string | null;
   createdAt: string;
+  /** Credit system Phase 8's own configured cap for this run; null = unlimited. */
+  creditLimit: number | null;
+  /** Sum of every settled step's `creditsCharged` so far this run. */
+  totalCreditsCharged: number;
   steps?: WorkflowStepRunDto[];
 }
 
@@ -2052,9 +2208,68 @@ export const APPROVAL_KINDS: readonly ApprovalKind[] = [
 export interface ApprovalRules {
   requireApprovalForAllTools?: boolean;
   requireApprovalForTools?: string[];
+  /**
+   * Phase 1 safety fix — route every EXTERNAL-ACTION tool (one that sends to a
+   * person, mutates an external system or egresses data) to a human, without
+   * having to enumerate them in `requireApprovalForTools`.
+   *
+   * This flag was already written by the Employee Settings panel ("Require
+   * approval for external messages") but no policy read it, so ticking it did
+   * nothing. It maps onto the SAME `isExternalActionTool` set the chat ACT loop
+   * already uses — no new vocabulary, no new gate.
+   */
+  approveExternalMessages?: boolean;
   /** P3-05 §8.1 — routing for TOOL-kind approvals this employee raises. */
   routing?: ApprovalRoutingConfig;
 }
+
+/**
+ * The approval-rule flags the Employee Settings panel may write.
+ *
+ * `approveOverBudget` and `approveRefunds` were REMOVED in the Phase 1 safety
+ * fix: `budgetLimit` is a hard block today (not an approval trigger) and no
+ * refund tool exists in the skill catalog, so neither had semantics that could
+ * be enforced without inventing product behaviour. They were checkboxes that
+ * wrote JSON nothing read. See `docs/status/ORLIXA_PRODUCTION_KILL_CRITIC_AUDIT.md` §7.
+ */
+export const APPROVAL_RULE_FLAG_KEYS = ['approveExternalMessages'] as const;
+export type ApprovalRuleFlagKey = (typeof APPROVAL_RULE_FLAG_KEYS)[number];
+
+/**
+ * Per-employee capability permissions (the Employee Settings "Permissions"
+ * checkboxes).
+ *
+ * SEMANTICS — deliberately three-valued, and the reason matters:
+ *   `undefined` (key absent) = ALLOWED. Every employee created before this
+ *                              existed has no permissions object, and an
+ *                              upgrade must not silently revoke live tools.
+ *   `true`                   = ALLOWED (explicitly granted).
+ *   `false`                  = DENIED. Enforced at `SkillsService.runTool`,
+ *                              the single choke point every execution path
+ *                              (chat, AI_STEP, TOOL_ACTION) goes through.
+ *
+ * Each key resolves to a set of `SkillCapability` values through
+ * `EMPLOYEE_PERMISSION_CAPABILITIES` (api-side), so a new provider for an
+ * existing capability is covered automatically.
+ */
+export interface EmployeePermissions {
+  /** Gates EMAIL_SEND. */
+  sendEmail?: boolean;
+  /** Gates the "reaches a person" capabilities: EMAIL_SEND, MESSAGING_SEND, SUPPORT_REPLY. */
+  contactCustomers?: boolean;
+  /** Gates PAYMENTS_WRITE. */
+  makePayments?: boolean;
+  /** Gates knowledge retrieval, alongside the existing `knowledgeAccess` enum. */
+  accessKnowledge?: boolean;
+}
+
+export const EMPLOYEE_PERMISSION_KEYS = [
+  'sendEmail',
+  'contactCustomers',
+  'makePayments',
+  'accessKnowledge',
+] as const;
+export type EmployeePermissionKey = (typeof EMPLOYEE_PERMISSION_KEYS)[number];
 
 /** Public shape of an approval request. */
 export interface ApprovalRequestDto {
@@ -2260,6 +2475,13 @@ export interface PlanDto {
   /** Soft cap on AI employees; null = unlimited. */
   maxEmployees: number | null;
   features: string[];
+  /**
+   * Credit system Phase 7 (Subscription Credits), Task 7.1 (§35.4/Master
+   * List #15 Option C) — recurring monthly credit allotment granted on each
+   * billing-cycle renewal. `null` = no recurring grant (STARTER: a $0 tier
+   * doesn't get a recurring trickle on top of its one-time signup grant).
+   */
+  includedCreditsPerMonth: number | null;
 }
 
 /** Public shape of a company's subscription. */
@@ -2352,7 +2574,15 @@ export interface WorkflowTemplateDto {
 /** GET /marketplace response — the unified, code-defined catalog. */
 export interface MarketplaceCatalogDto {
   employees: EmployeeTemplateDto[];
-  workflows: WorkflowTemplateDto[];
+  /**
+   * `workflows` was REMOVED in Phase 4.
+   *
+   * Two systems installed workflow templates. The DB-backed `WorkflowTemplate`
+   * (`/workflow-templates`) is authoritative — it has versioning, provenance,
+   * idempotent installs, prerequisite checks and node-vocabulary validation;
+   * this code catalog had none of them. Keeping both meant two answers to
+   * "which templates exist", which is the duplication Phase 4 §4 removes.
+   */
   /** Reuses the existing Skills catalog verbatim. */
   skills: SkillDefinitionDto[];
 }
@@ -2388,8 +2618,60 @@ export interface DepartmentDto {
    * EMPTY = unrestricted, which is the default for every department.
    */
   scopes: string[];
+  /**
+   * How many people are placed in this department right now.
+   *
+   * Carried on the list DTO rather than fetched per row: the management screen
+   * needs it for every department at once, and — more importantly — it is what
+   * makes the consequence of a delete visible BEFORE the click.
+   */
+  memberCount: number;
+  /** Teams assigned to this department (a delete unassigns them, never deletes them). */
+  teamCount: number;
   createdAt: string;
 }
+
+/**
+ * What removing a department would affect. Returned before the delete so the
+ * caller can choose deliberately, mirroring `EmployeeDependenciesDto`.
+ */
+export interface DepartmentDependenciesDto {
+  departmentId: string;
+  name: string;
+  /** Users placed here. Deleting without reassigning makes every one of them company-wide. */
+  members: Array<{ id: string; name: string; email: string; role: Role }>;
+  /** Teams pointing at this department; they survive a delete, unassigned. */
+  teams: Array<{ id: string; name: string }>;
+  /** The scopes that would stop being enforced. Empty = the department restricted nothing. */
+  scopes: string[];
+  /**
+   * True when deleting would WIDEN someone's access — i.e. the department
+   * actually restricts something and has at least one member. This is the case
+   * that must never happen silently.
+   */
+  wouldWidenAccess: boolean;
+}
+
+/**
+ * Department name presets offered by the onboarding wizard and the "add
+ * department" form.
+ *
+ * PURELY A UI CONVENIENCE. Nothing in the authorization policy reads this list:
+ * a department restricts access only through its own `scopes`, and a preset is
+ * created with none, exactly like a hand-typed one. Companies are free to
+ * ignore every entry here and type their own.
+ */
+export const DEPARTMENT_PRESETS: readonly string[] = [
+  'Sales',
+  'Marketing',
+  'HR',
+  'Recruitment',
+  'Customer Support',
+  'Finance',
+  'Engineering',
+  'Operations',
+  'Legal',
+] as const;
 
 /** A team, optionally belonging to a department (department delete → SetNull). */
 export interface TeamDto {
@@ -3454,3 +3736,298 @@ export type AssistStreamEvent =
 // module imports request schemas from here, so the re-export must come after
 // their definitions to keep the CommonJS cycle safe.
 export * from './response-schemas';
+export * from './credits';
+
+// ---------------------------------------------------------------------------
+// Product context / capability resolution (Phase 3).
+// ---------------------------------------------------------------------------
+
+/**
+ * A coherent area of the product.
+ *
+ * Deliberately coarse — one entry per place a customer can go, not per route.
+ * This is the vocabulary the resolver speaks, so it has to be small enough that
+ * a human can hold the whole mapping in their head. If it ever needs a
+ * sub-hierarchy, that is a sign relevance is being asked to do a job
+ * authorization should be doing.
+ */
+export type ProductArea =
+  | 'DASHBOARD'
+  | 'EMPLOYEES'
+  | 'SKILLS'
+  | 'KNOWLEDGE'
+  | 'WORKFLOWS'
+  | 'RUNS'
+  | 'SCHEDULES'
+  | 'APPROVALS'
+  | 'ASSIST'
+  | 'MARKETPLACE'
+  | 'INTERVIEW_SCHEDULING'
+  | 'BILLING'
+  | 'TEAM'
+  | 'ORGANIZATION'
+  | 'ADMIN_HEALTH';
+
+export const PRODUCT_AREAS: readonly ProductArea[] = [
+  'DASHBOARD',
+  'EMPLOYEES',
+  'SKILLS',
+  'KNOWLEDGE',
+  'WORKFLOWS',
+  'RUNS',
+  'SCHEDULES',
+  'APPROVALS',
+  'ASSIST',
+  'MARKETPLACE',
+  'INTERVIEW_SCHEDULING',
+  'BILLING',
+  'TEAM',
+  'ORGANIZATION',
+  'ADMIN_HEALTH',
+] as const;
+
+/**
+ * Why an area or a skill ended up in the resolved output.
+ *
+ * Carried so the answer is explainable rather than magic: a support engineer
+ * looking at "why can this customer not see Interview scheduling?" gets a
+ * reason, not a shrug. Also what makes the resolver testable — an assertion on
+ * `reason` catches a mapping that produced the right answer for the wrong
+ * cause.
+ */
+export type RelevanceReason =
+  | 'CORE'
+  | 'HIRED_EMPLOYEE'
+  | 'INDUSTRY'
+  | 'BUSINESS_GOAL'
+  | 'DEPARTMENT'
+  | 'INSTALLED_SKILL'
+  | 'NO_CONFIGURATION';
+
+/**
+ * Where each product area lives, and how the shell groups it.
+ *
+ * SHARED because both sides need it and neither owns it: the API builds
+ * `navigation` from it, and the frontend needs the same routes for the
+ * fallback it renders while `/product-context` is in flight. Two copies of a
+ * route table drift the first time a page moves — this is the whole point of
+ * `@vaep/types`.
+ *
+ * Presentation only. Nothing here decides whether an area is available; that
+ * is the resolver's job, and it can only ever produce a subset of these keys.
+ */
+export const PRODUCT_AREA_NAV: Readonly<
+  Record<
+    ProductArea,
+    { href: string; label: string; group: 'PRIMARY' | 'AUTOMATION' | 'SECONDARY' | 'ADMIN' }
+  >
+> = {
+  DASHBOARD: { href: '/dashboard', label: 'Dashboard', group: 'PRIMARY' },
+  EMPLOYEES: { href: '/employees', label: 'AI Employees', group: 'PRIMARY' },
+  SKILLS: { href: '/skills', label: 'Skills', group: 'PRIMARY' },
+  ASSIST: { href: '/assist', label: 'AI Assist', group: 'PRIMARY' },
+  KNOWLEDGE: { href: '/knowledge', label: 'Knowledge', group: 'PRIMARY' },
+  WORKFLOWS: { href: '/workflows', label: 'Workflows', group: 'AUTOMATION' },
+  RUNS: { href: '/runs', label: 'Runs', group: 'AUTOMATION' },
+  SCHEDULES: { href: '/schedules', label: 'Schedules', group: 'AUTOMATION' },
+  INTERVIEW_SCHEDULING: {
+    href: '/scheduling',
+    label: 'Interview scheduling',
+    group: 'SECONDARY',
+  },
+  MARKETPLACE: { href: '/marketplace', label: 'Marketplace', group: 'SECONDARY' },
+  APPROVALS: { href: '/approvals', label: 'Approvals', group: 'SECONDARY' },
+  BILLING: { href: '/billing', label: 'Billing', group: 'ADMIN' },
+  TEAM: { href: '/team', label: 'Team', group: 'ADMIN' },
+  ORGANIZATION: { href: '/organization', label: 'Organization', group: 'ADMIN' },
+  ADMIN_HEALTH: { href: '/admin/health', label: 'System health', group: 'ADMIN' },
+};
+
+/** One navigation entry, resolved rather than hardcoded per page. */
+export interface ResolvedNavItemDto {
+  area: ProductArea;
+  /** Route this area lives at. */
+  href: string;
+  label: string;
+  /** Grouping hint for the shell; presentation only. */
+  group: 'PRIMARY' | 'AUTOMATION' | 'SECONDARY' | 'ADMIN';
+}
+
+/** What the plan allows, resolved once instead of re-derived per page. */
+export interface EntitlementsDto {
+  plan: Plan;
+  /** Marketing feature bullets from PLAN_CATALOG. */
+  features: string[];
+  /** null = unlimited. */
+  maxEmployees: number | null;
+  /** Areas this plan does NOT include, with the tier that would unlock them. */
+  lockedAreas: Array<{ area: ProductArea; requiresPlan: Plan }>;
+}
+
+/** A skill worth installing, and the reason it is being suggested. */
+export interface RecommendedSkillDto {
+  skillKey: string;
+  name: string;
+  /** The provider-agnostic capability that makes it relevant. */
+  capability: SkillCapability;
+  reason: RelevanceReason;
+  /** Human sentence naming the specific configuration that triggered it. */
+  because: string;
+  /** REAL / PARTIAL / SIMULATED — never recommend a fake integration silently. */
+  executionSupport: SkillExecutionSupport;
+}
+
+/**
+ * How a skill stands relative to THIS company, for the discovery screen.
+ *
+ * Ordered from "most actionable" to "least". Every catalog skill gets exactly
+ * one, and none of them removes access: a skill that is merely not recommended
+ * is `AVAILABLE`, still installable, still listed.
+ */
+export type SkillStatus =
+  /** Installed and verified — real actions will reach the provider. */
+  | 'CONNECTED'
+  /** Installed but the connection is missing, degraded or revoked. */
+  | 'NEEDS_CONFIGURATION'
+  /** Not installed, and this company's configuration says it would help. */
+  | 'RECOMMENDED'
+  /** Not installed, no signal that it is needed. Fully installable. */
+  | 'AVAILABLE'
+  /** Has no real executor — installable, but every call is a sandbox result. */
+  | 'SIMULATED_ONLY';
+
+/** One catalog skill, categorised for the discovery screen. */
+export interface SkillStatusDto {
+  skillKey: string;
+  name: string;
+  status: SkillStatus;
+  /** Present for RECOMMENDED — the configuration that triggered it. */
+  because: string | null;
+  /** Present for NEEDS_CONFIGURATION — the raw connector state. */
+  connectionStatus: string | null;
+  executionSupport: SkillExecutionSupport;
+}
+
+/**
+ * A dashboard widget the company's configuration makes worth rendering.
+ *
+ * `kind` is the STABLE identifier the frontend switches on; everything else is
+ * data. Adding a widget is a new `kind` plus one aggregate query, not a new
+ * dashboard page.
+ */
+export type DashboardWidgetKind =
+  | 'COMPANY_SUMMARY'
+  | 'HR_ACTIVITY'
+  | 'MARKETING_ACTIVITY'
+  | 'SUPPORT_ACTIVITY'
+  | 'APPROVALS';
+
+/**
+ * One number on a widget, with the route that explains it.
+ *
+ * `href` is what stops a dashboard being a wall of dead figures — every metric
+ * links to the screen it came from.
+ */
+export interface WidgetMetricDto {
+  label: string;
+  value: number;
+  href: string | null;
+  /** True when this metric is the one asking for attention (pending, failed…). */
+  attention?: boolean;
+}
+
+/**
+ * What to show when a widget is RELEVANT but has nothing behind it yet.
+ *
+ * The difference between "your Marketing AI Employee is ready — connect a
+ * social account" and a zero. The first is a next step; the second is a dead
+ * end that makes the product look broken on day one.
+ */
+export interface WidgetSetupHintDto {
+  message: string;
+  ctaLabel: string;
+  ctaHref: string;
+}
+
+export interface DashboardWidgetDto {
+  kind: DashboardWidgetKind;
+  title: string;
+  metrics: WidgetMetricDto[];
+  /** Present only when the widget has no data AND a concrete next step exists. */
+  setupHint: WidgetSetupHintDto | null;
+}
+
+/** GET /product-context/dashboard */
+export interface DashboardCompositionDto {
+  companyId: string;
+  widgets: DashboardWidgetDto[];
+}
+
+/** A first-party or tenant template the company could actually install today. */
+export interface AvailableTemplateDto {
+  id: string;
+  key: string;
+  name: string;
+  category: WorkflowCategory;
+  /** True when every `requires` prerequisite is already satisfied. */
+  ready: boolean;
+  /** What is still missing when `ready` is false. */
+  missingSkills: string[];
+  missingEmployeeRoles: EmployeeRole[];
+  requiresPlan: Plan | null;
+}
+
+/**
+ * THE resolved answer to "what is relevant and available for this company,
+ * department, user and hired AI Employees, right now?".
+ *
+ * ## Relevance is not permission
+ *
+ * Everything in here has already been filtered by all three of:
+ *   RELEVANT (does this company's configuration make it useful?)
+ *   ENTITLED (does the plan include it?)
+ *   AUTHORIZED (does the existing policy allow THIS user?)
+ *
+ * The resolver does not replace `AuthorizationService` — it calls it. A future
+ * caller must never treat presence in this payload as a substitute for the
+ * server-side check on the endpoint being called; this is what to SHOW, and
+ * the endpoint remains what ENFORCES.
+ */
+export interface ProductContextDto {
+  companyId: string;
+  /** Echoed configuration, so a caller never re-fetches to explain the answer. */
+  configuration: {
+    industry: string | null;
+    size: string | null;
+    businessGoals: string[];
+    departments: string[];
+    hiredEmployeeRoles: EmployeeRole[];
+    /** True when the company has told us essentially nothing yet. */
+    isMinimallyConfigured: boolean;
+  };
+  entitlements: EntitlementsDto;
+  /** Areas that are relevant AND entitled AND authorized for this user. */
+  productAreas: ProductArea[];
+  /** Why each area is present — same keys as `productAreas`. */
+  areaReasons: Record<string, RelevanceReason>;
+  navigation: ResolvedNavItemDto[];
+  /**
+   * Dashboard sections worth rendering. A superset key per hired employee role
+   * plus the always-on company summary; Phase 4 consumes this.
+   */
+  dashboardCapabilities: string[];
+  /** Installed skill keys that match this company's configuration. */
+  relevantSkills: string[];
+  recommendedSkills: RecommendedSkillDto[];
+  /**
+   * EVERY catalog skill, categorised. Superset of `recommendedSkills`.
+   *
+   * Deliberately exhaustive: the skills screen must keep offering a skill the
+   * company can legitimately use even when nothing about their configuration
+   * suggests it. Relevance sorts the list; it never shortens it.
+   */
+  skillStatuses: SkillStatusDto[];
+  availableWorkflowTemplates: AvailableTemplateDto[];
+  /** AI Employee ids this user may see AND that match their department scope. */
+  relevantEmployeeIds: string[];
+}

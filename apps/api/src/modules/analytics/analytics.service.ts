@@ -9,6 +9,7 @@ import type {
   OverviewDto,
 } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AuthorizationService } from '../authorization/authorization.service';
 import {
   HOURLY_RATE_USD,
   hoursSavedFor,
@@ -23,21 +24,129 @@ interface ToolCounts {
 }
 
 /**
+ * The set of resources one caller may see, resolved once per request.
+ *
+ * `null` on either axis means "unrestricted" — an OWNER, or a member whose
+ * department declares no scopes. That is deliberately distinct from an empty
+ * array, which means "restricted, and nothing matches"; conflating the two is
+ * how a scoping bug turns into a data leak.
+ */
+interface AnalyticsScope {
+  employeeIds: string[] | null;
+  workflowIds: string[] | null;
+}
+
+/**
  * Read-only KPI aggregation over EXISTING data. Every query is scoped by
  * companyId (from the JWT). Activity-style metrics are bounded by `range` on
  * their relevant `createdAt`; current-state counts (employees, pending
  * approvals) are point-in-time. Uses Prisma count/groupBy only — never loads
  * bulk SkillExecution/Message rows. No models are written.
+ *
+ * ## Phase 1 — authorization
+ *
+ * This controller had `@UseGuards(JwtAuthGuard)` and nothing else, so any
+ * MEMBER could read KPI rows for EVERY AI employee in the company — including
+ * ones the same user was correctly denied by `GET /employees`, which has
+ * applied `authz.filter(actor, 'employee:read', …)` since WAVE 2. Two
+ * endpoints, the same data, different answers: exactly the "list endpoint
+ * leaks what the detail endpoint denies" failure `AuthorizationService` was
+ * written to prevent.
+ *
+ * It now resolves the caller's visible employees (via `employee:read`, scoped
+ * on `AiEmployee.role`) and visible workflows (via `workflow:read`, scoped on
+ * `Workflow.category`) through the SAME policy, and every aggregate is bounded
+ * by those sets. No second role model, no duplicated rules.
  */
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly authz: AuthorizationService,
+  ) {}
+
+  /**
+   * Resolve what this caller may see.
+   *
+   * `actorUserId` absent = a machine caller already authorized at its own entry
+   * point, matching `EmployeesService`/`WorkflowsService`'s convention.
+   */
+  private async scopeFor(
+    companyId: string,
+    actorUserId: string | undefined,
+  ): Promise<AnalyticsScope> {
+    const actor = await this.authz.actorById(companyId, actorUserId);
+    if (!actor) return { employeeIds: null, workflowIds: null };
+
+    const [employees, workflows] = await Promise.all([
+      this.prisma.aiEmployee.findMany({
+        where: { companyId },
+        select: { id: true, role: true },
+      }),
+      this.prisma.workflow.findMany({
+        where: { companyId },
+        select: { id: true, category: true },
+      }),
+    ]);
+
+    const visibleEmployees = await this.authz.filter(
+      actor,
+      'employee:read',
+      employees,
+      (e) => ({ type: 'employee', companyId, id: e.id, scope: e.role }),
+    );
+    const visibleWorkflows = await this.authz.filter(
+      actor,
+      'workflow:read',
+      workflows,
+      (w) => ({ type: 'workflow', companyId, id: w.id, scope: w.category }),
+    );
+
+    // Unrestricted callers keep `null` so their queries stay exactly as they
+    // were — no `IN (...)` clause with every id in the tenant, which would turn
+    // a cheap aggregate into a huge one as a company grows.
+    const employeeRestricted = visibleEmployees.length !== employees.length;
+    const workflowRestricted = visibleWorkflows.length !== workflows.length;
+    return {
+      employeeIds: employeeRestricted ? visibleEmployees.map((e) => e.id) : null,
+      workflowIds: workflowRestricted ? visibleWorkflows.map((w) => w.id) : null,
+    };
+  }
+
+  /** `employeeId` filter for a model that HAS the column. */
+  private employeeFilter(scope: AnalyticsScope) {
+    return scope.employeeIds === null
+      ? {}
+      : { employeeId: { in: scope.employeeIds } };
+  }
+
+  /** `workflowId` filter for WorkflowRun (which carries no employee axis). */
+  private workflowFilter(scope: AnalyticsScope) {
+    return scope.workflowIds === null
+      ? {}
+      : { workflowId: { in: scope.workflowIds } };
+  }
+
+  /** `id` filter for the AiEmployee table itself (its PK, not a foreign key). */
+  private employeeIdIn(scope: AnalyticsScope) {
+    return scope.employeeIds === null ? {} : { id: { in: scope.employeeIds } };
+  }
 
   // --- Company overview ----------------------------------------------------
 
-  async overview(companyId: string, range: AnalyticsRange): Promise<OverviewDto> {
+  async overview(
+    companyId: string,
+    range: AnalyticsRange,
+    actorUserId?: string,
+  ): Promise<OverviewDto> {
     const start = rangeStart(range);
     const createdAt = this.createdAtFilter(start);
+    const scope = await this.scopeFor(companyId, actorUserId);
+    const byEmployee = this.employeeFilter(scope);
+    const byWorkflow = this.workflowFilter(scope);
+    // Archived employees are gone from the roster (`EmployeesService.list`), so
+    // counting them here would make the tile disagree with the page.
+    const rosterWhere = { companyId, archivedAt: null, ...this.employeeIdIn(scope) };
 
     const [
       toolByStatus,
@@ -50,24 +159,33 @@ export class AnalyticsService {
     ] = await Promise.all([
       this.prisma.skillExecution.groupBy({
         by: ['status'],
-        where: { companyId, ...createdAt },
+        where: { companyId, ...createdAt, ...byEmployee },
         _count: { _all: true },
       }),
-      this.prisma.conversation.count({ where: { companyId, ...createdAt } }),
+      this.prisma.conversation.count({
+        where: { companyId, ...createdAt, ...byEmployee },
+      }),
       this.prisma.message.count({
-        where: { companyId, role: 'ASSISTANT', ...createdAt },
+        where: {
+          companyId,
+          role: 'ASSISTANT',
+          ...createdAt,
+          ...(scope.employeeIds === null
+            ? {}
+            : { conversation: { employeeId: { in: scope.employeeIds } } }),
+        },
       }),
       this.prisma.workflowRun.groupBy({
         by: ['status'],
-        where: { companyId, ...createdAt },
+        where: { companyId, ...createdAt, ...byWorkflow },
         _count: { _all: true },
       }),
       // Current-state counts (point-in-time; not range-bounded).
       this.prisma.approvalRequest.count({
-        where: { companyId, status: 'PENDING' },
+        where: { companyId, status: 'PENDING', ...byEmployee },
       }),
-      this.prisma.aiEmployee.count({ where: { companyId } }),
-      this.prisma.aiEmployee.count({ where: { companyId, status: 'ACTIVE' } }),
+      this.prisma.aiEmployee.count({ where: rosterWhere }),
+      this.prisma.aiEmployee.count({ where: { ...rosterWhere, status: 'ACTIVE' } }),
     ]);
 
     const tool = this.toolCounts(toolByStatus);
@@ -112,12 +230,15 @@ export class AnalyticsService {
   async employees(
     companyId: string,
     range: AnalyticsRange,
+    actorUserId?: string,
   ): Promise<EmployeeKpiDto[]> {
     const start = rangeStart(range);
     const createdAt = this.createdAtFilter(start);
+    const scope = await this.scopeFor(companyId, actorUserId);
+    const byEmployee = this.employeeFilter(scope);
 
     const employees = await this.prisma.aiEmployee.findMany({
-      where: { companyId },
+      where: { companyId, archivedAt: null, ...this.employeeIdIn(scope) },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
@@ -133,18 +254,23 @@ export class AnalyticsService {
       await Promise.all([
         this.prisma.skillExecution.groupBy({
           by: ['employeeId', 'status'],
-          where: { companyId, employeeId: { not: null }, ...createdAt },
+          where: { companyId, employeeId: { not: null }, ...createdAt, ...byEmployee },
           _count: { _all: true },
         }),
         this.prisma.conversation.groupBy({
           by: ['employeeId'],
-          where: { companyId, ...createdAt },
+          where: { companyId, ...createdAt, ...byEmployee },
           _count: { _all: true },
         }),
-        this.assistantMessagesByEmployee(companyId, createdAt),
+        this.assistantMessagesByEmployee(companyId, createdAt, scope),
         this.prisma.approvalRequest.groupBy({
           by: ['employeeId'],
-          where: { companyId, status: 'PENDING', employeeId: { not: null } },
+          where: {
+            companyId,
+            status: 'PENDING',
+            employeeId: { not: null },
+            ...byEmployee,
+          },
           _count: { _all: true },
         }),
       ]);
@@ -204,12 +330,15 @@ export class AnalyticsService {
   async activity(
     companyId: string,
     range: AnalyticsRange,
+    actorUserId?: string,
   ): Promise<ActivityFeedDto[]> {
     const start = rangeStart(range);
     const createdAt = this.createdAtFilter(start);
+    const scope = await this.scopeFor(companyId, actorUserId);
+    const byEmployee = this.employeeFilter(scope);
 
     const employees = await this.prisma.aiEmployee.findMany({
-      where: { companyId },
+      where: { companyId, archivedAt: null, ...this.employeeIdIn(scope) },
       orderBy: { createdAt: 'asc' },
       select: { id: true, name: true, role: true },
     });
@@ -218,10 +347,10 @@ export class AnalyticsService {
     const [toolRows, assistantByEmployee] = await Promise.all([
       this.prisma.skillExecution.groupBy({
         by: ['employeeId', 'skillKey', 'tool'],
-        where: { companyId, employeeId: { not: null }, ...createdAt },
+        where: { companyId, employeeId: { not: null }, ...createdAt, ...byEmployee },
         _count: { _all: true },
       }),
-      this.assistantMessagesByEmployee(companyId, createdAt),
+      this.assistantMessagesByEmployee(companyId, createdAt, scope),
     ]);
 
     // employeeId → [{label, count}] for skill/tool actions.
@@ -260,15 +389,24 @@ export class AnalyticsService {
   private async assistantMessagesByEmployee(
     companyId: string,
     createdAt: Record<string, unknown>,
+    scope: AnalyticsScope = { employeeIds: null, workflowIds: null },
   ): Promise<Map<string, number>> {
+    const byEmployee = this.employeeFilter(scope);
     const [byConversation, conversations] = await Promise.all([
       this.prisma.message.groupBy({
         by: ['conversationId'],
-        where: { companyId, role: 'ASSISTANT', ...createdAt },
+        where: {
+          companyId,
+          role: 'ASSISTANT',
+          ...createdAt,
+          ...(scope.employeeIds === null
+            ? {}
+            : { conversation: { employeeId: { in: scope.employeeIds } } }),
+        },
         _count: { _all: true },
       }),
       this.prisma.conversation.findMany({
-        where: { companyId },
+        where: { companyId, ...byEmployee },
         select: { id: true, employeeId: true },
       }),
     ]);

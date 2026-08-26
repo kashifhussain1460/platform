@@ -229,7 +229,7 @@ export class KnowledgeService {
     sharedOnly = false,
   ): Promise<SearchResultDto[]> {
     const k = dto.k ?? 5;
-    const [vector] = await this.embeddings.embed([dto.query]);
+    const { vectors: [vector] } = await this.embeddings.embed([dto.query]);
     const literal = toVectorLiteral(vector);
     const categoryFilter = sharedOnly
       ? Prisma.sql`AND "category" IS NULL`

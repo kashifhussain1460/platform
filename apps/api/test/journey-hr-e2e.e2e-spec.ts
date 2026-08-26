@@ -129,11 +129,25 @@ describeIfDb('Journey A — HR admin, from scratch to audited execution', () => 
       .set(bearer(token))
       .send({ skillKey: 'slack' })
       .expect(201);
+    // `connect` now runs the real slack adapter's live verification
+    // (oauth-provider-adapters-wave2 plan, Task 10) before marking a
+    // connection CONNECTED, so this placeholder bot token needs a mocked
+    // fetch standing in for Slack's `auth.test` — this test is about the
+    // workflow journey (build → run → approve → notify), not Slack OAuth
+    // verification itself. `accessToken` is the real credential field name
+    // (slackAdapter's botToken() helper); `token` was never one.
+    const realFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, team: 'Test Team', user: 'orlixa-bot' }),
+    }) as unknown as typeof fetch;
     await request(app.getHttpServer())
       .post(`/skills/installed/${installedSlack.body.id}/connect`)
       .set(bearer(token))
-      .send({ credentials: { token: 'xoxb-journey-test' } })
+      .send({ credentials: { accessToken: 'xoxb-journey-test' } })
       .expect(201);
+    global.fetch = realFetch;
 
     // 4. Validate (failure path): a cyclic graph SAVES — a half-wired graph is
     //    the normal state of one being built, and the builder autosaves — but it

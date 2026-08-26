@@ -5,6 +5,8 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { CryptoService } from '../src/common/crypto/crypto.service';
+import { ToolIdempotencyService } from '../src/common/idempotency/tool-idempotency.service';
+import { SuppressionService } from '../src/modules/engines/marketing/suppression.service';
 import { OAuthService } from '../src/modules/skills/oauth/oauth.service';
 import { SkillsService } from '../src/modules/skills/skills.service';
 import { SKILL_EXECUTOR_TOKEN } from '../src/modules/skills/executors/skill-executor';
@@ -151,10 +153,12 @@ describeIfDb('Integrations e2e (auto executor · OAuth · Stripe webhook)', () =
           chatwootClient: ChatwootClientService,
           crypto: CryptoService,
           planeClient: PlaneClientService,
+          idempotency: ToolIdempotencyService,
+          suppression: SuppressionService,
         ) => {
           const mock = new MockSkillExecutor();
           return new AutoSkillExecutor(
-            new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient),
+            new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient, idempotency, suppression),
             mock,
           );
         },
@@ -166,6 +170,8 @@ describeIfDb('Integrations e2e (auto executor · OAuth · Stripe webhook)', () =
           ChatwootClientService,
           CryptoService,
           PlaneClientService,
+          ToolIdempotencyService,
+          SuppressionService,
         ],
       })
       .compile();

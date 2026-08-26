@@ -7,13 +7,27 @@ import type {
 
 /** Prisma row → public DTO mappers for the Organization module (P1 #7). */
 
-export function toDepartmentDto(d: Department): DepartmentDto {
+/**
+ * `counts` is optional so the write paths (create/update) stay single-query.
+ * A department that was just created has no members by construction, and a
+ * rename does not change who is in it — only `listDepartments` pays for the
+ * aggregate, and it does so once for the whole list rather than per row.
+ */
+export function toDepartmentDto(
+  d: Department,
+  counts: { memberCount: number; teamCount: number } = {
+    memberCount: 0,
+    teamCount: 0,
+  },
+): DepartmentDto {
   return {
     id: d.id,
     companyId: d.companyId,
     name: d.name,
     description: d.description,
     scopes: d.scopes,
+    memberCount: counts.memberCount,
+    teamCount: counts.teamCount,
     createdAt: d.createdAt.toISOString(),
   };
 }

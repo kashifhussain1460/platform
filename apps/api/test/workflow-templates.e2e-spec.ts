@@ -122,6 +122,26 @@ describeIfDb('Workflow templates e2e — install / prereqs / idempotency (P3-02)
     hrTemplateId = hr.id;
   });
 
+  it('Gap fix: GET ?category=MARKETING returns only Marketing templates, none from HR', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/workflow-templates')
+      .query({ category: 'MARKETING' })
+      .set(bearer(ownerToken))
+      .expect(200);
+    const categories: string[] = res.body.map((t: { category: string }) => t.category);
+    expect(categories.length).toBeGreaterThanOrEqual(11);
+    expect(new Set(categories)).toEqual(new Set(['MARKETING']));
+  });
+
+  it('Gap fix: an invalid/unknown category value is ignored (falls back to unfiltered), not a 400 or empty list', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/workflow-templates')
+      .query({ category: 'not-a-real-category' })
+      .set(bearer(ownerToken))
+      .expect(200);
+    expect(res.body.length).toBeGreaterThanOrEqual(22);
+  });
+
   it('GET /:id/parameters returns the declared parameters', async () => {
     const res = await request(app.getHttpServer())
       .get(`/workflow-templates/${hrTemplateId}/parameters`)

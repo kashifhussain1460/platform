@@ -107,6 +107,31 @@ export interface NodeExecContext {
   workflowId: string;
   /** The run being executed. Present so a handler can correlate its own logs. */
   runId: string;
+  /**
+   * The `WorkflowStepRun` row for THIS execution of this node. Optional only
+   * for callers that never construct a real step row (unit tests building a
+   * minimal context by hand); both real engines always supply it.
+   *
+   * Credit-system callers (Phase 3) MUST key any per-call idempotency off
+   * this, never off `node.id` — a LOOP re-executes the same `node.id` on
+   * every iteration but opens a NEW `WorkflowStepRun` each time
+   * (`TraversalService.enqueueNode`'s `forceNewStep: true`), so keying on
+   * `node.id` would make iteration 2 collide with iteration 1's already-
+   * settled reservation and silently replay its cached output.
+   */
+  stepRunId?: string;
+  /**
+   * Phase 8 (Enforcement), Task 8.5 (§14.4's "hard prerequisite") —
+   * `sha256(runId:nodeId:attempt)`, per ATTEMPT (unlike `stepRunId`, which is
+   * per STEP and reused across retries). Only the durable engine supplies
+   * this (the legacy walker has no `WorkflowStepAttempt` concept at all).
+   * Handlers thread it to an executor ONLY when that executor declares
+   * itself idempotency-capable (`SkillExecutor.supportsIdempotencyKey`) —
+   * today, none do; this plumbing exists so the FIRST one that gains real
+   * provider-side dedup has somewhere to receive the key, rather than
+   * needing a second wiring pass later.
+   */
+  attemptIdempotencyKey?: string;
   node: WorkflowNode;
   /** The run's mutable context bag. Handlers READ this; the engine writes it. */
   context: Record<string, unknown>;

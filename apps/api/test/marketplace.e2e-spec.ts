@@ -51,24 +51,37 @@ describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', ()
     await app?.close();
   });
 
-  it('GET /marketplace returns non-empty employees, workflows and skills', async () => {
+  it('GET /marketplace returns non-empty employees and skills', async () => {
     const res = await request(app.getHttpServer())
       .get('/marketplace')
       .set(auth())
       .expect(200);
     expect(Array.isArray(res.body.employees)).toBe(true);
-    expect(Array.isArray(res.body.workflows)).toBe(true);
     expect(Array.isArray(res.body.skills)).toBe(true);
     expect(res.body.employees.length).toBeGreaterThan(0);
-    expect(res.body.workflows.length).toBeGreaterThan(0);
     expect(res.body.skills.length).toBeGreaterThan(0);
-    // Employee templates carry role + persona; workflow templates a definition.
+    // Employee templates carry role + persona.
     const emp = res.body.employees[0];
     expect(typeof emp.key).toBe('string');
     expect(typeof emp.role).toBe('string');
     expect(typeof emp.persona).toBe('string');
-    const wf = res.body.workflows[0];
-    expect(Array.isArray(wf.definition.nodes)).toBe(true);
+  });
+
+  it('no longer serves workflow templates — one authoritative system', async () => {
+    // Phase 4 §4. Two systems installed workflow templates; the DB-backed
+    // `WorkflowTemplate` at `/workflow-templates` won because it has
+    // versioning, provenance, idempotent installs, prerequisite checks and
+    // node-vocabulary validation. This shim had none of them.
+    const res = await request(app.getHttpServer())
+      .get('/marketplace')
+      .set(auth())
+      .expect(200);
+    expect(res.body.workflows).toBeUndefined();
+
+    await request(app.getHttpServer())
+      .post('/marketplace/workflows/recruiting-resume-score-schedule/install')
+      .set(auth())
+      .expect(404);
   });
 
   it('POST /marketplace/employees/:key/install hires an employee that appears in /employees', async () => {
@@ -106,40 +119,12 @@ describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', ()
     expect(res.body.role).toBe('MARKETING');
   });
 
-  it('POST /marketplace/workflows/:key/install installs a workflow that appears in /workflows', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/marketplace/workflows/recruiting-resume-score-schedule/install')
-      .set(auth())
-      .expect(201);
-    expect(res.body.id).toBeTruthy();
-    expect(res.body.definition.nodes.length).toBeGreaterThan(1);
-    expect(
-      res.body.definition.nodes.some(
-        (n: { type: string }) => n.type === 'TRIGGER',
-      ),
-    ).toBe(true);
 
-    const list = await request(app.getHttpServer())
-      .get('/workflows')
-      .set(auth())
-      .expect(200);
-    const found = list.body.find((w: { id: string }) => w.id === res.body.id);
-    expect(found).toBeTruthy();
-    expect(found.definition.nodes.length).toBeGreaterThan(1);
-    expect(
-      found.definition.nodes.some((n: { type: string }) => n.type === 'TRIGGER'),
-    ).toBe(true);
-  });
-
-  it('returns 404 for an unknown employee or workflow key', async () => {
+  it('returns 404 for an unknown employee key', async () => {
     await request(app.getHttpServer())
       .post('/marketplace/employees/does-not-exist/install')
       .set(auth())
       .send({})
-      .expect(404);
-    await request(app.getHttpServer())
-      .post('/marketplace/workflows/does-not-exist/install')
-      .set(auth())
       .expect(404);
   });
 
@@ -149,8 +134,6 @@ describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', ()
       .post('/marketplace/employees/sales-ai/install')
       .send({})
       .expect(401);
-    await request(app.getHttpServer())
-      .post('/marketplace/workflows/support-triage/install')
-      .expect(401);
+    // The workflow-install route is gone, so there is nothing left to guard.
   });
 });

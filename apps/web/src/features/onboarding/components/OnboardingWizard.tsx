@@ -4,15 +4,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { allowedGoalsForRoles } from '@vaep/types';
 import { ArrowRight, Building2, Globe, LayoutGrid, ShieldCheck, Users } from 'lucide-react';
+import { DEPARTMENT_PRESETS } from '@vaep/types';
 import { OnboardingShell } from '@/components/onboarding/OnboardingShell';
 import { IconField, ToggleCard } from '@/components/onboarding/fields';
-import { useSubscription } from '@/features/billing/hooks';
+import { useEntitlements } from '@/features/product-context/hooks';
 import { COMPANY_SIZES, INDUSTRIES } from '../labels';
 import {
   useCompleteOnboarding,
   useOnboardingStatus,
   useSaveOnboardingAiEmployees,
   useSaveOnboardingCompany,
+  useSaveOnboardingDepartments,
   useSaveOnboardingGoals,
 } from '../hooks';
 
@@ -34,29 +36,48 @@ const primaryBtn =
   'inline-flex items-center justify-center rounded-xl bg-[linear-gradient(135deg,#6a30ec_0%,#5216dd_100%)] px-8 py-3 text-sm font-semibold text-white transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60';
 
 /**
- * Minimal 3-step onboarding: Company → Choose AI Employee(s) → Business goals.
+ * Minimal 4-step onboarding:
+ *   Company → Choose AI Employee(s) → Business goals → Departments.
+ *
  * Every step persists server-side (PATCH /onboarding/*), so it resumes exactly
  * after a refresh / logout / device change. Finishing provisions the selected
  * AI Employees and hands off to AI Assist — or to the dashboard when the plan
  * does not include Assist (see `finish`).
+ *
+ * ## Why departments are a step at all
+ *
+ * They used to be sent as a literal `departments: []` on every signup, so no
+ * tenant that has ever onboarded had a single department row. Everything built
+ * on top of that structure — department-scoped authorization, DEPARTMENT
+ * approval routing, DEPARTMENT workflow permissions — was therefore inert in
+ * production, not because the code was missing but because the axis it scopes
+ * on was empty.
+ *
+ * Departments are created UNRESTRICTED (no `scopes`). That is deliberate:
+ * creating a department must never silently start denying anyone. Restricting
+ * one is an explicit, explained action in Settings → Organization.
  */
 export function OnboardingWizard() {
   const router = useRouter();
-  // Read the plan so the final step can route somewhere the user can actually use.
-  const { data: subscription } = useSubscription();
+  // Read the resolved entitlement so the final step routes somewhere the user
+  // can actually use.
+  const entitlements = useEntitlements();
   const { data: status } = useOnboardingStatus();
   const saveCompany = useSaveOnboardingCompany();
   const saveRoles = useSaveOnboardingAiEmployees();
   const saveGoals = useSaveOnboardingGoals();
+  const saveDepartments = useSaveOnboardingDepartments();
   const complete = useCompleteOnboarding();
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [name, setName] = useState('');
   const [industry, setIndustry] = useState('');
   const [size, setSize] = useState('');
   const [website, setWebsite] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
   const [goals, setGoals] = useState<string[]>([]);
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [customDepartment, setCustomDepartment] = useState('');
   const [hydrated, setHydrated] = useState(false);
 
   // Rehydrate once from the server's saved progress (resumability).
@@ -68,7 +89,18 @@ export function OnboardingWizard() {
     setWebsite(status.company.website ?? '');
     setRoles(status.selectedRoles);
     setGoals(status.goals);
-    setStep(status.step === 'BUSINESS_GOALS' ? 3 : status.step === 'AI_EMPLOYEE_SELECTION' ? 2 : 1);
+    // Departments come back as the REAL persisted rows, so a resumed wizard
+    // shows what the company actually has rather than a remembered draft.
+    setDepartments(status.departments);
+    setStep(
+      status.step === 'DEPARTMENTS'
+        ? 4
+        : status.step === 'BUSINESS_GOALS'
+          ? 3
+          : status.step === 'AI_EMPLOYEE_SELECTION'
+            ? 2
+            : 1,
+    );
     setHydrated(true);
   }, [status, hydrated]);
 
@@ -93,14 +125,32 @@ export function OnboardingWizard() {
   // 403s on its first two requests. A broken first-run experience for literally
   // every signup, invisible to API tests because none of them walk the
   // onboarding CTA into the next page. Found by driving the real browser.
-  const canUseAssist =
-    subscription?.plan === 'BUSINESS' || subscription?.plan === 'ENTERPRISE';
+  const canUseAssist = entitlements.includes('ASSIST');
+
+  const submitGoals = async () => {
+    await saveGoals.mutateAsync(goals);
+    setStep(4);
+  };
+
+  const addCustomDepartment = () => {
+    const value = customDepartment.trim().replace(/\s+/g, ' ');
+    if (!value) return;
+    // Case-insensitive, because "sales" and "Sales" are one department and the
+    // server's unique index would otherwise reject the second one.
+    if (!departments.some((d) => d.toLowerCase() === value.toLowerCase())) {
+      setDepartments([...departments, value]);
+    }
+    setCustomDepartment('');
+  };
 
   const finish = async () => {
-    await saveGoals.mutateAsync(goals);
+    // Departments are persisted by their own step so they survive a refresh,
+    // and sent again here so a company that skipped ahead still gets them.
+    // Both paths share the server's normalisation, so this cannot double-create.
+    await saveDepartments.mutateAsync(departments);
     await complete.mutateAsync({
       business: { industry, size },
-      departments: [],
+      departments,
       employees: roles.map((role) => ({ role: role as never })),
     });
     router.replace(canUseAssist ? '/assist' : '/dashboard');
@@ -220,23 +270,133 @@ export function OnboardingWizard() {
   }
 
   // ── Step 3 — Business goals ────────────────────────────────────────────────
-  const busy = saveGoals.isPending || complete.isPending;
+  if (step === 3) {
+    return (
+      <OnboardingShell
+        step={3}
+        heading="What should your AI workforce help with?"
+        subtitle="Choose any that apply — these tailor your assistant."
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {availableGoals.map((goal) => (
+              <ToggleCard key={goal} checked={goals.includes(goal)} onChange={() => toggle(goals, setGoals, goal)}>
+                <span className="text-sm text-zinc-200">{goal}</span>
+              </ToggleCard>
+            ))}
+          </div>
+          <div className="flex items-center justify-between pt-3">
+            <button type="button" className={backBtn} onClick={() => setStep(2)}>Back</button>
+            <button
+              type="button"
+              className={primaryBtn}
+              disabled={saveGoals.isPending}
+              onClick={submitGoals}
+            >
+              {saveGoals.isPending ? 'Saving…' : 'Continue'}
+            </button>
+          </div>
+        </div>
+      </OnboardingShell>
+    );
+  }
+
+  // ── Step 4 — Departments ───────────────────────────────────────────────────
+  const busy = saveDepartments.isPending || complete.isPending;
   return (
     <OnboardingShell
-      step={3}
-      heading="What should your AI workforce help with?"
-      subtitle="Choose any that apply — these tailor your assistant."
+      step={4}
+      heading="How is your company organised?"
+      subtitle="Add the teams you actually have. You can change this any time."
     >
-      <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {availableGoals.map((goal) => (
-            <ToggleCard key={goal} checked={goals.includes(goal)} onChange={() => toggle(goals, setGoals, goal)}>
-              <span className="text-sm text-zinc-200">{goal}</span>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {DEPARTMENT_PRESETS.map((preset) => (
+            <ToggleCard
+              key={preset}
+              checked={departments.some((d) => d.toLowerCase() === preset.toLowerCase())}
+              onChange={() =>
+                setDepartments(
+                  departments.some((d) => d.toLowerCase() === preset.toLowerCase())
+                    ? departments.filter((d) => d.toLowerCase() !== preset.toLowerCase())
+                    : [...departments, preset],
+                )
+              }
+            >
+              <span className="text-sm text-zinc-200">{preset}</span>
             </ToggleCard>
           ))}
         </div>
-        <div className="flex items-center justify-between pt-3">
-          <button type="button" className={backBtn} onClick={() => setStep(2)}>Back</button>
+
+        <div>
+          <label htmlFor="custom-dept" className="mb-1.5 block text-sm text-zinc-300">
+            Something else?
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="custom-dept"
+              className="field-modern"
+              placeholder="e.g. Customer Success"
+              value={customDepartment}
+              maxLength={120}
+              onChange={(e) => setCustomDepartment(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  // Otherwise Enter submits the wizard from a text box, which
+                  // finishes onboarding when the user meant "add this one".
+                  e.preventDefault();
+                  addCustomDepartment();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className={backBtn}
+              onClick={addCustomDepartment}
+              disabled={!customDepartment.trim()}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        {/* Only the ones NOT already shown as a preset chip, so a selected
+            preset does not appear twice. */}
+        {departments.filter(
+          (d) => !DEPARTMENT_PRESETS.some((p) => p.toLowerCase() === d.toLowerCase()),
+        ).length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {departments
+              .filter((d) => !DEPARTMENT_PRESETS.some((p) => p.toLowerCase() === d.toLowerCase()))
+              .map((d) => (
+                <span
+                  key={d}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/[0.12] bg-white/[0.04] px-3 py-1 text-xs text-zinc-200"
+                >
+                  {d}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${d}`}
+                    className="text-zinc-400 hover:text-white"
+                    onClick={() => setDepartments(departments.filter((x) => x !== d))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+          </div>
+        )}
+
+        {/* Say what this does and — just as importantly — what it does not do.
+            A new department restricts nobody until someone turns that on. */}
+        <p className="text-[13px] text-fg-muted">
+          Departments organise your people and your AI Employees. Everyone can still
+          see everything for now — you can limit a department to its own work later
+          in Settings → Organization.
+        </p>
+
+        <div className="flex items-center justify-between pt-1">
+          <button type="button" className={backBtn} onClick={() => setStep(3)}>Back</button>
           {/* The label names where the click actually goes. "Open assistant" on a
               STARTER plan promises a screen the customer is not entitled to. */}
           <button type="button" className={primaryBtn} disabled={busy} onClick={finish}>

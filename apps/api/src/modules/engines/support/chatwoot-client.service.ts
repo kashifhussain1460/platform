@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { CryptoService } from '../../../common/crypto/crypto.service';
-import { asFetchResponse } from '../../../common/http/fetch-response';
+import { CircuitBreakerRegistry } from '../../../common/resilience/circuit-breaker.registry';
+import { RateLimiter } from '../../../common/resilience/rate-limiter';
+import { ResilientClientBase } from '../../../common/resilience/resilient-client.base';
 import { CHATWOOT_ENV, SIGNATURE_MAX_AGE_MS } from './support.constants';
 
 export interface ProvisionedAccount {
@@ -10,6 +12,11 @@ export interface ProvisionedAccount {
   agentBotId: string;
   agentBotToken: string;
   webhookSecret: string;
+}
+
+/** C-07: one resource key PER Chatwoot account — see class doc comment. */
+function chatwootResourceKey(chatwootAccountId: string): string {
+  return `engine:chatwoot:${chatwootAccountId}`;
 }
 
 /**
@@ -24,9 +31,18 @@ export interface ProvisionedAccount {
  *    `agentBotToken`, decrypted from the DB by the caller (via CryptoService,
  *    same pattern as RealSkillExecutor reading ctx.credentials), used for all
  *    day-to-day conversation/message calls.
+ *
+ * Extends ResilientClientBase (C-07) with a PER-chatwootAccountId resource
+ * key — the mirror image of PostizClientService's single global key. Each
+ * Orlixa company has its OWN self-hosted-account-scoped Chatwoot integration
+ * (own `agentBotToken`, own real `chatwootAccountId`); a global breaker key
+ * here would let one tenant's broken/revoked credentials trip the circuit for
+ * every OTHER tenant's completely independent Chatwoot account — a
+ * cross-tenant availability bug, not a protection. No rate-limit budget is
+ * applied (Chatwoot has no documented shared cap the way Postiz does).
  */
 @Injectable()
-export class ChatwootClientService {
+export class ChatwootClientService extends ResilientClientBase {
   private readonly logger = new Logger(ChatwootClientService.name);
 
   // CryptoService is injected for parity with how this service will be wired
@@ -35,7 +51,11 @@ export class ChatwootClientService {
   constructor(
     private readonly config: ConfigService,
     private readonly crypto: CryptoService,
-  ) {}
+    breakers: CircuitBreakerRegistry,
+    rateLimiter: RateLimiter,
+  ) {
+    super(breakers, rateLimiter);
+  }
 
   private baseUrl(): string {
     const url = this.config.get<string>(CHATWOOT_ENV.BASE_URL);
@@ -92,15 +112,14 @@ export class ChatwootClientService {
     agentBotToken: string,
     content: string,
   ): Promise<{ chatwootMessageId: string }> {
-    const res = asFetchResponse(
-      await fetch(
-        `${this.baseUrl()}/api/v1/accounts/${chatwootAccountId}/conversations/${chatwootConversationId}/messages`,
-        {
-          method: 'POST',
-          headers: { api_access_token: agentBotToken, 'content-type': 'application/json' },
-          body: JSON.stringify({ content, message_type: 'outgoing' }),
-        },
-      ),
+    const res = await this.guardedFetch(
+      chatwootResourceKey(chatwootAccountId),
+      `${this.baseUrl()}/api/v1/accounts/${chatwootAccountId}/conversations/${chatwootConversationId}/messages`,
+      {
+        method: 'POST',
+        headers: { api_access_token: agentBotToken, 'content-type': 'application/json' },
+        body: JSON.stringify({ content, message_type: 'outgoing' }),
+      },
     );
     if (!res.ok) {
       const text = await res.text();

@@ -26,7 +26,7 @@ function fakeStorage() {
 }
 
 function fakeEmbeddings() {
-  return { embed: jest.fn().mockResolvedValue([[0.1, 0.2, 0.3]]) };
+  return { embed: jest.fn().mockResolvedValue({ vectors: [[0.1, 0.2, 0.3]] }) };
 }
 
 function fakeQueue() {

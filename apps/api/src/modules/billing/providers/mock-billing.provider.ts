@@ -24,6 +24,17 @@ export class MockBillingProvider implements BillingProvider {
     plan: Plan,
   ): Promise<ChangePlanResult> {
     // Immediate switch — no proration, no external subscription, no checkout.
-    return Promise.resolve({ plan, status: 'ACTIVE' });
+    // Credit system Phase 6, Task 6.2 (Q17 fix): a real stored instant, one
+    // calendar month out — never left null the way this branch used to,
+    // which made a freshly-created mock subscription's period end
+    // permanently unknown.
+    return Promise.resolve({ plan, status: 'ACTIVE', currentPeriodEnd: addOneMonth(new Date()) });
   }
+}
+
+/** One calendar month out, matching a monthly billing cycle. */
+function addOneMonth(date: Date): Date {
+  const next = new Date(date);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  return next;
 }

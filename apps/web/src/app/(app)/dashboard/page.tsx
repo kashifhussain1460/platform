@@ -17,6 +17,7 @@ import {
   formatNumber,
   formatPercent,
 } from '@/features/analytics/labels';
+import { DashboardWidgets } from '@/features/product-context/DashboardWidgets';
 import { useCurrentUser } from '@/features/auth/hooks';
 import { useSessionStore } from '@/stores/session.store';
 
@@ -116,6 +117,18 @@ export default function DashboardPage() {
           }
         />
       </section>
+
+      {/*
+        Capability-driven widgets (Phase 4 §2).
+        Which sections appear is resolved server-side from what this company
+        actually hired and configured — an HR company sees leave and onboarding
+        counts, a Marketing one sees campaigns and the publishing pipeline, and
+        neither sees the other's. The tiles above stay: they are the
+        cross-cutting company summary that applies to everyone.
+      */}
+      <div className="mb-8">
+        <DashboardWidgets />
+      </div>
 
       {/* Per-employee KPIs + activity feed */}
       <div className="grid gap-6 lg:grid-cols-5">

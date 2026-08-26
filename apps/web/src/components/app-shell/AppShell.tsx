@@ -6,6 +6,7 @@ import { X } from 'lucide-react';
 import type { UserDto } from '@vaep/types';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { CreditCriticalBanner } from './CreditCriticalBanner';
 
 /**
  * Shared dark app chrome (sidebar + topbar) for the authenticated product —
@@ -24,7 +25,6 @@ export function AppShell({
   companyName,
   user,
   pendingApprovals,
-  canManageOrg,
   onLogout,
   loggingOut,
   children,
@@ -32,7 +32,6 @@ export function AppShell({
   companyName?: string;
   user?: UserDto;
   pendingApprovals: number;
-  canManageOrg: boolean;
   onLogout: () => void;
   loggingOut: boolean;
   children: ReactNode;
@@ -67,7 +66,7 @@ export function AppShell({
        it does on the dark auth panels, and a class on the shell is what tells
        the two apart. */
     <div className="app-light font-marketing flex min-h-screen bg-app-bg">
-      <Sidebar companyName={companyName} pendingApprovals={pendingApprovals} canManageOrg={canManageOrg} />
+      <Sidebar companyName={companyName} pendingApprovals={pendingApprovals} />
 
       {navOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
@@ -86,7 +85,7 @@ export function AppShell({
             <Sidebar
               companyName={companyName}
               pendingApprovals={pendingApprovals}
-              canManageOrg={canManageOrg}
+             
               inDrawer
             />
             <button
@@ -109,6 +108,7 @@ export function AppShell({
           loggingOut={loggingOut}
           onOpenNav={() => setNavOpen(true)}
         />
+        <CreditCriticalBanner />
         <main className="flex-1 px-6 pb-12 text-app-ink sm:px-10">{children}</main>
       </div>
     </div>

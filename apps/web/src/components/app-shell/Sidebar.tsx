@@ -1,10 +1,11 @@
 'use client';
 
-import type { ElementType } from 'react';
+import type { ElementType, ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
+  BookOpen,
   Building2,
   CalendarClock,
   CheckCircle2,
@@ -20,62 +21,100 @@ import {
   Users,
 } from 'lucide-react';
 import { OrlixaMark } from '@/components/marketing-dark/OrlixaMark';
+import type { ProductArea, ResolvedNavItemDto } from '@vaep/types';
+import { PRODUCT_AREA_NAV } from '@vaep/types';
 import { useAllRuns } from '@/features/workflows/hooks';
+import { useProductContext } from '@/features/product-context/hooks';
+import { CreditBadge } from './CreditBadge';
 
 interface NavItem {
   href: string;
   label: string;
   icon: ElementType<{ className?: string }>;
-  /** Only OWNER/ADMIN can manage the organization + see system health. */
-  gated?: boolean;
   /** Renders a small "Beta" chip — set an expectation before the click. */
   beta?: boolean;
 }
 
-const NAV_PRIMARY: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/employees', label: 'AI Employees', icon: Users },
-  { href: '/skills', label: 'Skills', icon: Sparkles },
-  // Sits directly ABOVE Automation: this is where people look for "make me a new
-  // one". It does not replace the manual builder — both stay (doc 30 AD-30-09).
-  { href: '/assist', label: 'AI Assist', icon: WandSparkles, beta: true },
+/**
+ * Presentation for a resolved product area: its icon and, where the product's
+ * own wording is better than the server's, its label.
+ *
+ * This is the ONLY thing the sidebar still owns. Which areas exist, whether a
+ * company is entitled to them, and whether this user may reach them are all
+ * decided by `GET /product-context` — one answer, shared with every other
+ * surface. Before Phase 4 this file held four hardcoded arrays and its own
+ * plan rule (which it had forgotten to apply, so STARTER customers were shown
+ * an AI Assist link that answered 403).
+ *
+ * An icon is a presentation concern and genuinely belongs here. A capability
+ * decision does not.
+ */
+const AREA_PRESENTATION: Record<
+  ProductArea,
+  { icon: ElementType<{ className?: string }>; label?: string; beta?: boolean }
+> = {
+  DASHBOARD: { icon: LayoutDashboard },
+  EMPLOYEES: { icon: Users },
+  SKILLS: { icon: Sparkles },
+  ASSIST: { icon: WandSparkles, beta: true },
+  KNOWLEDGE: { icon: BookOpen },
+  WORKFLOWS: { icon: Workflow },
+  RUNS: { icon: ListChecks },
+  SCHEDULES: { icon: Timer },
+  INTERVIEW_SCHEDULING: { icon: CalendarClock },
+  MARKETPLACE: { icon: ShoppingBag },
+  APPROVALS: { icon: CheckCircle2 },
+  BILLING: { icon: CreditCard },
+  TEAM: { icon: UsersRound },
+  ORGANIZATION: { icon: Building2 },
+  ADMIN_HEALTH: { icon: Activity },
+};
+
+/** Group order + heading. `null` heading = no divider label. */
+const GROUP_ORDER: Array<{ group: ResolvedNavItemDto['group']; heading: string | null }> = [
+  { group: 'PRIMARY', heading: null },
+  { group: 'AUTOMATION', heading: 'Automation' },
+  { group: 'SECONDARY', heading: null },
+  { group: 'ADMIN', heading: null },
 ];
 
 /**
- * Automation (UX plan §22): building it, watching it run, and what runs on a
- * timer. Grouped because they are one job seen from three angles — and because
- * a "Runs" link buried under Workflows is a link nobody finds when something
- * has gone wrong.
+ * The fallback used while `/product-context` is in flight or has failed.
+ *
+ * Deliberately the CORE areas only, and deliberately not empty: a blank
+ * sidebar on a slow network reads as a broken app. It never includes a
+ * plan-gated or role-gated area, so the fallback can only ever under-offer.
  */
-const NAV_AUTOMATION: NavItem[] = [
-  { href: '/workflows', label: 'Workflows', icon: Workflow },
-  { href: '/runs', label: 'Runs', icon: ListChecks },
-  { href: '/schedules', label: 'Schedules', icon: Timer },
+const FALLBACK_AREAS: ProductArea[] = [
+  'DASHBOARD',
+  'EMPLOYEES',
+  'SKILLS',
+  'KNOWLEDGE',
+  'WORKFLOWS',
+  'RUNS',
+  'SCHEDULES',
+  'APPROVALS',
+  'MARKETPLACE',
+  'BILLING',
+  'TEAM',
 ];
 
-const NAV_SECONDARY: NavItem[] = [
-  // NOT the same thing as /schedules — this is interview slots for the HR
-  // employees. The labels have to disambiguate, because the routes nearly don't.
-  { href: '/scheduling', label: 'Interview scheduling', icon: CalendarClock },
-  { href: '/marketplace', label: 'Marketplace', icon: ShoppingBag },
-];
 
-const NAV_ADMIN: NavItem[] = [
-  { href: '/billing', label: 'Billing', icon: CreditCard },
-  { href: '/team', label: 'Team', icon: UsersRound },
-  { href: '/organization', label: 'Organization', icon: Building2, gated: true },
-  { href: '/admin/health', label: 'System health', icon: Activity, gated: true },
-];
+
+
 
 function NavLink({
   item,
   active,
   badge = 0,
+  endSlot,
 }: {
   item: NavItem;
   active: boolean;
   /** A live count (e.g. runs in flight). Hidden at zero. */
   badge?: number;
+  /** A custom trailing element (e.g. the credit badge) in place of a count. */
+  endSlot?: ReactNode;
 }) {
   const Icon = item.icon;
   return (
@@ -97,7 +136,9 @@ function NavLink({
         <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-violet px-1.5 text-[11px] font-semibold text-white">
           {badge}
         </span>
-      ) : null}
+      ) : (
+        endSlot ?? null
+      )}
     </Link>
   );
 }
@@ -106,12 +147,10 @@ function NavLink({
 export function Sidebar({
   companyName,
   pendingApprovals,
-  canManageOrg,
   inDrawer = false,
 }: {
   companyName?: string;
   pendingApprovals: number;
-  canManageOrg: boolean;
   /**
    * Rendered inside the mobile drawer, where it must be visible at every width —
    * the default instance is `hidden lg:flex` because the drawer is what serves
@@ -125,6 +164,15 @@ export function Sidebar({
   // would be permanently lit and therefore ignored.
   const { data: running } = useAllRuns({ status: 'RUNNING', limit: 20 });
   const runningRuns = running?.length ?? 0;
+
+  // Resolved server-side. Defaults to showing the item while loading or on
+  // error: a transient failure must not blank out someone's navigation.
+  // THE navigation source. Relevance ∧ entitlement ∧ authorization were all
+  // decided server-side; this component only chooses icons and grouping.
+  const { data: productContext } = useProductContext();
+  const navItems: ResolvedNavItemDto[] =
+    productContext?.navigation ??
+    FALLBACK_AREAS.map((area) => ({ area, ...PRODUCT_AREA_NAV[area] }));
 
   return (
     <aside
@@ -143,60 +191,51 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-6">
-        <div className="space-y-1">
-          {NAV_PRIMARY.map((item) => (
-            <NavLink key={item.href} item={item} active={isActive(item.href)} />
-          ))}
-        </div>
-
-        <div className="space-y-1 border-t border-white/[0.06] pt-4">
-          <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-fg-subtle">
-            Automation
-          </p>
-          {NAV_AUTOMATION.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              // `/workflows` must not light up while you're on `/runs`, and the
-              // prefix rule would do exactly that if these shared a stem.
-              active={isActive(item.href)}
-              badge={item.href === '/runs' ? runningRuns : 0}
-            />
-          ))}
-        </div>
-
-        <div className="space-y-1 border-t border-white/[0.06] pt-4">
-          {NAV_SECONDARY.map((item) => (
-            <NavLink key={item.href} item={item} active={isActive(item.href)} />
-          ))}
-        </div>
-
-        <div className="space-y-1 border-t border-white/[0.06] pt-4">
-          <Link
-            href="/approvals"
-            className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-              isActive('/approvals')
-                ? 'bg-violet/20 text-white'
-                : 'text-fg-muted hover:bg-white/[0.06] hover:text-white'
-            }`}
-          >
-            <span className="flex items-center gap-3">
-              <CheckCircle2 className="h-[18px] w-[18px] shrink-0" />
-              Approvals
-            </span>
-            {pendingApprovals > 0 && (
-              <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-violet px-1.5 text-[11px] font-semibold text-white">
-                {pendingApprovals}
-              </span>
-            )}
-          </Link>
-        </div>
-
-        <div className="space-y-1 border-t border-white/[0.06] pt-4">
-          {NAV_ADMIN.filter((item) => !item.gated || canManageOrg).map((item) => (
-            <NavLink key={item.href} item={item} active={isActive(item.href)} />
-          ))}
-        </div>
+        {GROUP_ORDER.map(({ group, heading }) => {
+          const items = navItems.filter((i) => i.group === group);
+          if (items.length === 0) return null;
+          return (
+            <div
+              key={group}
+              className={
+                group === 'PRIMARY'
+                  ? 'space-y-1'
+                  : 'space-y-1 border-t border-white/[0.06] pt-4'
+              }
+            >
+              {heading && (
+                <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-fg-subtle">
+                  {heading}
+                </p>
+              )}
+              {items.map((resolved) => {
+                const presentation = AREA_PRESENTATION[resolved.area];
+                return (
+                  <NavLink
+                    key={resolved.area}
+                    item={{
+                      href: resolved.href,
+                      label: presentation.label ?? resolved.label,
+                      icon: presentation.icon,
+                      beta: presentation.beta,
+                    }}
+                    // `/workflows` must not light up while you're on `/runs`, and
+                    // the prefix rule would do exactly that if these shared a stem.
+                    active={isActive(resolved.href)}
+                    badge={
+                      resolved.area === 'RUNS'
+                        ? runningRuns
+                        : resolved.area === 'APPROVALS'
+                          ? pendingApprovals
+                          : 0
+                    }
+                    endSlot={resolved.area === 'BILLING' ? <CreditBadge /> : undefined}
+                  />
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
     </aside>
   );

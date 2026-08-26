@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
 import { EmployeeTemplateList } from '@/features/marketplace/components/EmployeeTemplateList';
-import { WorkflowTemplateList } from '@/features/marketplace/components/WorkflowTemplateList';
 // Skills section reuses the existing Skills catalog + install flow (no duplication).
 import { SkillCatalog } from '@/features/skills/components/SkillCatalog';
 import { useSessionStore } from '@/stores/session.store';
@@ -43,7 +42,6 @@ export default function MarketplacePage() {
           <h2 className="mb-3 text-sm font-medium text-app-ink-2">
             Workflow Templates
           </h2>
-          <WorkflowTemplateList />
         </section>
 
         <section>

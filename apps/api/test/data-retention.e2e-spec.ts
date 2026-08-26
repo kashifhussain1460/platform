@@ -213,6 +213,69 @@ describeIfDb('WAVE 8 §8.3 — data retention', () => {
     expect(result.deleted.rawEvents).toBeGreaterThanOrEqual(1);
   });
 
+  // ── S-09: Support conversations/messages ────────────────────────────────
+
+  it('sweeps a RESOLVED support conversation and its messages, but leaves OPEN ones and the ChatwootAccount alone', async () => {
+    const account = await prisma.chatwootAccount.create({
+      data: {
+        companyId,
+        chatwootAccountId: `s09-${stamp}`,
+        agentBotId: '1',
+        agentBotToken: 'encrypted-placeholder',
+        webhookSecret: 'encrypted-placeholder',
+      },
+    });
+    const resolvedConvo = await prisma.supportConversation.create({
+      data: {
+        companyId,
+        chatwootAccountId: account.id,
+        chatwootConversationId: `resolved-${stamp}`,
+        contactEmail: 'customer@example.com',
+        status: 'RESOLVED',
+        lastMessageAt: ancient,
+      },
+    });
+    await prisma.supportMessage.create({
+      data: {
+        companyId,
+        conversationId: resolvedConvo.id,
+        direction: 'IN',
+        content: 'I need a refund',
+      },
+    });
+    const openConvo = await prisma.supportConversation.create({
+      data: {
+        companyId,
+        chatwootAccountId: account.id,
+        chatwootConversationId: `open-${stamp}`,
+        status: 'OPEN',
+        lastMessageAt: ancient, // equally old, but NOT resolved — must survive
+      },
+    });
+
+    const result = await retention.runForCompany(companyId, 'test-actor');
+
+    expect(result.deleted.supportConversations).toBeGreaterThanOrEqual(1);
+    expect(result.deleted.supportMessages).toBeGreaterThanOrEqual(1);
+    expect(
+      await prisma.supportConversation.findUnique({ where: { id: resolvedConvo.id } }),
+    ).toBeNull();
+    expect(
+      await prisma.supportMessage.count({ where: { conversationId: resolvedConvo.id } }),
+    ).toBe(0);
+    // Live work, not terminal — must NOT be deleted, however old.
+    expect(
+      await prisma.supportConversation.findUnique({ where: { id: openConvo.id } }),
+    ).not.toBeNull();
+    // The connector/integration row itself is never pruned by this sweep.
+    expect(
+      await prisma.chatwootAccount.findUnique({ where: { id: account.id } }),
+    ).not.toBeNull();
+
+    await prisma.supportConversation.delete({ where: { id: openConvo.id } }).catch(() => undefined);
+    await prisma.chatwootAccount.delete({ where: { id: account.id } }).catch(() => undefined);
+  });
+
   it('records the deletion in the audit trail', async () => {
     await makeOldRun('COMPLETED');
     await retention.runForCompany(companyId, 'test-actor');

@@ -18,8 +18,9 @@ export function useAppShellProps() {
 
   const user = me?.user;
   const activeCompany = company ?? me?.company;
-  // Organization (departments/teams/security policy) is an OWNER/ADMIN area.
-  const canManageOrg = user?.role === 'OWNER' || user?.role === 'ADMIN';
+  // `canManageOrg` is gone: which admin areas a user is offered is decided by
+  // the resolver (`AREA_MIN_ROLE` ∧ the real authorization policy), so the
+  // shell no longer keeps its own copy of that rule.
 
   const onLogout = async () => {
     await logout.mutateAsync();
@@ -30,7 +31,6 @@ export function useAppShellProps() {
     companyName: activeCompany?.name,
     user,
     pendingApprovals: pendingApprovals?.length ?? 0,
-    canManageOrg,
     onLogout,
     loggingOut: logout.isPending,
   };

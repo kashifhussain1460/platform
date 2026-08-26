@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, LayoutTemplate, PencilRuler, WandSparkles } from 'lucide-react';
 import { useCreateAssistSession } from '@/features/assist/hooks';
-import { useSubscription } from '@/features/billing/hooks';
+import { useEntitlements } from '@/features/product-context/hooks';
 import { useCreateWorkflow } from '../hooks';
 
 /**
@@ -23,15 +23,14 @@ export function CreateWorkflowChooser() {
   const [prompt, setPrompt] = useState('');
   const [name, setName] = useState('');
 
-  const { data: subscription } = useSubscription();
+  const entitlements = useEntitlements();
   const createSession = useCreateAssistSession();
   const createWorkflow = useCreateWorkflow();
 
   // `POST /workflows/generate` and the assist agent are plan-gated server-side.
   // Showing the card locked, rather than hiding it, is deliberate: a customer
   // who can't find the feature can't ask for it.
-  const canUseAi =
-    subscription?.plan === 'BUSINESS' || subscription?.plan === 'ENTERPRISE';
+  const canUseAi = entitlements.includes('ASSIST');
 
   const describeIt = () => {
     const text = prompt.trim();

@@ -79,11 +79,31 @@ export function EmployeeCard({ employee }: { employee: AiEmployeeDto }) {
           </button>
         )}
 
+        {/*
+          This now ARCHIVES: the employee leaves the roster, and its chat
+          history, memories, skill grants, stored connections and audit rows are
+          all kept. The label says so, because "Delete" that quietly keeps
+          everything is as misleading as "Delete" that quietly destroys it —
+          and the old behaviour really did destroy the employee's encrypted
+          per-employee credentials without saying a word.
+        */}
         <button
           type="button"
-          aria-label="Delete employee"
+          aria-label="Remove employee"
+          title="Remove from your roster. History and connections are kept."
           className="rounded-lg p-1.5 text-app-ink-3 transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={() => del.mutate(employee.id)}
+          onClick={() => {
+            if (
+              !window.confirm(
+                `Remove ${employee.name} from your roster?\n\n` +
+                  'It will stop working immediately. Its conversation history, ' +
+                  'what it has learned and its connected accounts are all kept.',
+              )
+            ) {
+              return;
+            }
+            del.mutate(employee.id);
+          }}
           disabled={isTemp || del.isPending}
         >
           <Trash2 className="h-4 w-4" />

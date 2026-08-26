@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EMBEDDING_DIM, type EmbeddingProvider } from './embedding.provider';
+import { EMBEDDING_DIM, type EmbeddingProvider, type EmbedResult } from './embedding.provider';
 
 /**
  * Opt-in OpenAI provider (`EMBEDDINGS_PROVIDER=openai`). Uses
@@ -17,20 +17,28 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
         model: string;
         input: string[];
         dimensions: number;
-      }): Promise<{ data: Array<{ embedding: number[] }> }>;
+      }): Promise<{
+        data: Array<{ embedding: number[] }>;
+        usage?: { total_tokens: number };
+      }>;
     };
   } | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
-  async embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[]): Promise<EmbedResult> {
     const client = await this.getClient();
     const res = await client.embeddings.create({
       model: 'text-embedding-3-small',
       input: texts,
       dimensions: this.dim,
     });
-    return res.data.map((d) => d.embedding);
+    return {
+      vectors: res.data.map((d) => d.embedding),
+      // Credit-system prerequisite (Task 1.4) — captured only, not yet
+      // metered. See EmbeddingUsage's doc comment.
+      usage: res.usage ? { totalTokens: res.usage.total_tokens } : undefined,
+    };
   }
 
   private async getClient() {

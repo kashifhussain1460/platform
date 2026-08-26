@@ -228,4 +228,11 @@ export const METRIC = {
   llmCostTotal: 'llm_cost_total',
   outboxBacklog: 'outbox_backlog',
   auditRelayLag: 'audit_relay_lag',
+  // Credit system Phase 3, Task 3.7 (§33).
+  creditsReservedTotal: 'credits_reserved_total',
+  creditsSettledTotal: 'credits_settled_total',
+  creditsRefundedTotal: 'credits_refunded_total',
+  creditReservationLeakDetectedTotal: 'credit_reservation_leak_detected_total',
+  // Credit system Phase 10, Task 10.3 (§25.3).
+  creditReconciliationDiscrepancyTotal: 'credit_reconciliation_discrepancy_total',
 } as const;

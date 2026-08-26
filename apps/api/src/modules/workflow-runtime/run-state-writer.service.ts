@@ -7,6 +7,9 @@ import {
   MetricsRegistry,
 } from '../../common/observability/metrics.registry';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { creditLedgerEnabled } from '../../common/config/credit-config';
+import { CreditReservationService } from '../credits/credit-reservation.service';
+import { decimalToNumber } from '../credits/credits.types';
 import type { PrismaTransaction } from './run-lock.service';
 import {
   assertRunTransition,
@@ -14,6 +17,17 @@ import {
   isTerminalRunStatus,
 } from './run-state';
 import { MAX_NODE_OUTPUT_BYTES } from './workflow-runtime.constants';
+
+/** Step statuses this hook resolves a reservation against — matches the
+ * existing `finishedAt` terminal set below exactly. RETRYING/WAITING are
+ * deliberately excluded: the step isn't done, so its reservation (keyed on
+ * this same `WorkflowStepRun.id`, reused across every attempt) must stay open. */
+const RESERVATION_RESOLVING_STATUSES = new Set([
+  'COMPLETED',
+  'FAILED',
+  'SKIPPED',
+  'COMPENSATED',
+]);
 
 /** Event types written to the outbox (doc 16 §17). */
 export type RunEventType =
@@ -90,6 +104,8 @@ export class RunStateWriter {
     // transition already goes through here by contract, so instrumenting this
     // one class covers the whole runtime without touching a single handler.
     private readonly metrics: MetricsRegistry,
+    // Credit system Phase 3, Task 3.6 — the terminal-transition resolution hook.
+    private readonly reservations: CreditReservationService,
   ) {}
 
   /**
@@ -260,6 +276,23 @@ export class RunStateWriter {
       },
     });
 
+    // Credit system Phase 3, Task 3.6 — the PRIMARY resolution path (§40.9/
+    // §28.2.5: "not an independently-timed sweep"). The normal case is a
+    // no-op: every handler that opens a workflow-tied reservation
+    // (AI_STEP/AI_EMPLOYEE_STEP/TOOL_ACTION) already settles or releases it
+    // itself before returning or throwing, so by the time the step reaches a
+    // terminal status here there is nothing left `PENDING`. This exists for
+    // the abnormal case — a worker crash between the handler's own call and
+    // this transition, or an engine-level termination the handler never got
+    // to react to — resolved in the SAME transaction as the state change so
+    // a reservation is never left dangling outside it. The reservation-leak
+    // sweep (Task 2.8) explicitly excludes `workflowStepRunId IS NOT NULL`
+    // rows for exactly this reason: this is their resolution path, not that
+    // one's.
+    if (creditLedgerEnabled() && RESERVATION_RESOLVING_STATUSES.has(input.to)) {
+      await this.resolveStepReservation(client, input);
+    }
+
     // WAVE 5 §5.3 — step duration + retry counter.
     if (input.to === 'RETRYING') {
       this.metrics.counter(
@@ -288,6 +321,55 @@ export class RunStateWriter {
 
   /** Step start times; same best-effort trade as `startedAt` above. */
   private readonly stepStartedAt = new Map<string, number>();
+
+  /**
+   * Resolve any `PENDING` `CreditReservation` tied to this step, in the same
+   * transaction as its terminal status write. Best-effort: a credit-service
+   * hiccup here must never fail the workflow step it is describing (mirrors
+   * every other shadow-mode call site in this phase).
+   */
+  private async resolveStepReservation(
+    client: PrismaTransaction | PrismaService,
+    input: TransitionStepInput,
+  ): Promise<void> {
+    try {
+      const reservation = await client.creditReservation.findFirst({
+        where: { workflowStepRunId: input.stepId, companyId: input.companyId, status: 'PENDING' },
+      });
+      if (!reservation) return;
+
+      if (input.to === 'COMPLETED') {
+        // The handler itself already settles from real usage in the normal
+        // path — reaching PENDING here means it didn't (crash/engine-level
+        // termination), so `estimatedCredits` is the safest non-negative
+        // approximation available at this generic, node-type-agnostic layer.
+        await this.reservations.settle(
+          {
+            reservationId: reservation.id,
+            companyId: input.companyId,
+            actualCredits: decimalToNumber(reservation.estimatedCredits),
+            reason: `Step ${input.stepId} completed with an unresolved reservation (resolved by transitionStep)`,
+          },
+          client as PrismaTransaction,
+        );
+      } else {
+        await this.reservations.release(
+          {
+            reservationId: reservation.id,
+            companyId: input.companyId,
+            reason: `Step ${input.stepId} reached terminal status ${input.to} with an unresolved reservation`,
+          },
+          client as PrismaTransaction,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `credit reservation resolution failed for step ${input.stepId} (shadow mode, ignored): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
 
   /**
    * WAVE 1 (gap W1-c) — merge keys into a run's context ATOMICALLY.

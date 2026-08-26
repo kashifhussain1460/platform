@@ -101,10 +101,14 @@ export function useCreateEmployee() {
         knowledgeAccess: 'ALL',
         budgetLimit: null,
         monthToDateCostUsd: null,
+        maxCreditsPerExecution: null,
+        maxCreditsPerTask: null,
         permissions: null,
         approvalRules: null,
         goals: null,
         kpiTargets: null,
+        // A brand-new employee is never archived.
+        archivedAt: null,
         createdAt: new Date().toISOString(),
       };
       qc.setQueryData<AiEmployeeDto[]>(employeeKeys.list, (old) => [

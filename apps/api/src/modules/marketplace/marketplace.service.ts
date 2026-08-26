@@ -1,35 +1,37 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type {
-  AiEmployeeDto,
-  MarketplaceCatalogDto,
-  WorkflowDto,
-} from '@vaep/types';
+import type { AiEmployeeDto, MarketplaceCatalogDto } from '@vaep/types';
 import { EmployeesService } from '../employees/employees.service';
 import { SkillsService } from '../skills/skills.service';
-import { WorkflowsService } from '../workflows/workflows.service';
 import { InstallEmployeeDto } from './dto/install-employee.dto';
 import { MarketplaceCatalog } from './marketplace.catalog';
 
 /**
- * The unified marketplace (Step 14): a code-defined catalog of installable AI
- * Employees, Workflow Templates, and Skills. There is NO new persistence —
- * installs DELEGATE to the existing tenant-scoped services (Employees /
- * Workflows / Skills). Marketplace is a leaf module: it imports the others and
- * none import it, so there is no dependency cycle.
+ * The marketplace (Step 14): a code-defined catalog of installable AI Employees
+ * plus the reused Skills catalog. There is NO new persistence — installs
+ * DELEGATE to the existing tenant-scoped services. Marketplace is a leaf
+ * module: it imports the others and none import it, so there is no cycle.
+ *
+ * Workflow templates left here in Phase 4 §4 — the DB-backed `WorkflowTemplate`
+ * at `/workflow-templates` is the one authoritative system. The
+ * `WorkflowsService` dependency went with them.
  */
 @Injectable()
 export class MarketplaceService {
   constructor(
     private readonly employees: EmployeesService,
-    private readonly workflows: WorkflowsService,
     private readonly skills: SkillsService,
   ) {}
 
-  /** The unified catalog: employees + workflows + (reused) skills. */
+  /**
+   * The catalog: hireable employee templates + the reused skills catalog.
+   *
+   * `workflows` is gone — the DB-backed `WorkflowTemplate` at
+   * `/workflow-templates` is the single authoritative template system now
+   * (Phase 4 §4). See the controller doc for why, and for what was retired.
+   */
   catalog(): MarketplaceCatalogDto {
     return {
       employees: MarketplaceCatalog.employees(),
-      workflows: MarketplaceCatalog.workflows(),
       // Reuse the existing Skills catalog verbatim (not duplicated).
       skills: this.skills.getCatalog(),
     };
@@ -52,16 +54,4 @@ export class MarketplaceService {
     });
   }
 
-  /** Install a workflow template → WorkflowsService.create. 404 if unknown. */
-  async installWorkflow(companyId: string, key: string): Promise<WorkflowDto> {
-    const template = MarketplaceCatalog.getWorkflow(key);
-    if (!template) {
-      throw new NotFoundException(`Unknown workflow template: ${key}`);
-    }
-    return this.workflows.create(companyId, {
-      name: template.name,
-      description: template.description,
-      definition: template.definition,
-    });
-  }
 }

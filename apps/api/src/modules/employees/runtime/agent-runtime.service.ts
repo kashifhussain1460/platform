@@ -312,6 +312,9 @@ export class AgentRuntimeService {
       employee.knowledgeAccess,
       RETRIEVAL_K,
       employee.role,
+      // Phase 1 — the "Access knowledge base" permission flag, ANDed with the
+      // knowledgeAccess enum inside RetrievalService.
+      employee.permissions,
     );
     const memory = await this.memory.load(
       companyId,

@@ -1,11 +1,12 @@
-import type { Metadata } from 'next';
 import Link from 'next/link';
 import { OrlixaMark } from '@/components/marketing-dark/OrlixaMark';
+import { buildMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Orlixa — Product demo',
-  description: 'How Orlixa works, in six steps.',
-};
+export const metadata = buildMetadata({
+  title: 'Product Demo — Orlixa',
+  description: 'See how Orlixa works: hire an AI Employee, connect your tools, and automate work in a workflow.',
+  path: '/demo',
+});
 
 /**
  * The recorded product-explainer video (`/how-it-works.mp4`) — the final

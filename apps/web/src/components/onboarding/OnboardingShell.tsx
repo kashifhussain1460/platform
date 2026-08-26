@@ -2,14 +2,17 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { OrlixaLockup } from '@/components/marketing-dark/OrlixaMark';
 
-const STEP_LABELS = [1, 2, 3] as const;
+/** Wizard steps: Company → AI Employees → Goals → Departments. */
+export type OnboardingStep = 1 | 2 | 3 | 4;
 
-function StepDots({ current }: { current: 1 | 2 | 3 }) {
+const STEP_LABELS = [1, 2, 3, 4] as const;
+
+function StepDots({ current }: { current: OnboardingStep }) {
   return (
     <div
       className="flex shrink-0 items-center gap-2"
       role="group"
-      aria-label={`Step ${current} of 3`}
+      aria-label={`Step ${current} of ${STEP_LABELS.length}`}
     >
       {STEP_LABELS.map((n, i) => (
         <div key={n} className="flex items-center gap-2">
@@ -33,7 +36,7 @@ function StepDots({ current }: { current: 1 | 2 | 3 }) {
 }
 
 /**
- * Shared shell for the 3-step onboarding wizard.
+ * Shared shell for the 4-step onboarding wizard.
  *
  * The left panel is a bordered, rounded card with the brand illustration as its
  * background rather than a full-bleed edge-to-edge image. That is the whole
@@ -41,7 +44,7 @@ function StepDots({ current }: { current: 1 | 2 | 3 }) {
  * shown to you, while bled to the window edge it reads as wallpaper the form
  * happens to sit on.
  *
- * One image across all three steps, on purpose. The wizard used to swap a
+ * One image across all four steps, on purpose. The wizard used to swap a
  * different SVG per step, which meant the scenery changed under you every time
  * you pressed Continue — motion that carried no information and competed with
  * the step counter, which is the thing that actually tells you where you are.
@@ -52,7 +55,7 @@ export function OnboardingShell({
   subtitle,
   children,
 }: {
-  step: 1 | 2 | 3;
+  step: OnboardingStep;
   heading: ReactNode;
   subtitle?: ReactNode;
   children: ReactNode;

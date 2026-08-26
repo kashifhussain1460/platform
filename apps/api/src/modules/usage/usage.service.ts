@@ -13,6 +13,9 @@ export interface RecordUsageParams {
   source: string;
   promptTokens: number;
   completionTokens: number;
+  /** Credit system (Phase 3, §28.3) — closes gap G11's missing run/step attribution. */
+  workflowRunId?: string | null;
+  workflowStepRunId?: string | null;
 }
 
 export interface UsageTotals {
@@ -84,6 +87,8 @@ export class UsageService {
           promptTokens: params.promptTokens,
           completionTokens: params.completionTokens,
           estimatedCostUsd: cost,
+          workflowRunId: params.workflowRunId ?? null,
+          workflowStepRunId: params.workflowStepRunId ?? null,
         },
       });
     } catch (err) {

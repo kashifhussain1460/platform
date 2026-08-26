@@ -12,7 +12,14 @@ import {
 import { toAuditLogDto } from './audit-log.mapper';
 
 /** WAVE 4 §4.2 — who acted. A null actorUserId alone cannot express this. */
-export type AuditActorType = 'USER' | 'AI_EMPLOYEE' | 'SYSTEM';
+/**
+ * `PLATFORM_OPERATOR` (Credit system Phase 10) is a real human acting
+ * OUTSIDE company auth entirely (`PlatformAdminGuard`, no `User` row) — not
+ * `SYSTEM` (unattended) and not `USER` (`actorUserId` is a bare string column
+ * with no FK, but overloading it with a PlatformOperator.id would still be
+ * misleading about which identity table it names).
+ */
+export type AuditActorType = 'USER' | 'AI_EMPLOYEE' | 'SYSTEM' | 'PLATFORM_OPERATOR';
 
 export interface RecordAuditParams {
   companyId: string;
@@ -82,9 +89,9 @@ export class AuditLogService {
    * both chain off it: the sequence unique-constraint rejects one, and a chain
    * that forked would be indistinguishable from a tampered one.
    */
-  async record(params: RecordAuditParams): Promise<void> {
+  async record(params: RecordAuditParams): Promise<string | null> {
     try {
-      await this.prisma.$transaction(async (tx) => {
+      return await this.prisma.$transaction(async (tx) => {
         // Serialise per company. `hashtext` maps the id into the int4 the
         // advisory-lock API takes; a collision between two companies costs a
         // little contention and nothing else.
@@ -127,7 +134,7 @@ export class AuditLogService {
           createdAt: new Date(),
         };
 
-        await tx.auditLog.create({
+        const created = await tx.auditLog.create({
           data: {
             ...entry,
             metadata: (entry.metadata ?? undefined) as
@@ -137,6 +144,7 @@ export class AuditLogService {
             eventHash: computeEventHash(entry, previous?.eventHash ?? null),
           },
         });
+        return created.id;
       });
     } catch (err) {
       this.logger.warn(
@@ -144,6 +152,7 @@ export class AuditLogService {
           err instanceof Error ? err.message : String(err)
         }`,
       );
+      return null;
     }
   }
 
