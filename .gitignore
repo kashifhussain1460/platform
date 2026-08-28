@@ -50,3 +50,13 @@ Thumbs.db
 # A dump is a complete copy of every tenant's data, including the encrypted
 # columns and the audit trail. It must never reach a git remote.
 infra/backup/artifacts/
+
+# Vercel CLI working directory.
+# `vercel pull` (used by .github/workflows/deploy.yml and when linking locally)
+# writes .vercel/.env.production.local — a plaintext copy of EVERY production
+# secret: DATABASE_URL, JWT secrets, ENCRYPTION_KEY, Stripe and LLM keys. It
+# must never reach a git remote.
+.vercel/
+
+.vercel
+.env*

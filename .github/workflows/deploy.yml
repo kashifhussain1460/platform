@@ -1,0 +1,325 @@
+name: Deploy
+
+# Deployment is a PIPELINE, not a side effect of pushing.
+#
+# ## Why GitHub Actions deploys instead of Vercel's git integration
+#
+# Vercel's git integration deploys the instant a commit lands; it cannot wait
+# for CI. That is fine until the thing you need gated is a database migration.
+# Making Actions the deployer is what buys the ordering guarantee:
+#
+#     tests pass -> config is valid -> schema migrated -> code deployed -> proven live
+#
+# Vercel's own auto-deploy is therefore turned OFF for both projects
+# (`git.deploymentEnabled: false` in each vercel.json). If it were left on we
+# would get two deployments per push, racing, one of them ungated.
+#
+# ## Why every step blocks
+#
+# On 2026-08-28 `platform-api` was found serving 32-day-old code. Nothing had
+# failed — the trigger had simply stopped, and no check existed that could
+# notice. Signup had been broken for a month. Each job below turns one class of
+# that silence into a red build.
+#
+# ## Required secrets
+#
+#   VERCEL_TOKEN            - account/team token with deploy rights
+#   VERCEL_ORG_ID           - team id (orlixa1)
+#   VERCEL_PROJECT_ID_API   - prj_... for platform-api
+#   VERCEL_PROJECT_ID_WEB   - prj_... for platform-web
+#   PRODUCTION_DATABASE_URL - Neon UNPOOLED/direct URL (migrations must not run
+#                             through the pooler)
+#
+# Required variables (Settings > Variables), non-secret:
+#   PRODUCTION_API_URL      - https://api.orlixa.io
+
+on:
+  push:
+    branches: [master]
+  # Manual runs matter: after fixing configuration in the Vercel dashboard you
+  # need a way to redeploy WITHOUT an empty commit.
+  workflow_dispatch:
+    inputs:
+      skip_migrations:
+        description: 'Skip migrations (only when redeploying code against an unchanged schema)'
+        type: boolean
+        default: false
+
+# One deploy at a time. Two overlapping runs could interleave `migrate deploy`
+# with a deploy of older code, leaving the schema ahead of the running build.
+# `cancel-in-progress: false` because cancelling mid-migration is worse than
+# queueing.
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '8.15.0'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate 1 — is the production CONFIG valid?
+  #
+  # Runs first because it is seconds long and catches the failure mode that
+  # actually bit us. A missing MAIL_ENABLED is a security problem; finding it
+  # after a 6-minute test suite wastes six minutes.
+  # ---------------------------------------------------------------------------
+  preflight:
+    name: Environment preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Pull production environment from Vercel
+        run: |
+          npx vercel@latest pull --yes --environment=production \
+            --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_API }}
+
+      # Checks the values production will REALLY boot with, not a copy of them
+      # kept in this repo that could drift from the dashboard.
+      #
+      # Parsed in Node rather than `set -a; . file`: shell sourcing mangles the
+      # quoted values Vercel writes (a DATABASE_URL arrives without its
+      # protocol, which then fails for a reason that has nothing to do with the
+      # real configuration).
+      #
+      # Values marked Sensitive in Vercel come back as the literal
+      # "[SENSITIVE]", so the script checks their presence and reports what it
+      # could not inspect. It does not pretend to have verified them.
+      - name: Validate configuration
+        run: |
+          node -e "
+          const fs=require('fs'),cp=require('child_process');
+          const env={...process.env};
+          for (const l of fs.readFileSync('apps/api/.vercel/.env.production.local','utf8').split(/\r?\n/)) {
+            const m=l.match(/^([A-Z0-9_]+)=(.*)\$/);
+            if (m) env[m[1]]=m[2].trim().replace(/^\"|\"\$/g,'');
+          }
+          process.exit(cp.spawnSync(process.execPath,['scripts/preflight-env.mjs'],{env,stdio:'inherit'}).status);
+          "
+
+      # The pulled file is cleartext for every non-Sensitive variable. Runners
+      # are ephemeral, but an artifact upload or a later step that tars the
+      # workspace would carry it off the machine.
+      - name: Remove pulled secrets
+        if: always()
+        run: rm -rf apps/api/.vercel
+
+  # ---------------------------------------------------------------------------
+  # Gate 2 — do the tests pass on THIS commit?
+  #
+  # api-ci/web-ci already run on push. Re-running the API suite here is
+  # deliberate: `workflow_run` coupling between workflows is easy to get wrong
+  # (it can pass on a stale run), and "the tests passed for the code we are
+  # about to deploy" is the one guarantee worth paying a few minutes for.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: vaep
+          POSTGRES_PASSWORD: vaep
+          POSTGRES_DB: vaep
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U vaep -d vaep"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6380:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://vaep:vaep@localhost:5433/vaep?schema=public
+      REDIS_URL: redis://127.0.0.1:6380
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      LLM_PROVIDER: mock
+      EMBEDDINGS_PROVIDER: hash
+      STORAGE_PROVIDER: local
+      SKILL_EXECUTOR: mock
+      BILLING_PROVIDER: mock
+      ENCRYPTION_KEY: '0000000000000000000000000000000000000000000000000000000000000000'
+      OAUTH_GOOGLE_CLIENT_ID: ''
+      OAUTH_GOOGLE_CLIENT_SECRET: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @vaep/types build
+      - name: Prisma generate + migrate (throwaway CI database)
+        working-directory: apps/api
+        run: |
+          pnpm exec prisma generate
+          pnpm exec prisma migrate deploy
+      - name: API unit tests
+        working-directory: apps/api
+        run: pnpm run test:unit
+      # The durable engine only. api-ci.yml runs the deprecated `legacy_walk`
+      # leg for visibility; it is knowingly red on approval RESUME and must not
+      # be able to block a production deploy.
+      #
+      # `--forceExit` because jest-e2e.json does not set it: Prisma and the
+      # Redis clients keep handles open after the last assertion, so the run can
+      # sit there long after it has actually passed. In a deploy pipeline that
+      # is not a slow test, it is a stuck release.
+      - name: API e2e tests
+        working-directory: apps/api
+        run: pnpm run test -- --forceExit
+      - name: Web tests
+        working-directory: apps/web
+        run: pnpm run test
+
+  # ---------------------------------------------------------------------------
+  # Gate 3 — migrations, as their own visible step.
+  #
+  # `prisma migrate deploy` used to live inside the Vercel build command. That
+  # coupling is what let a schema problem freeze CODE deployment silently: the
+  # build failed, Vercel kept serving the last good deployment, and the site
+  # looked fine. Here a migration failure stops the pipeline and says so.
+  #
+  # The `test` job has already run this exact migration set against a real
+  # Postgres, so syntax and ordering are proven before we get here. What CI
+  # cannot prove is behaviour against real DATA — a backfill that is fine on an
+  # empty database and slow or constraint-violating on a full one.
+  #
+  # That risk scales with the size of the change, so rehearsal is deliberately
+  # NOT automated here: for the ordinary one-or-two-migration deploy it would
+  # add a Neon API dependency to every release for little gain. For a large or
+  # backfilling batch, rehearse on a Neon branch first — the runbook
+  # (docs/runbooks/deployment.md, "Rehearse on a Neon branch") has the steps,
+  # and a branch is a copy-on-write clone so it costs seconds.
+  # ---------------------------------------------------------------------------
+  migrate:
+    name: Database migrations
+    needs: [preflight, test]
+    if: ${{ !inputs.skip_migrations }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @vaep/api exec prisma generate
+
+      # Print the plan before changing anything. A human reading the log should
+      # be able to see WHAT is about to be applied, not just that something was.
+      - name: Show pending migrations
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm exec prisma migrate status || true
+
+      - name: Apply migrations
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: pnpm exec prisma migrate deploy
+
+      # Drift = the live schema no longer matches the migration history, which
+      # usually means someone changed the database by hand. Worth knowing about,
+      # but not worth blocking a deploy that has already succeeded.
+      - name: Verify schema matches migration history
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        continue-on-error: true
+        run: pnpm exec prisma migrate status
+
+  # ---------------------------------------------------------------------------
+  # Deploy. Only reachable once config, tests and schema are all good.
+  # ---------------------------------------------------------------------------
+  deploy-api:
+    name: Deploy API
+    needs: [preflight, test, migrate]
+    # `always()` + explicit result checks so that skip_migrations still deploys,
+    # while a genuinely FAILED migration still blocks.
+    if: ${{ always() && needs.preflight.result == 'success' && needs.test.result == 'success' && needs.migrate.result != 'failure' && needs.migrate.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_API }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
+      - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
+      - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
+
+  deploy-web:
+    name: Deploy web
+    needs: [deploy-api]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_WEB }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
+      - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
+      - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
+
+  # ---------------------------------------------------------------------------
+  # Gate 4 — prove it. The step whose absence caused all of this.
+  #
+  # A deploy that reports success while serving old code is the exact failure we
+  # are fixing, so the pipeline does not get to call itself done until it has
+  # asked the live host whether the routes are really there.
+  # ---------------------------------------------------------------------------
+  smoke:
+    name: Smoke test production
+    needs: [deploy-api, deploy-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # A fresh serverless function can take a few seconds to accept traffic;
+      # without this the first check can fail for no real reason.
+      - name: Wait for the new deployment to serve
+        run: sleep 20
+      - name: Smoke test
+        env:
+          API_BASE_URL: ${{ vars.PRODUCTION_API_URL }}
+        run: node scripts/smoke-test.mjs

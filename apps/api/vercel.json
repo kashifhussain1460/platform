@@ -1,8 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd ../.. && pnpm --filter @vaep/api exec prisma generate && pnpm --filter @vaep/api exec prisma migrate deploy && npx turbo run build --filter=@vaep/api...",
+  "buildCommand": "cd ../.. && pnpm --filter @vaep/api exec prisma generate && npx turbo run build --filter=@vaep/api...",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile --prod=false",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "git": {
+    "deploymentEnabled": {
+      "master": false
+    }
+  },
   "functions": {
     "api/index.ts": {
       "maxDuration": 300
