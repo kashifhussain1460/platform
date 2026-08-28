@@ -28,7 +28,9 @@ export type AuthzAction =
   | 'audit:read'
   | 'organization:manage'
   | 'hr:read'
-  | 'hr:manage';
+  | 'hr:manage'
+  | 'marketing:read'
+  | 'marketing:manage';
 
 export type AuthzResourceType =
   | 'workflow'
@@ -38,7 +40,8 @@ export type AuthzResourceType =
   | 'approval'
   | 'audit'
   | 'organization'
-  | 'hr';
+  | 'hr'
+  | 'marketing';
 
 /** Who is acting. Assembled from the JWT plus the user's org placement. */
 export interface AuthzActor {

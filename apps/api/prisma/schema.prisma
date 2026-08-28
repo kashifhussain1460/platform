@@ -327,6 +327,20 @@ model Company {
   // CREDIT_ENFORCEMENT_ENABLED flag's OTHER-company default). Set via
   // Phase 10/12's PlatformAdminGuard-only endpoint — never self-serve.
   creditEnforcementEnabledAt  DateTime?
+
+  /// The Postiz `Customer` (a.k.a. "group") that this company's social
+  /// integrations are tagged to — the tenancy bridge from
+  /// `docs/architecture/engines/postiz-engine.md` §20: ONE Orlixa-owned Postiz
+  /// organization, one Postiz Customer per Orlixa Company.
+  ///
+  /// Every tenant shares a single Postiz instance, so this id is the ONLY
+  /// thing separating one company's connected accounts from another's. It is
+  /// therefore assigned by a platform operator (`PlatformAdminGuard`), never
+  /// self-serve — a tenant able to type this value could name a rival's group
+  /// and import their social accounts. Null = no bridge configured, and the
+  /// account import refuses to run rather than importing untagged
+  /// integrations.
+  postizCustomerGroupId       String?
 }
 
 // Minimal who-did-what trail (founder-market-readiness-audit.md §6/§4: full

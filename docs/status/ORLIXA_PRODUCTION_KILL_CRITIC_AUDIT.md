@@ -1,9 +1,49 @@
 # ORLIXA — PRODUCTION KILL-CRITIC AUDIT
 
-**Date:** 2026-08-22
+**Original audit:** 2026-08-22
+**Last revised:** 2026-08-22 (after remediation Phases 1–4)
 **Auditor role:** founder / CTO / principal architect / staff backend / QA lead / security reviewer / kill critic
-**Codebase audited:** `d:\Vertical AI\platform` (monorepo, commit `4ef3e1e` + 222 uncommitted files)
+**Codebase audited:** `d:\Vertical AI\platform` (monorepo, commit `4ef3e1e` + uncommitted work)
 **Method:** code-level tracing only. No feature was scored on the existence of a file, table, endpoint, page or test. Every claim below has a file/line citation or a command output behind it.
+
+---
+
+## 0-A. STATUS UPDATE — what changed since the original audit
+
+Four remediation phases have run against this report. **The findings below are preserved as written** — they are the evidence, and rewriting them would destroy the record of what was actually wrong. What follows is the delta.
+
+### Scores, then and now
+
+| Measure | Original (2026-08-22) | Current | Recomputed in |
+|---|---:|---:|---|
+| Product Concept Completion | 61% | **77%** | §13.1 |
+| Production Readiness | 67% | **77%** | §13.2 |
+| Configuration Dependency Completion | 68% | **74%** | §13.3 |
+| Configuration-Driven Architecture | 45% | **82%** | §13.4 |
+| **Verdict** | **B — Core product partially realized** | **C — Functionally complete, not production hardened** | §15 |
+
+Every number is recomputed from the same weighted formula with the same weights — only the per-row completion values moved, and each row states its evidence.
+
+### What the phases closed
+
+| Phase | Closed |
+|---|---|
+| **1 — Critical safety** | P0-1 (7 dead safety controls), P0-2 (prod mock guard), P0-3 (fake integrations labelled + fail-closed), P0-4 (6 unscheduled crons), P0-5 (destructive employee delete), P0-6 (analytics authorization) |
+| **2 — Organization foundation** | P1-2 (departments created at onboarding; `Department.scopes` and `User.departmentId` finally have UI), P1-7 (safe department delete) |
+| **3 — Capability resolution** | P1-1 (the resolver — the core concept), P2-9 (duplicated plan/role checks) |
+| **4 — Configuration-driven experience** | P2-1 (role-specific dashboard widgets), P2-5 (one template system), P2-11 (empty states guide setup) |
+
+### What is still open
+
+**🔴 P0-7 is not only open, it has grown: 280 uncommitted files** (was 222). None of Phases 1–4 is committed either. CI has never seen any of it and there is no rollback point. This is now the single highest-risk item in the repository and it is not an engineering problem.
+
+Still open: **7 of 11 P1s** and **6 of 11 P2s** — see §11, where every row now carries a status. Three new items were found during the phases and are listed in §11.4.
+
+### The honest summary of the change
+
+The original audit's headline was *"a genuinely strong engine and a genuinely weak product"*, and specifically that **configuration did not drive the product**. That is no longer true: industry, business goals, departments, hired employees, plan and user role now all feed one resolver, and navigation, the dashboard and skill discovery are built from its output. Configuration-Driven Architecture moved 45% → 82%, which is the largest single change in this document.
+
+What has *not* changed: entire advertised domains (HR, Marketing, Support) still have no product UI, the platform's stated #1 differentiator (per-employee run attribution) is still an unwired column, and four connectors still cannot perform a real action.
 
 ---
 
@@ -15,14 +55,27 @@ Where I could not get evidence, I say so instead of guessing. There is exactly o
 
 ### 0.1 What I actually ran
 
-| Check | Result |
-|---|---|
-| API unit suite (`jest -c test/jest-unit.json`) | **90 suites, 793 tests, all passed**, 33s. Verified this session. |
-| API e2e suite (91 suites) | **Not completed.** See below. |
-| Docker infra (postgres 5433, redis 6380, minio, prometheus, jaeger) | Up and reachable. |
-| Codebase size | API `src` 56,920 lines · API `test` 23,310 lines · API unit specs 12,115 lines · Web `src` 34,379 lines · 80 Prisma models · 62 migrations |
+| Check | Result at audit time | Result now (after Phases 1-4) |
+|---|---|---|
+| API unit suite (`jest -c test/jest-unit.json`) | **90 suites, 793 tests, all passed**, 33s | **97 suites, 931 tests, all passed** (needs `--maxWorkers=2`, §11.4 N-3) |
+| API e2e suite | **Not completed** — see §0.2 | **98 suites, 711/714 passed**; the 3 failures are §11.4 N-1 plus one load flake that passes in isolation |
+| Web unit suite | ~122 tests | **157 tests, 30 files** |
+| Docker infra (postgres 5433, redis 6380, minio, prometheus, jaeger) | Up and reachable | Unchanged |
+| Codebase size | API `src` 56,920 lines · API `test` 23,310 · Web `src` 34,379 · 80 Prisma models · 62 migrations | +1 model column, +1 migration (63), + the `product-context` module |
 
-### 0.2 The one thing I could not verify
+### 0.2 The one thing I could not verify — ✅ SINCE RESOLVED
+
+> **Update:** the full e2e suite *was* eventually run to completion during
+> remediation. The blocker was not only the orphaned processes — it was a
+> missing `--forceExit`, without which Jest hangs on open handles after the
+> last suite. With it the suite completes in ~10 minutes. The orphaned
+> processes from 2026-08-20 are, however, **still running**; I was never
+> permitted to kill them.
+>
+> The original account is preserved below because the diagnosis it records
+> (and the CLAUDE.md trap it cites) is still the right first thing to check.
+
+### 0.2 (original account)
 
 I started the full e2e suite twice. Neither run finished. The cause is environmental, not a product defect:
 
@@ -40,14 +93,22 @@ This is the exact trap already written down in `CLAUDE.md` ("leftover dev server
 
 # 1. Executive Verdict
 
-> ### Actual Product Concept Completion: **61%**
-> ### Production Readiness: **67%**
-> ### Configuration Dependency Completion: **68%**
-> ### Configuration-Driven Architecture (Audit Area A): **45%**
+> ### Actual Product Concept Completion: **77%** *(was 61%)*
+> ### Production Readiness: **77%** *(was 67%)*
+> ### Configuration Dependency Completion: **74%** *(was 68%)*
+> ### Configuration-Driven Architecture (Audit Area A): **82%** *(was 45%)*
 
-**FINAL VERDICT: B — CORE PRODUCT PARTIALLY REALIZED.**
+**FINAL VERDICT: C — FUNCTIONALLY COMPLETE BUT NOT PRODUCTION HARDENED** *(was B — core product partially realized)*
 
-### The one-paragraph version
+### The one-paragraph version — CURRENT
+
+The core loop is now genuinely configuration-driven. A company's industry, business goals, departments, hired employees, plan and the user's own role all feed a single resolver, and navigation, the dashboard and skill discovery are composed from its output rather than from four hardcoded arrays and three copies of a plan rule. Seven safety controls that wrote JSON nothing read are now enforced at the one execution choke point. Production can no longer boot with a silent mock executor, connectors that cannot perform a real action say so, and deleting an AI Employee no longer destroys its encrypted credentials.
+
+What stops this being D: **280 files are uncommitted**, so none of it has passed CI or has a rollback point. Beyond that, three things remain functionally absent rather than merely rough — the HR, Marketing and Support domains have no product UI (only dashboard counts over their tables), the platform's stated #1 differentiator (`WorkflowRun.actingEmployeeId`, per-employee run attribution) is still a dead column, and four connectors still answer every write from the sandbox.
+
+*"Functionally complete" refers to the core loop: onboard → configure → hire → connect → chat → build → run → approve → bill, now tailored to the tenant. It does not mean every advertised surface exists.*
+
+### The one-paragraph version — AS ORIGINALLY WRITTEN (2026-08-22, preserved)
 
 Orlixa has a genuinely strong *engine* and a genuinely weak *product*. The backend is better than most Series-A codebases I have read: a real durable execution state machine that is on by default, a pure-function authorization policy with department scoping, AES-GCM credential encryption, a 13-phase credit ledger with reservations and reconciliation, 62 migrations, real CI running e2e in both engine modes, and 793 unit tests that I watched pass. That is not a prototype.
 
@@ -251,8 +312,11 @@ Not Option C. The evidence is against a new "Product Context Engine":
 ```
 
 > ## Configuration-Driven Architecture: **45%**
+>
+> ⚠️ **This is the ORIGINAL score. Now 82% — see §13.4 for the recomputation.**
+> The five reasons below are answered one by one there.
 
-**What stops it reaching 100%, in one sentence each:**
+**What stopped it reaching 100% (as originally written):**
 1. Nothing turns company context into a filtered list of anything.
 2. Six company-level configuration fields are stored and read by no code.
 3. The onboarding wizard sends `departments: []`, so the axis the whole authorization layer scopes on is empty in every tenant.
@@ -577,52 +641,66 @@ Covered in §3.3.1.
 
 # 11. Production Gaps (prioritised)
 
+*Status column added 2026-08-22 after remediation Phases 1-4.*
+
 ### P0 — blocks production
 
-| # | Gap | Why it is P0 |
-|---|---|---|
-| P0-1 | **7 dead safety controls in AI Employee Settings** (4 permissions + 3 approval rules) | A customer ticks "Make payments: off" / "Require approval for external messages" and neither is honoured. This is a trust and arguably a liability problem, not a polish problem. |
-| P0-2 | **`SKILL_EXECUTOR` has no production guard** | A prod deploy with the var unset silently mocks every integration while reporting success. |
-| P0-3 | **hubspot / jira / github / stripe have no real executor** but hubspot+jira have real OAuth | Customer connects a real account, sees CONNECTED, every write is fake. |
-| P0-4 | **6 cron jobs unscheduled on Vercel**, including `subscription-credit-renewal` and `credit-reservation-sweep` | Paying customers never receive their monthly credits; reservations leak. |
-| P0-5 | **AI Employee delete is an unguarded destructive cascade** incl. encrypted credentials | Same defect class the PRD called ship-blocking for workflows (G29). |
-| P0-6 | **Analytics has no authorization** | Any MEMBER reads every employee's KPIs, contradicting `GET /employees`. |
-| P0-7 | **222 uncommitted files** (119 untracked, 103 modified) — the entire credits system, handoff module, 10 migrations | CI has never seen this code. There is no rollback point. Last commit 2026-08-20. |
+| # | Gap | Why it is P0 | Status |
+|---|---|---|---|
+| P0-1 | **7 dead safety controls in AI Employee Settings** (4 permissions + 3 approval rules) | A customer ticks "Make payments: off" / "Require approval for external messages" and neither is honoured. | CLOSED (Phase 1). 4 permissions + `approveExternalMessages` enforced at `SkillsService.runTool`; `approveOverBudget`/`approveRefunds` removed as unenforceable and migrated out of stored JSON. |
+| P0-2 | **`SKILL_EXECUTOR` has no production guard** | A prod deploy with the var unset silently mocks every integration while reporting success. | CLOSED (Phase 1). Refuses to boot in production; unknown values rejected in every environment; the `auto` and `real` per-call fallbacks also fail closed. |
+| P0-3 | **hubspot / jira / github / stripe have no real executor** but hubspot+jira have real OAuth | Customer connects a real account, sees CONNECTED, every write is fake. | MITIGATED, NOT FIXED (Phases 1+4). Labelled `SIMULATED` in the catalog and UI, cannot reach CONNECTED in production, execution fails closed, never recommended. **The four executors still do not exist.** |
+| P0-4 | **6 cron jobs unscheduled on Vercel**, including `subscription-credit-renewal` and `credit-reservation-sweep` | Paying customers never receive their monthly credits; reservations leak. | CLOSED (Phase 1). All 17 scheduled, plus a drift test that fails the build in both directions. |
+| P0-5 | **AI Employee delete is an unguarded destructive cascade** incl. encrypted credentials | Same defect class the PRD called ship-blocking for workflows (G29). | CLOSED (Phase 1). Archive by default, `?hard=true` OWNER-only, blocked on in-flight runs and pending approvals, dependency-preview endpoint. |
+| P0-6 | **Analytics has no authorization** | Any MEMBER reads every employee's KPIs, contradicting `GET /employees`. | CLOSED (Phase 1). Policy-scoped; a test pins that it agrees with `GET /employees` for the same user. |
+| P0-7 | **222 uncommitted files** (119 untracked, 103 modified) — the entire credits system, handoff module, 10 migrations | CI has never seen this code. There is no rollback point. Last commit 2026-08-20. | **OPEN AND WORSE — now 280 files.** Phases 1-4 are also uncommitted. Highest-risk item in the repository. |
 
 ### P1 — required before scale
 
-| # | Gap |
-|---|---|
-| P1-1 | No capability/relevance resolver — the core concept (§3.4) |
-| P1-2 | Departments never created at onboarding; `Department.scopes` and `User.departmentId` have no UI → the whole authorization layer is inert |
-| P1-3 | Approval routing / SLA / escalation unconfigurable; `EMPLOYEE_MANAGER`, `DEPARTMENT`, `TEAM` rules cannot resolve |
-| P1-4 | `WorkflowRun.actingEmployeeId` unwired → no employee attribution, the stated differentiator |
-| P1-5 | Per-employee model not honoured; cost attributed to the global model |
-| P1-6 | Disabling an employee does not stop its scheduled/event workflows |
-| P1-7 | Deleting a department silently un-scopes its users |
-| P1-8 | No AI Employee config versioning → mid-run config changes |
-| P1-9 | `TOOL_ACTION` without `employeeId` bypasses employee skill scoping |
-| P1-10 | Vercel/inline deployment silently runs the non-durable engine |
-| P1-11 | Frontend test coverage is ~25 test files for 34,379 lines; no browser suite in the repo |
+| # | Gap | Status |
+|---|---|---|
+| P1-1 | No capability/relevance resolver — the core concept (§3.4) | CLOSED (Phase 3). `capability-resolver.ts` (pure) + `relevance.map.ts` (declarative) + `GET /product-context`; 56 unit + 18 e2e tests. |
+| P1-2 | Departments never created at onboarding; `Department.scopes` and `User.departmentId` have no UI → the whole authorization layer is inert | CLOSED (Phase 2). Wizard step 4 persists real rows; scope editor and department column shipped; 29 e2e tests incl. the HR x Marketing isolation matrix. |
+| P1-3 | Approval routing / SLA / escalation unconfigurable; `EMPLOYEE_MANAGER`, `DEPARTMENT`, `TEAM` rules cannot resolve | PARTIAL. `DEPARTMENT`/`TEAM` can now resolve (Phase 2 gave users a department). Routing itself still has **no UI** (0 frontend references to `escalationChain`), and `managerUserId` remains unwritable, so `EMPLOYEE_MANAGER` still falls through to `ANY_ADMIN`. |
+| P1-4 | `WorkflowRun.actingEmployeeId` unwired → no employee attribution, the stated differentiator | **OPEN.** Column present, 0 TypeScript references. Unchanged. |
+| P1-5 | Per-employee model not honoured; cost attributed to the global model | **OPEN.** Providers still read `LLM_MODEL` only. Unchanged. |
+| P1-6 | Disabling an employee does not stop its scheduled/event workflows | **OPEN.** 0 DISABLED guards in `workflows.service`. Archiving now excludes an employee from product-area resolution, but does not stop its runs. |
+| P1-7 | Deleting a department silently un-scopes its users | CLOSED (Phase 2). 409 with members; `?reassignTo=` moves people and teams in one transaction; `?force=true` audits `accessWidened: true`. |
+| P1-8 | No AI Employee config versioning → mid-run config changes | **OPEN.** 0 `configVersion` in schema. |
+| P1-9 | `TOOL_ACTION` without `employeeId` bypasses employee skill scoping | **OPEN.** `cfg.employeeId` still optional. |
+| P1-10 | Vercel/inline deployment silently runs the non-durable engine | **OPEN.** Deployment shape unchanged. |
+| P1-11 | Frontend test coverage is ~25 test files for 34,379 lines; no browser suite in the repo | IMPROVED. 30 test files, 157 tests (was ~122). Still no browser suite. |
 
 ### P2 — important
 
-| # | Gap |
-|---|---|
-| P2-1 | Zero role-specific dashboard widgets despite ~15 populated domain tables |
-| P2-2 | HR / Marketing / Support / PM domains have no product UI |
-| P2-3 | `/workflows/:id/permissions` has no UI |
-| P2-4 | Workflow `category` unsettable outside template install |
-| P2-5 | Two template systems, two nav entries |
-| P2-6 | `GET /authz/effective` promised in the PRD, does not exist |
-| P2-7 | Marketing site advertises 3 AI Employees the product cannot create |
-| P2-8 | `hoursSaved`/`costSavings` derived from hardcoded 10min/$25 (labelled "est.", but still headline tiles) |
-| P2-9 | `role === 'OWNER'\|\|'ADMIN'` duplicated 5×; plan check duplicated 3× |
-| P2-10 | Company/workflow timezone unused → server-tz scheduling |
-| P2-11 | Empty-state dashboard gives a new customer nothing to do |
+| # | Gap | Status |
+|---|---|---|
+| P2-1 | Zero role-specific dashboard widgets despite ~15 populated domain tables | CLOSED (Phase 4). `DashboardComposerService` with real aggregates over `LeaveRequest`, `OnboardingTask`, `InterviewSlot`, `Campaign`, `ScheduledPost`, `PublishedPost`, `SupportConversation`, `HandoffRequest`. |
+| P2-2 | HR / Marketing / Support / PM domains have no product UI | **OPEN.** Still 0 `/hr/` calls from the web app. Phase 4 added dashboard COUNTS over these tables, not the domain screens. |
+| P2-3 | `/workflows/:id/permissions` has no UI | **OPEN.** |
+| P2-4 | Workflow `category` unsettable outside template install | **OPEN.** |
+| P2-5 | Two template systems, two nav entries | CLOSED (Phase 4). Marketplace workflow layer retired; DB `WorkflowTemplate` is authoritative. 3 retired templates recorded in `MARKETPLACE_RETIRED_WORKFLOWS` — see §11.4 N-2. |
+| P2-6 | `GET /authz/effective` promised in the PRD, does not exist | SUPERSEDED. Still absent, but `GET /product-context` now answers most of what the PRD wanted it for: what this user may reach, and why. |
+| P2-7 | Marketing site advertises 3 AI Employees the product cannot create | **OPEN.** 3 entries still `role: 'CUSTOM'`. |
+| P2-8 | `hoursSaved`/`costSavings` derived from hardcoded 10min/$25 (labelled "est.", but still headline tiles) | **OPEN.** Constants unchanged. |
+| P2-9 | `role === 'OWNER'\|\|'ADMIN'` duplicated 5×; plan check duplicated 3× | CLOSED (Phases 3+4). 0 `plan === 'BUSINESS'` outside a doc comment; the shell's own role rule removed in favour of the resolver. |
+| P2-10 | Company/workflow timezone unused → server-tz scheduling | **OPEN.** 0 timezone references in `modules/workflows`. |
+| P2-11 | Empty-state dashboard gives a new customer nothing to do | CLOSED (Phase 4). `setupHint` replaces zero-rows with a named next step and a CTA. |
 
 ### P3 — later
 SSO · semantic memory recall · analytics charts/trends · realtime WS · publisher marketplace · logo upload · per-node retry UI · Postgres RLS · `legacy_walk` removal.
+
+*Status: untouched by design. None of Phases 1-4 addressed any P3 item.*
+
+---
+
+## 11.4 New items found DURING remediation (not in the original audit)
+
+| # | Item | Severity | Fix |
+|---|---|---|---|
+| N-1 | `engines-support.e2e-spec.ts` fails **deterministically** — both its tests create `chatwootAccountId: '1'`, which is globally `@unique`, with no cleanup. Pre-existing; unrelated to any phase. | Medium | One line: a unique id per test. |
+| N-2 | SALES and SUPPORT workflow-template coverage was **lost** when the duplicate template system was retired (P2-5). The 3 retired templates used `AI_STEP`/`NOTIFY`, banned by doc 27 §0.4 and rejected by the DB seeder, so porting requires rewriting their graphs. | Medium | Rewrite into `AI_EMPLOYEE_STEP` + `TOOL_ACTION`, seed via the DB catalog. |
+| N-3 | The API unit suite **OOMs at the default worker count** (7 suites, JS heap). Passes 931/931 with `--maxWorkers=2`. | Low | Pin `maxWorkers` in CI before it bites there. |
 
 ---
 
@@ -667,53 +745,57 @@ Realtime WS · analytics charts · SSO · semantic memory · PM domain UI · pub
 
 # 13. Completion Calculation
 
+*Recomputed 2026-08-22 after Phases 1-4. **Weights are unchanged** — only the
+per-row completion values moved, so the two columns are directly comparable.
+Rows that did not change are shown once.*
+
 ## 13.1 Product Concept Completion
 
 Scoring: `COMPLETE=100 · MOSTLY=75 · PARTIAL=50 · MINIMAL=25 · MISSING=0`, adjusted to the audited evidence. UI-only implementation never scores above PARTIAL.
 
-| # | Capability | Weight | Completion | Weighted | Evidence |
-|---|---|---:|---:|---:|---|
-| 1 | Auth, tenancy, sessions | 5 | 95% | 4.75 | JWT+refresh, OTP verify, reset, disabled-user kill switch, session timeout enforced |
-| 2 | Onboarding capture | 4 | 60% | 2.40 | 3 resumable steps; departments never collected; 2 of 7 roles; backend catalog orphaned |
-| 3 | **Configuration → product propagation** | 11 | 22% | 2.42 | Only knowledge role-scoping, seat limits and goal-pruning are live; 6 fields dead |
-| 4 | AI Employee lifecycle | 5 | 65% | 3.25 | CRUD + status real; role immutable; delete destroys history; no config version |
-| 5 | AI Employee configuration | 5 | 40% | 2.00 | 10 fields persist; model/language/hours/permissions/approval-checkboxes inert |
-| 6 | AI Employee chat runtime | 7 | 85% | 5.95 | plan→retrieve→memory→act→validate; citations, confidence, approval + budget gates |
-| 7 | Knowledge / RAG + role scoping | 6 | 90% | 5.40 | pgvector HNSW, tenant-scoped, role-scoped in chat **and** in the RETRIEVE node |
-| 8 | Skills catalog / install / connect | 6 | 60% | 3.60 | 15 skills, 4 OAuth providers, 5 verify adapters; 4 skills permanently mocked; no relevance |
-| 9 | Skill execution + audit + scoping | 6 | 70% | 4.20 | `employeeMayUseSkill` real; `SkillExecution` audit; unscoped TOOL_ACTION bypass; mock default |
-| 10 | Workflow authoring | 7 | 85% | 5.95 | canvas, 19 node types, readiness invariant, versions, AI Assist |
-| 11 | Workflow execution engine | 8 | 80% | 6.40 | durable state machine on by default; attempts/leases/reaper/DLQ; inline silently downgrades |
-| 12 | Triggers | 4 | 75% | 3.00 | manual/schedule/webhook/event all real; no timezone; 6 crons unscheduled |
-| 13 | Approvals | 6 | 55% | 3.30 | gate + canDecide + SLA real and tested; unconfigurable; 3 of 6 rule types unresolvable |
-| 14 | RBAC / permissions / dept scoping | 6 | 35% | 2.10 | Excellent policy engine; adopted by 10/51 controllers; scopes + dept assignment unreachable |
-| 15 | Dashboard / analytics | 6 | 40% | 2.40 | real aggregates; generic; no authz; no role widgets; no run attribution |
-| 16 | Billing / plans / credits | 4 | 70% | 2.80 | plans, seats, Stripe provider, full ledger; enforcement off; 5 crons unscheduled |
-| 17 | Vertical domains (HR/Mkt/Support/PM) | 4 | 30% | 1.20 | backends + engines real; zero product UI for any of the four |
-| | **TOTAL** | **100** | | **61.12** | |
+| # | Capability | Weight | Was | **Now** | Weighted | What moved it |
+|---|---|---:|---:|---:|---:|---|
+| 1 | Auth, tenancy, sessions | 5 | 95% | **95%** | 4.75 | Unchanged. |
+| 2 | Onboarding capture | 4 | 60% | **80%** | 3.20 | P2: departments step persists real rows; status reads the table. Still 2 of 7 roles hardcoded; backend catalog still orphaned. |
+| 3 | **Configuration → product propagation** | 11 | 22% | **75%** | 8.25 | P3+P4: industry, goals, departments, hired roles and plan all drive one resolver, consumed by nav, dashboard and skills. `size` and per-employee `model` still drive nothing. |
+| 4 | AI Employee lifecycle | 5 | 65% | **78%** | 3.90 | P1: archive-by-default, dependency preview, OWNER-only hard delete. Role still immutable; no config versioning. |
+| 5 | AI Employee configuration | 5 | 40% | **65%** | 3.25 | P1: 4 permissions + 1 approval flag enforced; 2 unenforceable flags removed. `model`, `language`, working hours still inert. |
+| 6 | AI Employee chat runtime | 7 | 85% | **85%** | 5.95 | Unchanged. |
+| 7 | Knowledge / RAG + role scoping | 6 | 90% | **92%** | 5.52 | P1: `accessKnowledge` now ANDed with `knowledgeAccess` in chat and the RETRIEVE node. |
+| 8 | Skills catalog / install / connect | 6 | 60% | **78%** | 4.68 | P1: `executionSupport` labelling, prod connect-block, fail-closed. P4: 5-state categorisation with reasons. 4 skills still have no executor. |
+| 9 | Skill execution + audit + scoping | 6 | 70% | **80%** | 4.80 | P1: permission gate at the one choke point, audited. Unscoped `TOOL_ACTION` still bypasses employee scoping. |
+| 10 | Workflow authoring | 7 | 85% | **85%** | 5.95 | Unchanged. |
+| 11 | Workflow execution engine | 8 | 80% | **80%** | 6.40 | Unchanged. Inline still downgrades to the non-durable walker. |
+| 12 | Triggers | 4 | 75% | **85%** | 3.40 | P1: all 17 crons scheduled + drift test. Timezone still server-only. |
+| 13 | Approvals | 6 | 55% | **62%** | 3.72 | P1: `approveExternalMessages` reaches the Approval Center. Routing/SLA still unconfigurable. |
+| 14 | RBAC / permissions / dept scoping | 6 | 35% | **72%** | 4.32 | P2: departments created, `scopes` editor, user assignment, safe delete — the layer is finally reachable. Workflow permissions still have no UI. |
+| 15 | Dashboard / analytics | 6 | 40% | **75%** | 4.50 | P1: authorization. P4: role-specific widgets over real domain tables + setup hints. Savings figures still illustrative. |
+| 16 | Billing / plans / credits | 4 | 70% | **78%** | 3.12 | P1: the 5 unscheduled credit crons now run. Enforcement still off by design. |
+| 17 | Vertical domains (HR/Mkt/Support/PM) | 4 | 30% | **40%** | 1.60 | P4: dashboard aggregates over their tables. **Still no domain UI for any of the four.** |
+| | **TOTAL** | **100** | 61.12 | | **77.31** | |
 
 ```
-Product Concept Completion = Σ(weight × completion) / 100 = 61.12 / 100
+Product Concept Completion = Σ(weight × completion) / 100 = 77.31 / 100
 ```
-> ## = **61%**
+> ## = **77%**  *(was 61%)*
 
 ## 13.2 Production Readiness
 
-| Dimension | Weight | Score | Weighted | Evidence |
-|---|---:|---:|---:|---|
-| Architecture & tenant isolation | 15 | 75% | 11.25 | Consistent `companyId` filtering, pure-function policy, clean module graph; no RLS; 2 engines; 2 template systems |
-| Security | 20 | 62% | 12.40 | AES-GCM at rest, PKCE OAuth, kill switch, approval gate, disposable-domain checks, SSRF guard **·** unguarded prod mock executor, no MFA/SSO, dept isolation unreachable, unscoped TOOL_ACTION bypass, 4 fake connectors, 7 dead safety controls |
-| Reliability & recovery | 15 | 78% | 11.70 | Durable engine, attempts/leases/reaper, DLQ, circuit breaker, rate limiter, idempotency records, watchdog **·** inline mode loses all of it; 6 crons unscheduled |
-| Data integrity & lifecycle | 15 | 50% | 7.50 | 62 migrations, FKs, retention, legal hold, audit chain **·** destructive employee delete, dept-delete privilege widening, orphan approvals, dead columns |
-| Observability | 10 | 80% | 8.00 | Metrics registry, structured logger, correlation IDs, OTel tracing, Prometheus+Jaeger running, alerts cron, `/admin/health`, `/admin/dlq` |
-| Testing | 15 | 72% | 10.80 | **793 unit tests green, verified this session**; 91 e2e suites; CI runs both engines **·** full e2e not completable here; ~25 web tests for 34k lines; no browser suite in-repo |
-| Deployment & config safety | 10 | 55% | 5.50 | Real CI (lint/typecheck/e2e), Vercel manifest, provider guards for LLM/billing/mail **·** 222 uncommitted files, 6 unscheduled crons, mock-default executor, inline→legacy downgrade |
-| **TOTAL** | **100** | | **67.15** | |
+| Dimension | Weight | Was | **Now** | Weighted | What moved it |
+|---|---:|---:|---:|---:|---|
+| Architecture & tenant isolation | 15 | 75% | **80%** | 12.00 | P4 removed the duplicate template system; the resolver is a true leaf module. Still no RLS, still 2 engines. |
+| Security | 20 | 62% | **80%** | 16.00 | P1: prod mock guard, 7 dead controls enforced, simulated connectors blocked, analytics authorized. P2: department isolation actually reachable. Still no MFA/SSO, `TOOL_ACTION` bypass, 4 fake connectors. |
+| Reliability & recovery | 15 | 78% | **84%** | 12.60 | P1: all 17 crons scheduled, so credit renewal and reservation sweeps actually run. Inline mode still loses durability. |
+| Data integrity & lifecycle | 15 | 50% | **72%** | 10.80 | P1: safe employee delete + permission data migration. P2: safe department delete. Orphan approvals, dead columns and missing config versioning remain. |
+| Observability | 10 | 80% | **80%** | 8.00 | Unchanged. |
+| Testing | 15 | 72% | **80%** | 12.00 | 931 API unit (was 793), 714 e2e (was 646), 157 web (was 122); full e2e now runs to completion. 2 pre-existing e2e failures remain; still no browser suite. |
+| Deployment & config safety | 10 | 55% | **58%** | 5.80 | Crons complete and the mock guard exists — but **280 uncommitted files** (worse than 222) and the inline downgrade both remain. |
+| **TOTAL** | **100** | 67.15 | | **77.20** | |
 
 ```
-Production Readiness = 11.25+12.40+11.70+7.50+8.00+10.80+5.50 = 67.15
+Production Readiness = 12.00+16.00+12.60+10.80+8.00+12.00+5.80 = 77.20
 ```
-> ## = **67%**
+> ## = **77%**  *(was 67%)*
 
 ## 13.3 Configuration Dependency Completion
 
@@ -732,23 +814,114 @@ Production Readiness = 11.25+12.40+11.70+7.50+8.00+10.80+5.50 = 67.15
 Σ item scores = 290.5
 Configuration Dependency Completion = 290.5 / 429 = 0.677
 ```
-> ## = **68%**
+> ## = **68%** *(original)*
 
-**Read this number carefully.** It is high because the *technical* configuration (skill credentials, security policy, budgets, plans, knowledge access) is genuinely well wired. The *business* configuration — the part that is supposed to make the product feel tailored — is the part that is dead. That asymmetry is exactly what the next number isolates.
+**Read this number carefully.** It was high because the *technical* configuration (skill credentials, security policy, budgets, plans, knowledge access) is genuinely well wired. The *business* configuration — the part that is supposed to make the product feel tailored — was the part that was dead. That asymmetry is exactly what the next number isolates.
+
+### Recomputed after Phases 1-4
+
+Seven items moved bands. Same rubric, same 429-point maximum:
+
+| Item | Was | Now | Why |
+|---|---:|---:|---|
+| `Company.industry` | 8 | **11** | Consumed by the resolver (was one line of prompt text). |
+| `Company.businessGoals` | 6 | **11** | Consumed by the resolver — previously read by nothing at all. |
+| `Department` rows | 10 | **11** | Now actually collected during onboarding. |
+| `Department.scopes` | 6 | **11** | Has a UI; isolation can finally be switched on. |
+| `User.departmentId` / `teamId` | 6 | **11** | Has a UI on the `/team` roster. |
+| Employee `permissions` (4 flags) | 6 | **11** | Enforced at `runTool`. |
+| `approvalRules` flags | 6 | **11** | `approveExternalMessages` reaches the Approval Center. |
+
+Unmoved and still low: `size` (8, echo only), `User.managerUserId` (3, unwritable), `AiEmployee.model` (3, never reaches the LLM), working hours / language / employee timezone (6 each, inert), `country` / company timezone / `logoUrl` / company description / `defaultApprovalSlaMinutes` (2 each, dead).
+
+```
+Σ item scores = 290.5 + 29 = 319.5
+Configuration Dependency Completion = 319.5 / 429 = 0.745
+```
+> ## = **74%**  *(was 68%)*
+
+This number moves least of the four, and that is the honest signal: the *business* configuration is now wired, but a tail of individually small dead fields — model, manager, working hours, language, timezone, country, logo — is still stored and read by nothing.
 
 ## 13.4 Configuration-Driven Architecture
 
-Calculated in §3.7:
+Originally calculated in §3.7:
 ```
 (15×0.90)+(20×0.45)+(20×0.15)+(15×0.70)+(10×0.10)+(10×0.25)+(10×0.55) = 45.0
 ```
-> ## = **45%**
+> ## = **45%** *(original)*
+
+### Recomputed after Phases 1-4
+
+| Layer | Weight | Was | **Now** | Evidence |
+|---|---:|---:|---:|---|
+| Configuration persistence | 15 | 90% | **95%** | Departments are real rows for every new tenant; onboarding status reads the table, not a draft. |
+| Configuration consumption | 20 | 45% | **85%** | Industry, goals, departments and hired roles all feed `resolveRelevantCapabilities`. `size` and `model` still consumed by nothing. |
+| Capability resolution | 20 | 15% | **90%** | `resolveProductContext` — one pure function, one declarative map, 56 unit tests over the A-H matrix. |
+| Backend enforcement | 15 | 70% | **85%** | Permission flags enforced at execution; department isolation reachable and tested end to end. |
+| Frontend relevance | 10 | 10% | **80%** | Sidebar, dashboard and skill discovery are all resolver-driven; 4 hardcoded nav arrays and 3 duplicated plan checks deleted. |
+| Change propagation | 10 | 25% | **45%** | The resolver recomputes live, so a hire or a skill install changes the product immediately. Still no AI Employee config versioning, so in-flight runs see mid-run changes. |
+| Runtime execution context | 10 | 55% | **70%** | Permissions and knowledge scope are threaded into execution. Per-employee model still is not. |
+
+```
+(15×0.95)+(20×0.85)+(20×0.90)+(15×0.85)+(10×0.80)+(10×0.45)+(10×0.70) = 81.5
+```
+> ## = **82%**  *(was 45%)*
+
+**What still stops it reaching 100%**, restated against the original five reasons:
+
+1. ~~Nothing turns company context into a filtered list of anything.~~ **Fixed** — `capability-resolver.ts`.
+2. ~~Six company-level configuration fields are stored and read by no code.~~ **Mostly fixed** — industry and goals are consumed; `size`, `country`, `timezone`, `logoUrl` and `description` remain dead.
+3. ~~The onboarding wizard sends `departments: []`.~~ **Fixed** — step 4 persists real rows.
+4. ~~Three finished configuration surfaces have no input control.~~ **Two fixed** (`Department.scopes`, `User.departmentId`); `AiEmployee.model` still has no control **and is still never read**.
+5. ~~The frontend has zero relevance logic.~~ **Fixed** for navigation, dashboard and skills; other pages remain static by design (they were out of scope for Phase 4).
 
 ---
 
 # 14. Final Remaining Work
 
-## PHASE 0 — Critical broken dependencies (1 week)
+> **Status 2026-08-22:** the roadmap below was written before remediation.
+> **Phases 0-3 of it have largely been executed** (as delivery Phases 1-4) —
+> see §14-A for what is genuinely left. The original plan is preserved below it
+> so the delta is auditable.
+
+## 14-A. WHAT IS ACTUALLY LEFT (revised 2026-08-22)
+
+### NOW — before anything else
+
+| # | Item | Why now | Size |
+|---|---|---|---|
+| A.1 | **Commit the 280 uncommitted files** | Four phases of remediation, the entire credits system, the handoff module and 11 migrations have never passed CI and have no rollback point. Every further session makes this worse. Recommended commit boundaries were produced with delivery Phase 1. | **SMALL** (hours) |
+| A.2 | Fix `engines-support.e2e-spec.ts` (§11.4 N-1) | The only deterministically red suite; it masks real regressions. | **SMALL** (minutes) |
+| A.3 | Pin `--maxWorkers` in CI (§11.4 N-3) | The API unit suite OOMs at the default worker count. | **SMALL** (minutes) |
+
+### NEXT — cheapest items that falsify a headline claim
+
+| # | Item | Why it matters | Size |
+|---|---|---|---|
+| A.4 | Wire `WorkflowRun.actingEmployeeId` (P1-4) | The PRD's stated #1 differentiator — "every run is attributed to an Employee" — is a dead column. Per-employee KPIs still exclude workflow runs entirely. | **MEDIUM** |
+| A.5 | Thread `AiEmployee.model` into `LlmCompletionInput` (P1-5) | Per-employee model choice AND per-employee cost attribution are both currently fiction; usage rows record the global `LLM_MODEL`. | **MEDIUM** |
+| A.6 | Stop a DISABLED employee's scheduled/event workflows (P1-6) | Chat returns 409; automation keeps running. | **MEDIUM** |
+| A.7 | Require `employeeId` on `TOOL_ACTION`, or scope it (P1-9) | Contradicts the PRD's "structurally unable to call another department's connector". | **MEDIUM** |
+
+### THEN — reachability of finished backends (the dominant pattern)
+
+| # | Item | Size |
+|---|---|---|
+| A.8 | HR domain UI — the MVP's #1 persona, 6 models, PII encryption, retention, **0 frontend calls** (P2-2) | **XL** |
+| A.9 | Marketing + Support domain UI (P2-2) | **LARGE** |
+| A.10 | Approval routing / SLA editor (P1-3) + `managerUserId` write path | **LARGE** |
+| A.11 | Workflow permissions share dialog (P2-3) | **MEDIUM** |
+| A.12 | AI Employee config versioning (P1-8), which unblocks a safe role change | **LARGE** |
+
+### ALSO OPEN — smaller, individually cheap
+
+`Workflow.category` settable (P2-4) · marketing site stops advertising 3 unbuildable employees (P2-7) · customer-supplied inputs for `hoursSaved`/`costSavings` (P2-8) · per-workflow timezone (P2-10) · real executors for hubspot/jira/github/stripe (P0-3, mitigated but absent) · restore SALES/SUPPORT template coverage (§11.4 N-2) · browser test suite (P1-11) · always-on worker so production gets the durable engine (P1-10).
+
+---
+
+## 14-B. THE ORIGINAL ROADMAP (preserved — most of Phases 0-3 is now done)
+
+## PHASE 0 — Critical broken dependencies (1 week) — **8 of 9 DONE**
 
 | # | Problem | Impact | Files / modules | Depends on | Size |
 |---|---|---|---|---|---|
@@ -762,7 +935,7 @@ Calculated in §3.7:
 | 0.8 | hubspot / jira / github / stripe are permanently mocked while OAuth says CONNECTED | Customers believe real writes are happening | `real-skill-executor.ts`, `providers/index.ts` | — | **LARGE** |
 | 0.9 | Onboarding sends `departments: []` | Empties the authorization axis for every tenant | `OnboardingWizard.tsx:103` (+ a departments step) | — | **SMALL** |
 
-## PHASE 1 — Configuration-driven architecture (2–3 weeks)
+## PHASE 1 — Configuration-driven architecture (2–3 weeks) — **DONE** (delivery Phases 2+3)
 
 | # | Problem | Impact | Files / modules | Depends on | Size |
 |---|---|---|---|---|---|
@@ -775,7 +948,7 @@ Calculated in §3.7:
 | 1.7 | `businessGoals` feeds nothing | A whole wizard step does nothing | `relevance.ts`, template ranking, assist prompt | 1.1 | **SMALL** |
 | 1.8 | AI Assist plan gate missing in the sidebar; plan check duplicated 3× | Every STARTER user hits a 403 | `Sidebar.tsx`, one shared `useEntitlements()` | 1.2 | **SMALL** |
 
-## PHASE 2 — Role and AI Employee relevance (2–3 weeks)
+## PHASE 2 — Role and AI Employee relevance (2–3 weeks) — **2 of 10 done** (2.8/2.9 still open; 2.1-2.7, 2.10 open)
 
 | # | Problem | Impact | Files / modules | Depends on | Size |
 |---|---|---|---|---|---|
@@ -790,7 +963,7 @@ Calculated in §3.7:
 | 2.9 | Workflow permissions have no UI | An entire wave is unreachable | new share dialog on `/workflows/[id]` | 1.5 | **MEDIUM** |
 | 2.10 | `Workflow.category` unsettable | Workflow-side department scoping inert | workflow settings form | 1.4 | **SMALL** |
 
-## PHASE 3 — Dashboard and operational visibility (3–4 weeks)
+## PHASE 3 — Dashboard and operational visibility (3–4 weeks) — **2 of 6 done** (3.1 dashboard, 3.5 empty states)
 
 | # | Problem | Impact | Files / modules | Depends on | Size |
 |---|---|---|---|---|---|
@@ -801,7 +974,7 @@ Calculated in §3.7:
 | 3.5 | Empty state gives a new customer nothing | Poor first run | `/dashboard` | 1.2 | **SMALL** |
 | 3.6 | `hoursSaved`/`costSavings` from hardcoded constants | Headline tiles are assumptions | `analytics.constants.ts` + customer-supplied inputs in `/organization` | — | **MEDIUM** |
 
-## PHASE 4 — Production hardening (ongoing)
+## PHASE 4 — Production hardening (ongoing) — **2 of 8 done** (4.3 template systems, 4.4 duplicated checks)
 
 | # | Problem | Impact | Files / modules | Size |
 |---|---|---|---|---|
@@ -818,25 +991,34 @@ Calculated in §3.7:
 
 # 15. FINAL VERDICT
 
-> ## **B — CORE PRODUCT PARTIALLY REALIZED**
+> ## **C — FUNCTIONALLY COMPLETE BUT NOT PRODUCTION HARDENED**
+> *(revised 2026-08-22 after Phases 1-4; was **B — core product partially realized**)*
 
-Not (A) — this is emphatically not a disconnected concept. Real customers can register, hire an AI Employee, upload documents, connect Gmail or Slack, chat with a grounded agent that cites its sources, describe a workflow in English, publish it, watch it run on a durable engine, approve a high-risk action and be billed for it. That whole path works.
+Not (B) any more, because B's specific blocker is gone. The original verdict said C was unavailable "because *functionally complete* would require the configuration model to be connected, and it is not". It is now: Configuration-Driven Architecture moved 45% → 82%, and the resolver that closes it is real, pure, exhaustively tested and consumed by navigation, the dashboard and skill discovery.
 
-Not (C) — because "functionally complete" would require the configuration model to be connected, and it is not. The single organising principle the product is built on — *configure once, and the system behaves accordingly* — is 45% implemented, and the missing 55% is the part the customer actually experiences.
+Not (D), for three reasons that are not polish:
 
-### The honest summary for the founder
+1. **280 files are uncommitted.** Nothing here has passed CI or has a rollback point.
+2. **Entire advertised domains have no product UI.** HR — the MVP's #1 persona, with 6 models, field-level PII encryption and a retention sweep — still receives **zero calls from the web app**. Same for Marketing and Support.
+3. **Two headline claims remain false.** `WorkflowRun.actingEmployeeId` (per-employee run attribution, the PRD's #1 differentiator) and `AiEmployee.model` (per-employee model choice) are both stored-and-never-read.
 
-**What you have:** an unusually well-engineered execution platform. The durable state machine, the authorization policy, the credit ledger, the knowledge role-scoping and the connector resilience layer are all better than they need to be at this stage. 793 unit tests pass. CI is real.
+*"Functionally complete" here means the core loop — onboard → configure → hire → connect → chat → build → run → approve → bill — works and is now tailored to the tenant. It does not mean every advertised surface exists.*
 
-**What you do not have:** a product that behaves differently for a healthcare recruiter than for a marketing agency. Onboarding asks four questions and uses one of them. The dashboard is the same for everyone. The skill list is the same for everyone. The sidebar is the same for everyone.
+### The honest summary for the founder — CURRENT
 
-**The most expensive pattern in this codebase** is not bugs — it is finished backends with no front door. Approval routing, workflow permissions, department scoping, the entire HR domain, per-employee model choice: five substantial, tested, migrated bodies of work that no customer can reach. Roughly a third of the engineering investment in this repo is currently unsellable for want of, in several cases, a single form field.
+**What changed.** The product now behaves differently for a healthcare recruiter than for a marketing agency. Onboarding asks five questions and uses four of them. The dashboard composes itself from what you hired. The skill list is categorised and explains its recommendations. The sidebar is resolved server-side. Seven safety checkboxes that did nothing now do exactly what they say — and the two that could not be honestly implemented were removed rather than left as decoration.
 
-**The most dangerous finding** is the seven checkboxes. A product that asks a customer to tick "Make payments: off" and "Require approval for external messages", stores their answer, shows it back to them on reload, and then ignores both at execution time, is making a safety promise it does not keep. Fix that this week, before anything else on this list.
+**What did not change.** The most expensive pattern in this codebase is still finished backends with no front door. Phases 1-4 opened three of those doors — department scoping, capability resolution, dashboard relevance. Approval routing, workflow permissions and the entire HR/Marketing/Support domain UI are still shut. That is still a substantial fraction of the engineering investment sitting unsellable.
+
+**The most dangerous finding is now different.** It used to be the seven checkboxes; those are fixed. It is now **P0-7**: four phases of security-relevant remediation — fail-closed executors, enforced permissions, safe deletes, department isolation — exist only as uncommitted working-tree changes. Work that is not committed is work that can be lost, and none of it has been through CI. Commit it before writing another line.
 
 ---
 
-## Appendix A — Changes I made to the system during this audit
+## Appendix A — Changes made during the ORIGINAL audit (2026-08-22)
+
+*Remediation Phases 1-4 came later and did change code; they are summarised in
+§0-A and reflected in §11 and §13. This appendix covers the read-only audit
+only.*
 
 Per the audit's implementation restriction, I made **no code changes**. The only non-read actions were:
 
@@ -848,49 +1030,61 @@ No file in `apps/`, `packages/` or `prisma/` was modified. This report is the on
 
 ## Appendix B — Verification commands for the load-bearing claims
 
+> ⚠️ **These commands reproduce the ORIGINAL 2026-08-22 findings.** Several now
+> return different results because the defect was fixed — that is the point of
+> keeping them. Commands whose output has changed are marked `[FIXED]`; run
+> them to confirm the remediation rather than the defect.
+>
+> Still reproduce the defect as written: `actingEmployeeId`,
+> `defaultApprovalSlaMinutes`, the per-employee model check, the HR-frontend
+> check, and the four missing real executors.
+
 ```bash
-# The onboarding wizard sends no departments
+# [FIXED] The onboarding wizard sends no departments — now sends a real list
 grep -n "departments: \[\]" apps/web/src/features/onboarding/components/OnboardingWizard.tsx
 
-# The backend hire catalog is orphaned
+# The backend hire catalog is orphaned (STILL TRUE — the wizard hardcodes 2 roles)
 grep -rn "useOnboardingCatalog" apps/web/src --include=*.tsx      # → no results
 
-# businessGoals has no consumer outside onboarding
+# [FIXED] businessGoals has no consumer — now read by the capability resolver
 grep -rn "businessGoals" apps/api/src apps/web/src | grep -v onboarding
 
-# actingEmployeeId is a dead column
+# actingEmployeeId is a dead column (STILL TRUE)
 grep -rn "actingEmployeeId" apps packages                          # → 1 hit: schema.prisma
 
-# defaultApprovalSlaMinutes is a dead column
-grep -rn "defaultApprovalSlaMinutes" apps packages                 # → no results
+# defaultApprovalSlaMinutes is a dead column (STILL TRUE)
+# NOTE: this command was imprecise as originally written — it also matches the
+# schema declaration and the migration that created the column. Scoped to CODE:
+grep -rn "defaultApprovalSlaMinutes" apps/api/src apps/web/src packages/types/src
+# → no results (the column exists; nothing reads or writes it)
 
-# AiEmployee.permissions is never read at runtime
+# [FIXED] AiEmployee.permissions never read — now enforced in SkillsService.runTool
 grep -rn "employee.permissions" apps/api/src                       # → no results
 
-# The approval policy reads different keys than the UI writes
+# [FIXED] Approval policy vs UI key mismatch — vocabularies unified
 grep -n "requireApprovalForAllTools\|requireApprovalForTools" apps/api/src/modules/skills/tool-approval-policy.ts
 grep -n "approveOverBudget\|approveExternalMessages\|approveRefunds" apps/web/src/features/employees/labels.ts
 
-# Per-employee model never reaches the provider
+# Per-employee model never reaches the provider (STILL TRUE)
 grep -n "LLM_MODEL" apps/api/src/modules/employees/llm/*.ts
 grep -n "model" apps/api/src/modules/employees/llm/llm.provider.ts  # LlmCompletionInput has no model field
 
-# Department.scopes and User.departmentId have no UI
+# [FIXED] Department.scopes and User.departmentId have no UI — both now editable
 grep -n "scopes" apps/web/src/features/organization/components/DepartmentSection.tsx   # → no results
 grep -n "departmentId" apps/web/src/features/users/components/UserForm.tsx             # → no results
 
-# No real executor for 4 skills
+# No real executor for 4 skills (STILL TRUE — now labelled SIMULATED and fail-closed)
 grep -n "case 'hubspot\|case 'jira\|case 'github\|case 'stripe" apps/api/src/modules/skills/executors/real-skill-executor.ts  # → no results
 
-# SKILL_EXECUTOR has no production guard
+# [FIXED] SKILL_EXECUTOR has no production guard — now refuses to boot
 grep -n "requireRealProviderInProduction" apps/api/src/modules/skills/skills.module.ts # → no results
 
-# 6 cron jobs are not scheduled
+# [FIXED] 6 cron jobs not scheduled — all 17 now scheduled + drift test
 grep -c "imap-poll\|credit-reservation-sweep\|subscription-credit-renewal\|credit-reconciliation\|credit-finance-rollup\|enterprise-credit" apps/api/vercel.json   # → 0
 
-# The HR API has no frontend consumer
+# The HR API has no frontend consumer (STILL TRUE)
 grep -rn "'/hr/" apps/web/src                                       # → no results
 
-# Analytics has no authorization
+# [FIXED] Analytics has no authorization — now policy-scoped
 grep -n "UseGuards\|RequirePermission\|Roles" apps/api/src/modules/analytics/analytics.controller.ts
 ```

@@ -3763,6 +3763,7 @@ export type ProductArea =
   | 'ASSIST'
   | 'MARKETPLACE'
   | 'INTERVIEW_SCHEDULING'
+  | 'MARKETING'
   | 'BILLING'
   | 'TEAM'
   | 'ORGANIZATION'
@@ -3780,6 +3781,7 @@ export const PRODUCT_AREAS: readonly ProductArea[] = [
   'ASSIST',
   'MARKETPLACE',
   'INTERVIEW_SCHEDULING',
+  'MARKETING',
   'BILLING',
   'TEAM',
   'ORGANIZATION',
@@ -3835,6 +3837,7 @@ export const PRODUCT_AREA_NAV: Readonly<
     label: 'Interview scheduling',
     group: 'SECONDARY',
   },
+  MARKETING: { href: '/marketing', label: 'Marketing', group: 'SECONDARY' },
   MARKETPLACE: { href: '/marketplace', label: 'Marketplace', group: 'SECONDARY' },
   APPROVALS: { href: '/approvals', label: 'Approvals', group: 'SECONDARY' },
   BILLING: { href: '/billing', label: 'Billing', group: 'ADMIN' },
@@ -4030,4 +4033,180 @@ export interface ProductContextDto {
   availableWorkflowTemplates: AvailableTemplateDto[];
   /** AI Employee ids this user may see AND that match their department scope. */
   relevantEmployeeIds: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Human handoff (S-13/C-06) — the inbox contract.
+// ---------------------------------------------------------------------------
+
+export type HandoffStatus = 'PENDING' | 'RESOLVED' | 'CANCELLED';
+
+/**
+ * One escalation from an AI Employee to a human, with enough conversation
+ * context to act on without a second request.
+ *
+ * The AI could already escalate (`POST /support/conversations/:id/escalate`)
+ * and a human could already resolve one they knew the id of — but nothing
+ * LISTED them, so an escalation went to a queue no screen displayed. This DTO
+ * backs that queue.
+ */
+export interface HandoffRequestDto {
+  id: string;
+  companyId: string;
+  conversationId: string;
+  employeeId: string;
+  /** Why the AI stepped back. Written by the escalating employee/workflow. */
+  reason: string;
+  status: HandoffStatus;
+  /** Set when routing named one person; null when it falls back to any admin. */
+  assigneeUserId: string | null;
+  resolvedById: string | null;
+  resolvedAt: string | null;
+  note: string | null;
+  createdAt: string;
+  /**
+   * Whether the CALLING user may resolve this one, decided by the same
+   * `ApprovalRoutingService.canDecide` the approvals inbox uses. Sent so the
+   * UI can show the whole queue while disabling what this person cannot act
+   * on — the server still enforces it on the resolve call.
+   */
+  canResolve: boolean;
+  /** Conversation context, so the inbox is readable without a second fetch. */
+  conversation: {
+    id: string;
+    contactEmail: string | null;
+    status: string;
+    lastMessageAt: string;
+    /** The most recent messages, oldest-first — what the human needs to judge. */
+    recentMessages: Array<{
+      id: string;
+      /**
+       * Narrowed to the real `SupportMessageDirection` values rather than
+       * `string`: the UI decides "Customer" vs "AI" from this, and a loose
+       * `string` let a wrong literal through in a test fixture, which would
+       * have labelled every customer message as the AI.
+       */
+      direction: 'IN' | 'OUT';
+      body: string;
+      createdAt: string;
+    }>;
+  } | null;
+}
+
+/** POST /handoffs/:id/resolve body. */
+export interface ResolveHandoffRequestDto {
+  /** true = the AI may resume this conversation; false = close it. */
+  resume: boolean;
+  note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Marketing workspace
+//
+// The human-facing half of the Marketing AI Employee. The `postiz.*` skill
+// tools already write ScheduledPost/PublishedPost/SocialAccount rows, and the
+// reconciliation sweep already moves them between states — but nothing ever
+// SHOWED any of it to a person, so an AI could publish to a company's real
+// social accounts with no screen listing what it had queued or sent.
+// ---------------------------------------------------------------------------
+
+export type SocialAccountStatus = 'CONNECTED' | 'DISCONNECTED' | 'DEGRADED';
+
+export type ScheduledPostStatus =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'SCHEDULED'
+  | 'PUBLISHED'
+  | 'FAILED';
+
+export interface SocialAccountDto {
+  id: string;
+  /** Postiz provider identifier, e.g. "instagram", "linkedin". */
+  provider: string;
+  displayName: string | null;
+  status: SocialAccountStatus;
+  /** Set when this account belongs to one AI Employee rather than the company. */
+  employeeId: string | null;
+  externalAccountId: string | null;
+  createdAt: string;
+}
+
+export interface ScheduledPostDto {
+  id: string;
+  socialAccountId: string;
+  /** Denormalised for the list view, so one page load is one request. */
+  socialAccountProvider: string;
+  socialAccountName: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  content: string;
+  publishAt: string;
+  status: ScheduledPostStatus;
+  /**
+   * Null until the post has actually been handed to Postiz. A SCHEDULED row
+   * with no `postizPostId` would never publish and never reconcile, so the
+   * API refuses to create one — see `MarketingService.createPost`.
+   */
+  postizPostId: string | null;
+  /** Present once published: the live permalink the customer can check. */
+  permalink: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateScheduledPostDto {
+  socialAccountId: string;
+  content: string;
+  /** ISO datetime. Required when sending straight to Postiz. */
+  publishAt?: string;
+  campaignId?: string;
+  /**
+   * false (default) saves a local DRAFT only — nothing reaches Postiz.
+   * true hands it to Postiz immediately and stores the returned id.
+   */
+  schedule?: boolean;
+}
+
+export interface UpdateScheduledPostDto {
+  content?: string;
+  publishAt?: string;
+  campaignId?: string | null;
+}
+
+export interface CampaignDto {
+  id: string;
+  name: string;
+  goal: string | null;
+  status: string;
+  aiEmployeeId: string | null;
+  /** How many scheduled posts belong to this campaign. */
+  postCount: number;
+  createdAt: string;
+}
+
+export interface CreateCampaignDto {
+  name: string;
+  goal?: string;
+  aiEmployeeId?: string;
+}
+
+export interface UpdateCampaignDto {
+  name?: string;
+  goal?: string | null;
+  status?: string;
+}
+
+export interface MarketingAnalyticsSnapshotDto {
+  id: string;
+  socialAccountId: string;
+  capturedAt: string;
+  metrics: Record<string, unknown>;
+}
+
+/** Result of importing connected accounts from the shared Postiz instance. */
+export interface ImportSocialAccountsResultDto {
+  imported: number;
+  updated: number;
+  accounts: SocialAccountDto[];
 }

@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { HandoffRequest } from '@prisma/client';
+import type { HandoffRequestDto } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import {
   ApprovalRoutingService,
@@ -64,15 +65,35 @@ export class HandoffService {
 
     // EMPLOYEE_MANAGER is the pragmatic default routing target — no new
     // per-company handoff-routing config surface exists yet (unlike
-    // ApprovalRoutingConfig, which is authored per-employee/per-node). If a
-    // manager isn't set, resolveStep still returns a well-formed
-    // ANY_ADMIN-shaped-but-empty assignee and canDecide/notifications both
-    // already fall back to the admins in that case.
+    // ApprovalRoutingConfig, which is authored per-employee/per-node).
     const resolved = await this.routing.resolveStep(
       companyId,
       { rule: 'EMPLOYEE_MANAGER' },
       { employeeId },
     );
+
+    // 🔴 A handoff routed to nobody is a conversation nobody can ever rescue.
+    //
+    // `resolveStep('EMPLOYEE_MANAGER')` returns an EMPTY assignee when the AI
+    // Employee has no `managerUserId` (the common case — it is an optional
+    // field), and `canDecide('EMPLOYEE_MANAGER')` requires a CONCRETE
+    // `assigneeUserId`. Storing that pair as-is produced a handoff that
+    // returned false for every user in the company, owners included, while
+    // the conversation sat ESCALATED with the reply guard blocking the AI.
+    // The customer waits for a human who is structurally unable to answer.
+    //
+    // Approvals survive the same dead end because the §8.2 SLA sweep escalates
+    // a breached row onward; handoffs have no sweep, so the dead end here is
+    // permanent. Fall back to ANY_ADMIN — still a real authorization boundary
+    // (admins only, enforced by the same `canDecide`), just never an empty set.
+    const routed =
+      resolved.assigneeUserId != null
+        ? resolved
+        : {
+            approverRuleType: 'ANY_ADMIN' as const,
+            approverRuleValue: undefined,
+            assigneeUserId: undefined,
+          };
 
     const handoff = await this.prisma.$transaction(async (tx) => {
       const created = await tx.handoffRequest.create({
@@ -82,9 +103,9 @@ export class HandoffService {
           employeeId,
           reason,
           status: 'PENDING',
-          approverRuleType: resolved.approverRuleType,
-          approverRuleValue: resolved.approverRuleValue ?? null,
-          assigneeUserId: resolved.assigneeUserId ?? null,
+          approverRuleType: routed.approverRuleType,
+          approverRuleValue: routed.approverRuleValue ?? null,
+          assigneeUserId: routed.assigneeUserId ?? null,
         },
       });
       await tx.supportConversation.update({
@@ -100,6 +121,99 @@ export class HandoffService {
     });
 
     return handoff;
+  }
+
+  /**
+   * The human handoff inbox.
+   *
+   * ## Why this exists
+   *
+   * `escalate()` and `resolve()` both shipped, and nothing listed the queue in
+   * between — so an AI could step back from a customer conversation and the
+   * human it was handed to had no screen showing it. An escalation nobody can
+   * see is the same defect class as an approval nobody can see.
+   *
+   * Returns the WHOLE tenant queue with a per-row `canResolve`, rather than
+   * pre-filtering to the caller. Mirrors `ApprovalService.list`'s
+   * `assignedToMe` option in its rules but not its default: a support queue
+   * that hides work from a colleague who could pick it up is a queue that
+   * stalls. `resolve()` still enforces eligibility server-side.
+   *
+   * `recentMessages` is bounded to the last 5 per conversation: enough for a
+   * human to judge the escalation without turning the inbox into an unbounded
+   * transcript dump.
+   */
+  async list(
+    companyId: string,
+    userId: string,
+    opts: { status?: 'PENDING' | 'RESOLVED' | 'CANCELLED'; assignedToMe?: boolean } = {},
+  ): Promise<HandoffRequestDto[]> {
+    const rows = await this.prisma.handoffRequest.findMany({
+      where: { companyId, ...(opts.status ? { status: opts.status } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        conversation: {
+          select: {
+            id: true,
+            contactEmail: true,
+            status: true,
+            lastMessageAt: true,
+            messages: {
+              // `id` breaks the tie: two messages written in the same
+              // statement share `createdAt` to the microsecond, and without a
+              // second key Postgres is free to return them either way round —
+              // a transcript that reads backwards misleads the human deciding
+              // what to do. cuids are time-ordered, so this is stable.
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+              take: 5,
+              select: {
+                id: true,
+                direction: true,
+                content: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const decider = await this.loadDecider(companyId, userId);
+    const mapped = rows.map((row) => ({
+      id: row.id,
+      companyId: row.companyId,
+      conversationId: row.conversationId,
+      employeeId: row.employeeId,
+      reason: row.reason,
+      status: row.status,
+      assigneeUserId: row.assigneeUserId,
+      resolvedById: row.resolvedById,
+      resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
+      note: row.note,
+      createdAt: row.createdAt.toISOString(),
+      canResolve: Boolean(decider) && this.canResolve(decider as DeciderUser, row),
+      conversation: row.conversation
+        ? {
+            id: row.conversation.id,
+            contactEmail: row.conversation.contactEmail,
+            status: row.conversation.status,
+            lastMessageAt: row.conversation.lastMessageAt.toISOString(),
+            // Fetched newest-first for the `take: 5` bound, shown oldest-first
+            // because that is how a conversation reads.
+            recentMessages: [...row.conversation.messages]
+              .reverse()
+              .map((m) => ({
+                id: m.id,
+                direction: m.direction,
+                body: m.content,
+                createdAt: m.createdAt.toISOString(),
+              })),
+          }
+        : null,
+    }));
+
+    return opts.assignedToMe ? mapped.filter((h) => h.canResolve) : mapped;
   }
 
   /** May THIS user resolve THIS handoff? Reuses the SAME rule semantics as approvals. */

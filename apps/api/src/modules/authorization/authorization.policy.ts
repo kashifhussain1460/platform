@@ -52,6 +52,14 @@ const MIN_ROLE: Record<AuthzAction, Role> = {
   // HR holds special-category PII: OWNER/ADMIN only, READS INCLUDED.
   'hr:read': 'ADMIN',
   'hr:manage': 'ADMIN',
+  // Marketing is the mirror image of HR: the READ is deliberately open to any
+  // member, because the whole point of the workspace is that a person can see
+  // what the AI has queued and sent on the company's public accounts, and a
+  // read restricted to admins recreates the blind spot it was built to close.
+  // The WRITE is admin-only and stricter than knowledge:manage — publishing to
+  // a real social account is public and irreversible.
+  'marketing:read': 'MEMBER',
+  'marketing:manage': 'ADMIN',
 };
 
 export function roleSatisfies(role: Role, minimum: Role): boolean {

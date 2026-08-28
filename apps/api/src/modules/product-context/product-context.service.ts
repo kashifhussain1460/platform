@@ -36,6 +36,10 @@ const AREA_AUTHZ_ACTION: Partial<Record<ProductArea, AuthzAction>> = {
   WORKFLOWS: 'workflow:read',
   SCHEDULES: 'workflow:read',
   ORGANIZATION: 'organization:manage',
+  // `marketing:read` has a MEMBER floor and the controller really does enforce
+  // it, so unlike SKILLS/RUNS below this mapping advertises an enforcement
+  // that exists.
+  MARKETING: 'marketing:read',
   // SKILLS is deliberately ABSENT.
   //
   // It was mapped to `skill:connect`, which has an ADMIN floor — but

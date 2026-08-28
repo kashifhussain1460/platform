@@ -73,7 +73,12 @@ export const CORE_AREAS: readonly ProductArea[] = [
 export const EMPLOYEE_ROLE_AREAS: Readonly<Record<EmployeeRole, readonly ProductArea[]>> = {
   RECRUITER: ['INTERVIEW_SCHEDULING'],
   HR: ['INTERVIEW_SCHEDULING'],
-  MARKETING: [],
+  // The marketing workspace is where a human sees what the Marketing AI has
+  // queued and published on the company's real social accounts. It appears
+  // only once such an employee is hired — a company with no Marketing AI has
+  // nothing to show there, and an empty screen in the sidebar is the exact
+  // noise this table exists to remove.
+  MARKETING: ['MARKETING'],
   SUPPORT: [],
   SALES: [],
   ACCOUNTANT: [],

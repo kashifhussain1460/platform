@@ -21,6 +21,7 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { HandoffModule } from './modules/handoff/handoff.module';
 import { SkillsModule } from './modules/skills/skills.module';
 import { MarketingModule } from './modules/engines/marketing/marketing.module';
+import { MarketingWorkspaceModule } from './modules/marketing/marketing-workspace.module';
 import { SupportModule } from './modules/engines/support/support.module';
 import { PmModule } from './modules/engines/pm/pm.module';
 import { WorkflowsModule } from './modules/workflows/workflows.module';
@@ -68,6 +69,7 @@ import { HealthModule } from './modules/health/health.module';
     SchedulingModule,
     SkillsModule,
     MarketingModule,
+    MarketingWorkspaceModule,
     SupportModule,
     PmModule,
     WorkflowsModule,

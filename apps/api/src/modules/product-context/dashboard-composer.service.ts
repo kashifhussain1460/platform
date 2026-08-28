@@ -223,9 +223,10 @@ export class DashboardComposerService {
 
     const metrics: WidgetMetricDto[] = [
       { label: 'Open conversations', value: open, href: null },
-      { label: 'Escalated', value: escalated, href: null, attention: escalated > 0 },
+      { label: 'Escalated', value: escalated, href: '/approvals?tab=handoffs', attention: escalated > 0 },
       { label: 'Resolved (7d)', value: resolved, href: null },
-      { label: 'Waiting for a human', value: pendingHandoffs, href: null, attention: pendingHandoffs > 0 },
+      // Links at the queue it is counting — the handoff inbox now exists.
+      { label: 'Waiting for a human', value: pendingHandoffs, href: '/approvals?tab=handoffs', attention: pendingHandoffs > 0 },
     ];
 
     return {

@@ -77,7 +77,12 @@ describe('Support engine — schema', () => {
     const account = await prisma.chatwootAccount.create({
       data: {
         companyId: company.id,
-        chatwootAccountId: '1',
+        // `chatwootAccountId` is GLOBALLY unique (S-07: it is the webhook's own
+        // authentication lookup key), so a hardcoded '1' can exist only once in
+        // the entire database. This file created '1' twice and never cleaned
+        // up, so it collided with itself on a clean run and with its own
+        // leftovers on every run after. Unique per fixture, like reality.
+        chatwootAccountId: `cw-schema-${Date.now()}`,
         agentBotId: '1',
         agentBotToken: 'encrypted-placeholder',
         webhookSecret: 'encrypted-placeholder',
@@ -176,7 +181,7 @@ describeIfDb('Support engine — full tool-calling loop', () => {
     const chatwootAccount = await prisma.chatwootAccount.create({
       data: {
         companyId,
-        chatwootAccountId: '1',
+        chatwootAccountId: `cw-loop-${Date.now()}`,
         agentBotId: '1',
         agentBotToken: 'encrypted-placeholder',
         webhookSecret: 'encrypted-placeholder',
@@ -302,7 +307,11 @@ describeIfDb('Support engine — workflow TOOL_ACTION approval gate (S-04, S-01)
 
   const pollRun = async (token: string, id: string): Promise<{ status: string }> => {
     let run = { status: 'PENDING' };
-    for (let i = 0; i < 40 && !['WAITING', 'COMPLETED', 'FAILED'].includes(run.status); i++) {
+    // 10s, not 4s. The S-01 case runs a full AI_EMPLOYEE_STEP before it reaches
+    // the gate, and under queue contention that overran a 4s budget — the run
+    // was still RUNNING when polling gave up, then settled on WAITING moments
+    // later. The assertion was right and the patience was wrong.
+    for (let i = 0; i < 100 && !['WAITING', 'COMPLETED', 'FAILED'].includes(run.status); i++) {
       await new Promise((r) => setTimeout(r, 100));
       const got = await request(app.getHttpServer())
         .get(`/workflows/runs/${id}`)

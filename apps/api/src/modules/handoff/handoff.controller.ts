@@ -1,5 +1,6 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import type { HandoffRequestDto } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/auth.provider';
@@ -51,6 +52,29 @@ export class HandoffController {
       conversationId,
       employeeId: dto.employeeId,
       reason: dto.reason,
+    });
+  }
+
+  /**
+   * The human handoff inbox.
+   *
+   * Open to any authenticated member: the whole tenant queue is returned with
+   * a per-row `canResolve` so a colleague can SEE work they cannot personally
+   * action, which is how a support queue stays unblocked. `?assignedToMe=true`
+   * narrows it to this user's own eligible items; `?status=` filters.
+   *
+   * Eligibility is still enforced where it matters — on `resolve` below.
+   */
+  @Get('handoffs')
+  list(
+    @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: 'PENDING' | 'RESOLVED' | 'CANCELLED',
+    @Query('assignedToMe') assignedToMe?: string,
+  ): Promise<HandoffRequestDto[]> {
+    return this.handoff.list(companyId, user.userId, {
+      status,
+      assignedToMe: assignedToMe === 'true',
     });
   }
 
