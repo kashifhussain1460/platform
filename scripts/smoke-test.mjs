@@ -115,6 +115,52 @@ for (const r of results) {
   );
 }
 
+/**
+ * Optional web check — skipped unless WEB_BASE_URL is set.
+ *
+ * On 2026-08-29 every API check above passed while the SITE was broken: the
+ * frontend had been built with `NEXT_PUBLIC_API_URL="[SENSITIVE]"` inlined (see
+ * scripts/assert-build-env.mjs), so the browser posted to
+ * `/[SENSITIVE]/auth/register` and registration 404'd. A green API smoke test
+ * said nothing about it.
+ *
+ * `assert-build-env.mjs` now stops that before the build. This is the
+ * after-the-fact half: it reads what was actually shipped.
+ */
+const webUrl = (process.env.WEB_BASE_URL || '').replace(/\/$/, '');
+if (webUrl) {
+  console.log(`\nWeb check against ${webUrl}\n`);
+  try {
+    const res = await fetch(`${webUrl}/register`, { redirect: 'follow' });
+    const html = await res.text();
+    // The value is inlined into a JS chunk, not the HTML, so follow the chunks.
+    const chunks = [...html.matchAll(/\/_next\/static\/[^"']+\.js/g)]
+      .map((m) => m[0])
+      .slice(0, 20);
+    let leaked = false;
+    for (const c of new Set(chunks)) {
+      const js = await fetch(`${webUrl}${c}`).then((r) => r.text());
+      if (js.includes('[SENSITIVE]')) {
+        leaked = true;
+        console.log(`  FAIL  "[SENSITIVE]" is baked into ${c}`);
+        break;
+      }
+    }
+    if (leaked) {
+      console.log(
+        '\n  A Vercel variable marked Sensitive was inlined into the client\n' +
+          '  bundle as the literal string "[SENSITIVE]". Turn OFF "Sensitive"\n' +
+          '  for the NEXT_PUBLIC_* variables and redeploy.\n',
+      );
+      process.exit(1);
+    }
+    console.log(`  ok    ${res.status}     /register served, no redacted values in ${chunks.length} chunk(s)`);
+  } catch (err) {
+    console.log(`  FAIL  could not check the site: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 const failed = results.filter((r) => !r.ok);
 if (failed.length === 0) {
   console.log(`\n  All ${results.length} checks passed.\n`);

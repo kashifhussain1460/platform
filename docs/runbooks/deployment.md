@@ -98,6 +98,26 @@ Variables (not secrets):
 | Variable | Value |
 |---|---|
 | `PRODUCTION_API_URL` | `https://api.orlixa.io` |
+| `PRODUCTION_WEB_URL` | `https://www.orlixa.io` (optional; enables the smoke test's web half) |
+
+> ### Never mark a `NEXT_PUBLIC_*` variable "Sensitive"
+>
+> `vercel pull` returns the literal string `[SENSITIVE]` for Sensitive
+> variables, and `vercel build` inlines that into the client bundle. On
+> 2026-08-29 `NEXT_PUBLIC_API_URL` was Sensitive, so the shipped JavaScript
+> posted to `https://www.orlixa.io/[SENSITIVE]/auth/register` and registration
+> 404'd — with a fully green pipeline and a passing API smoke test.
+>
+> This never happened before the pipeline existed because Vercel's own build
+> container has the real values; only builds running elsewhere are affected.
+>
+> A `NEXT_PUBLIC_*` value is compiled into JavaScript served to every visitor,
+> so marking it Sensitive buys no secrecy at all. **Always unmark it** — never
+> work around the guard. Runtime-only variables (everything the API reads via
+> ConfigService) should stay Sensitive; Vercel injects those properly.
+>
+> `scripts/assert-build-env.mjs` runs between `pull` and `build` in both deploy
+> jobs and fails the deploy if this recurs.
 
 ### 2. Vercel environment variables on `platform-api`
 

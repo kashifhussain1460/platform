@@ -329,6 +329,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+      # A Sensitive variable comes back as the literal "[SENSITIVE]" from
+      # `vercel pull`, and Next.js would inline that string into the client
+      # bundle. Catch it BEFORE building rather than after users hit a 404.
+      - run: node scripts/assert-build-env.mjs .vercel/.env.production.local
       - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
       - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
 
@@ -356,6 +360,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+      # A Sensitive variable comes back as the literal "[SENSITIVE]" from
+      # `vercel pull`, and Next.js would inline that string into the client
+      # bundle. Catch it BEFORE building rather than after users hit a 404.
+      - run: node scripts/assert-build-env.mjs .vercel/.env.production.local
       - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
       - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
 
@@ -383,4 +391,9 @@ jobs:
       - name: Smoke test
         env:
           API_BASE_URL: ${{ vars.PRODUCTION_API_URL }}
+          # Optional: the web half is skipped when this is unset. It reads what
+          # was actually SHIPPED to the browser, because on 2026-08-29 every API
+          # check below passed while the site was broken — the bundle had
+          # `NEXT_PUBLIC_API_URL="[SENSITIVE]"` inlined and registration 404'd.
+          WEB_BASE_URL: ${{ vars.PRODUCTION_WEB_URL }}
         run: node scripts/smoke-test.mjs
