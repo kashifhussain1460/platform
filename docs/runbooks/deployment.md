@@ -222,7 +222,64 @@ day.
 
 ---
 
-## 7. Things to know
+## 7. Scheduled jobs are currently OFF
+
+`apps/api/vercel.json` holds all 17 cron definitions under the key
+**`//crons-disabled`** rather than `crons`. Vercel ignores unknown keys, so they
+are preserved in version control but not registered.
+
+**Why:** the Vercel account is on the **Hobby** plan, which rejects any cron
+running more than once per day. Nine of the seventeen are sub-daily, so the
+deploy fails outright:
+
+```
+Error: Hobby accounts are limited to daily cron jobs.
+This cron expression (* * * * *) would run more than once per day.
+```
+
+This is not a regression from the deployment pipeline. The last successful
+production deploy (27 July) had **zero** crons in `vercel.json`; every one was
+added during the four weeks that never shipped.
+
+**What is switched off while they stay disabled.** With
+`WORKFLOW_EXECUTION_MODE=inline` there is no BullMQ worker, so these routes ARE
+the scheduler. Until they run again:
+
+| Job | Frequency | Consequence of it not running |
+|---|---|---|
+| `workflow-schedules` | every min | No scheduled workflow ever fires |
+| `gmail-poll`, `imap-poll` | every min | No inbound email is picked up |
+| `workflow-watchdog` | 5 min | A stuck run is never reaped |
+| `approval-sla` | 5 min | Approvals never escalate or time out |
+| `connector-reconcile` | 5 min | A dead connector is never marked disconnected |
+| `marketing-sync` | 10 min | Scheduled posts never reconcile to PUBLISHED |
+| `credit-reservation-sweep` | 5 min | Credit reservations are never released |
+| `alerts` | 15 min | Nobody is paged |
+| 8 daily jobs | daily | Retention, credit renewal, reconciliation, rollups all stop |
+
+Request/response traffic — signup, login, chat, the UI — is unaffected.
+
+### Re-enabling
+
+**Option A — Vercel Pro (~$20/month).** Rename `//crons-disabled` back to
+`crons`, delete the `//crons` note, redeploy. Nothing else changes.
+
+**Option B — external scheduler (free).** The routes were designed for this:
+`/admin/cron/:job` authenticates with a shared secret, sent as `X-Cron-Secret`
+or `Authorization: Bearer`. Point cron-job.org or Upstash QStash at each path
+with the `CRON_SECRET` value, keeping the schedules listed in
+`//crons-disabled`. Costs nothing; 17 endpoints to configure and watch outside
+Vercel.
+
+**Option C — run a worker.** Deploy `main.ts` as one always-on process with
+`QUEUE_WORKERS_ENABLED` unset and set `WORKFLOW_EXECUTION_MODE=queue`. The
+BullMQ repeatables then drive this work and the cron routes are unnecessary.
+Biggest change, but it is the shape the durable engine was designed for.
+
+Unverified: Hobby may also cap the *number* of cron jobs, not just frequency.
+If Option A is taken and a count error appears, that is why.
+
+## 8. Things to know
 
 - **`@vaep/types` is a built CommonJS package.** Anything that typechecks or
   lints the API must run `pnpm --filter @vaep/types build` first, or it fails

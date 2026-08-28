@@ -2,7 +2,12 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "cd ../.. && pnpm --filter @vaep/api exec prisma generate && npx turbo run build --filter=@vaep/api...",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile --prod=false",
-  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ],
   "git": {
     "deploymentEnabled": {
       "master": false
@@ -13,23 +18,75 @@
       "maxDuration": 300
     }
   },
-  "crons": [
-    { "path": "/admin/cron/workflow-schedules", "schedule": "* * * * *" },
-    { "path": "/admin/cron/workflow-watchdog", "schedule": "*/5 * * * *" },
-    { "path": "/admin/cron/approval-sla", "schedule": "*/5 * * * *" },
-    { "path": "/admin/cron/hr-retention", "schedule": "0 3 * * *" },
-    { "path": "/admin/cron/audit-retention", "schedule": "30 3 * * *" },
-    { "path": "/admin/cron/data-retention", "schedule": "0 4 * * *" },
-    { "path": "/admin/cron/alerts", "schedule": "*/15 * * * *" },
-    { "path": "/admin/cron/gmail-poll", "schedule": "* * * * *" },
-    { "path": "/admin/cron/connector-reconcile", "schedule": "*/5 * * * *" },
-    { "path": "/admin/cron/marketing-sync", "schedule": "*/10 * * * *" },
-    { "path": "/admin/cron/marketing-analytics", "schedule": "0 5 * * *" },
-    { "path": "/admin/cron/imap-poll", "schedule": "* * * * *" },
-    { "path": "/admin/cron/credit-reservation-sweep", "schedule": "*/5 * * * *" },
-    { "path": "/admin/cron/subscription-credit-renewal", "schedule": "15 2 * * *" },
-    { "path": "/admin/cron/enterprise-credit-agreement-renewal", "schedule": "30 2 * * *" },
-    { "path": "/admin/cron/credit-reconciliation", "schedule": "0 6 * * *" },
-    { "path": "/admin/cron/credit-finance-rollup", "schedule": "30 6 * * *" }
+  "//crons": "DISABLED 2026-08-28: the Vercel account is on the Hobby plan, which rejects any cron running more than once per day -- the deploy fails with 'Hobby accounts are limited to daily cron jobs'. 9 of these 17 are sub-daily. KEPT HERE, NOT DELETED: with WORKFLOW_EXECUTION_MODE=inline there is no BullMQ worker, so these routes ARE the scheduler -- without them no scheduled workflow fires, no inbound mail is polled, no approval SLA escalates and no stuck run is reaped. To re-enable: upgrade to Pro and rename this key back to 'crons', or point an external scheduler (cron-job.org, Upstash QStash) at these paths using CRON_SECRET via the X-Cron-Secret header. See docs/runbooks/deployment.md.",
+  "//crons-disabled": [
+    {
+      "path": "/admin/cron/workflow-schedules",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/admin/cron/workflow-watchdog",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/admin/cron/approval-sla",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/admin/cron/hr-retention",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/admin/cron/audit-retention",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/admin/cron/data-retention",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/admin/cron/alerts",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/admin/cron/gmail-poll",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/admin/cron/connector-reconcile",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/admin/cron/marketing-sync",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/admin/cron/marketing-analytics",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/admin/cron/imap-poll",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/admin/cron/credit-reservation-sweep",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/admin/cron/subscription-credit-renewal",
+      "schedule": "15 2 * * *"
+    },
+    {
+      "path": "/admin/cron/enterprise-credit-agreement-renewal",
+      "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/admin/cron/credit-reconciliation",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/admin/cron/credit-finance-rollup",
+      "schedule": "30 6 * * *"
+    }
   ]
 }
