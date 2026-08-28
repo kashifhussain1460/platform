@@ -273,9 +273,18 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_API }}
     steps:
       - uses: actions/checkout@v4
+      # pnpm must be on PATH before `vercel build`. Unlike a Vercel build
+      # container, a GitHub runner has no package manager pre-installed, and
+      # `vercel build` runs this repo's OWN installCommand/buildCommand from
+      # vercel.json — both of which start with `pnpm`. Without this the build
+      # dies on "pnpm: command not found".
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
       - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
       - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
       - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
@@ -291,9 +300,18 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_WEB }}
     steps:
       - uses: actions/checkout@v4
+      # pnpm must be on PATH before `vercel build`. Unlike a Vercel build
+      # container, a GitHub runner has no package manager pre-installed, and
+      # `vercel build` runs this repo's OWN installCommand/buildCommand from
+      # vercel.json — both of which start with `pnpm`. Without this the build
+      # dies on "pnpm: command not found".
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
       - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
       - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
       - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
