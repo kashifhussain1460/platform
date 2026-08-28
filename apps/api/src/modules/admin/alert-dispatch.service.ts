@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Redis } from 'ioredis';
+import { asFetchResponse } from '../../common/http/fetch-response';
 import { MetricsRegistry } from '../../common/observability/metrics.registry';
 import { RESILIENCE_REDIS } from '../../common/resilience/redis.provider';
 import { ALERT_RULES, type AlertRule } from './alert-rules';
@@ -137,7 +138,14 @@ export class AlertDispatchService {
 
     try {
       const critical = firing.filter((f) => f.severity === 'critical').length;
-      const res = await fetch(url, {
+      // `asFetchResponse`, not the ambient `Response` — see fetch-response.ts.
+      // @types/node's fetch typings sit behind a typesVersions redirect, and
+      // Vercel's Node function type-check pass resolves a different tsconfig
+      // than `nest build`, where `ok`/`status` vanish. This was the ONE fetch
+      // call site in the codebase still trusting the global, and it failed the
+      // production deploy while every local build stayed green.
+      const res = asFetchResponse(
+        await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         // `text` is what Slack-compatible receivers render; `alerts` carries the
@@ -152,8 +160,9 @@ export class AlertDispatchService {
               .join('\n'),
           alerts: firing,
         }),
-        signal: AbortSignal.timeout(10_000),
-      });
+          signal: AbortSignal.timeout(10_000),
+        }),
+      );
       if (!res.ok) {
         // A 4xx/5xx from the receiver means the page did not land. Saying
         // "delivered" here would be the exact failure this service exists to fix.

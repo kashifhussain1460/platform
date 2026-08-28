@@ -1,3 +1,4 @@
+import { asFetchResponse } from '../../../common/http/fetch-response';
 import { googleApiGet, classifyGoogleError, accessTokenFrom } from './google-api.util';
 import type {
   AdapterCheck,
@@ -59,15 +60,17 @@ export const gdriveAdapter: SkillProviderAdapter = {
     let created: { id?: string; error?: { message?: string } };
     let status = 0;
     try {
-      const res = await fetch(UPLOAD_URL, {
+      const res = asFetchResponse(
+        await fetch(UPLOAD_URL, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${token}`,
           'content-type': `multipart/related; boundary=${boundary}`,
         },
-        body,
-        signal: controller.signal,
-      });
+          body,
+          signal: controller.signal,
+        }),
+      );
       status = res.status;
       created = (await res.json().catch(() => ({}))) as typeof created;
       if (!res.ok || !created.id) {
@@ -104,9 +107,11 @@ async function deleteFile(token: string, fileId: string): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
   try {
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
-      { method: 'DELETE', headers: { authorization: `Bearer ${token}` }, signal: controller.signal },
+    const res = asFetchResponse(
+      await fetch(
+        `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
+        { method: 'DELETE', headers: { authorization: `Bearer ${token}` }, signal: controller.signal },
+      ),
     );
     return res.ok || res.status === 404;
   } catch {

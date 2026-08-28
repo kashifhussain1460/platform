@@ -1,3 +1,4 @@
+import { asFetchResponse } from '../../../common/http/fetch-response';
 import { googleApiGet, classifyGoogleError, accessTokenFrom } from './google-api.util';
 import type {
   AdapterCheck,
@@ -74,12 +75,14 @@ export const gmailAdapter: SkillProviderAdapter = {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
     try {
-      const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ raw: buildTestMessage(to) }),
-        signal: controller.signal,
-      });
+      const res = asFetchResponse(
+        await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ raw: buildTestMessage(to) }),
+          signal: controller.signal,
+        }),
+      );
       const body = (await res.json().catch(() => ({}))) as {
         id?: string;
         error?: { status?: string; message?: string };
