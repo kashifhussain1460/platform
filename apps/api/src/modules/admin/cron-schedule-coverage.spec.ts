@@ -26,33 +26,74 @@ import { CRON_JOBS } from './cron.controller';
  */
 describe('cron schedule coverage (CronController ↔ vercel.json)', () => {
   const vercelJsonPath = join(__dirname, '..', '..', '..', 'vercel.json');
+  const parkedPath = join(__dirname, '..', '..', '..', 'vercel.crons.json');
+  type Cron = { path: string; schedule: string };
   const manifest = JSON.parse(readFileSync(vercelJsonPath, 'utf8')) as {
-    crons?: Array<{ path: string; schedule: string }>;
-    '//crons-disabled'?: Array<{ path: string; schedule: string }>;
+    crons?: Cron[];
   };
+  const parked = JSON.parse(readFileSync(parkedPath, 'utf8')) as { crons?: Cron[] };
 
   /**
-   * The definitions live under `crons` when they are registered with Vercel,
-   * and under `//crons-disabled` while they are parked — currently the case,
-   * because the Hobby plan rejects any cron running more than once per day
-   * (see docs/runbooks/deployment.md §7).
+   * The definitions live in `vercel.json` under `crons` when registered with
+   * Vercel, and in the `vercel.crons.json` sidecar while parked — currently the
+   * case, because the Hobby plan rejects any cron running more than once per
+   * day (docs/runbooks/deployment.md §7).
    *
-   * This guard deliberately reads WHICHEVER key holds them. Parking the
-   * schedules is a billing decision; letting their CONTENT rot is not. The day
-   * someone re-enables them by renaming the key, the set must already be
-   * complete, typo-free and correctly ordered — which is exactly what the
-   * assertions below check.
+   * A sidecar rather than a commented-out key because **vercel.json has a
+   * CLOSED schema** (`additionalProperties: false`): `vercel deploy` rejects any
+   * unrecognised top-level property, and JSON has no comments. `vercel build`
+   * does NOT enforce this, so a stray key passes the build and only blows up at
+   * deploy — which is exactly how it was discovered.
+   *
+   * This guard reads WHICHEVER place holds them. Parking the schedules is a
+   * billing decision; letting their content rot is not. On the day someone
+   * re-enables them, the set must already be complete, typo-free and correctly
+   * ordered — which is what the assertions below check.
    */
-  const crons = manifest.crons ?? manifest['//crons-disabled'] ?? [];
+  const crons = manifest.crons ?? parked.crons ?? [];
   const scheduledJobs = crons.map((c) => c.path.replace('/admin/cron/', ''));
 
-  it('keeps the schedules under exactly one key, never both', () => {
-    // Two copies would drift, and the parked one is the copy a future reader
-    // trusts. Renaming to re-enable must MOVE the list, not duplicate it.
+  it('keeps the schedules in exactly one place, never both', () => {
+    // Two copies would drift, and the parked one is what a future reader
+    // trusts. Re-enabling must MOVE the list into vercel.json, not copy it.
     const active = manifest.crons !== undefined;
-    const parked = manifest['//crons-disabled'] !== undefined;
-    expect(active && parked).toBe(false);
-    expect(active || parked).toBe(true);
+    const isParked = parked.crons !== undefined;
+    expect(active && isParked).toBe(false);
+    expect(active || isParked).toBe(true);
+  });
+
+  it('keeps vercel.json free of keys Vercel does not recognise', () => {
+    // `vercel.json` validates against a CLOSED schema (additionalProperties:
+    // false). Anything unrecognised — including a `//`-prefixed pseudo-comment
+    // — is rejected at DEPLOY time with "should NOT have additional property".
+    //
+    // This is worth a test because `vercel build` does not enforce it: a bad
+    // key builds cleanly and then fails the deploy, which is a slow and
+    // confusing way to find out. That is precisely what happened when the
+    // parked crons were first stashed under a `//crons` key.
+    const allowed = new Set([
+      '$schema',
+      'buildCommand',
+      'installCommand',
+      'devCommand',
+      'outputDirectory',
+      'framework',
+      'functions',
+      'rewrites',
+      'redirects',
+      'headers',
+      'crons',
+      'git',
+      'regions',
+      'ignoreCommand',
+      'cleanUrls',
+      'trailingSlash',
+      'images',
+      'public',
+      'fluid',
+    ]);
+    const unknown = Object.keys(manifest).filter((k) => !allowed.has(k));
+    expect(unknown).toEqual([]);
   });
 
   it('schedules every job the controller can run', () => {

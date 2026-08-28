@@ -30,17 +30,33 @@ The pipeline below exists to convert each of those silences into a red build.
 
 ```
 preflight ─┐
-           ├─→ migrate ─→ deploy-api ─→ deploy-web ─→ smoke
-test ──────┘
+quality  ──┼─→ migrate ─→ deploy-api ─→ deploy-web ─→ smoke
+test     ──┘
 ```
 
 | Job | Blocks on | Prevents |
 |---|---|---|
 | `preflight` | Missing/contradictory production config | The `123456` OTP class of bug |
+| `quality` | Lint or typecheck failure (both apps) | Deploying code that does not compile cleanly |
 | `test` | Unit + e2e + web tests on this exact commit | Shipping a regression |
 | `migrate` | `prisma migrate deploy` against production | Code deploying ahead of its schema |
 | `deploy-api` / `deploy-web` | Vercel build/deploy failure | — |
 | `smoke` | A route answering 404 on the live host | **The 32-day bug** |
+
+### One workflow per push
+
+`api-ci`, `web-ci` and `browser-e2e` run on **pull requests and manual dispatch
+only**. They used to run on push as well, so a single deployable commit ran the
+API e2e suite three times (twice via api-ci's engine matrix, once via deploy).
+
+Because this repo pushes straight to `master`, `deploy.yml` therefore has to
+carry the lint and typecheck those files used to provide — hence the `quality`
+job. Removing them without it would have meant deploying with neither.
+
+Not run on a master push, by choice: the deprecated `legacy_walk` engine leg
+(`continue-on-error`, knowingly red on approval RESUME, so it never gated
+anything) and the Playwright browser suite. Both run on any PR and via
+*Run workflow*.
 
 ### Why GitHub Actions deploys, not Vercel
 
@@ -224,9 +240,21 @@ day.
 
 ## 7. Scheduled jobs are currently OFF
 
-`apps/api/vercel.json` holds all 17 cron definitions under the key
-**`//crons-disabled`** rather than `crons`. Vercel ignores unknown keys, so they
-are preserved in version control but not registered.
+All 17 cron definitions live in **`apps/api/vercel.crons.json`**, a sidecar
+file Vercel never reads. They are preserved in version control but not
+registered.
+
+They are NOT a commented-out key inside `vercel.json`, because that file
+validates against a **closed schema** (`additionalProperties: false`):
+`vercel deploy` rejects any unrecognised top-level property —
+
+```
+Error: Invalid vercel.json - should NOT have additional property `//crons`.
+```
+
+— and JSON has no comment syntax. Note that **`vercel build` does not enforce
+this**, so a stray key builds cleanly and only fails at deploy. `pnpm --filter
+@vaep/api run test:unit` now guards against it.
 
 **Why:** the Vercel account is on the **Hobby** plan, which rejects any cron
 running more than once per day. Nine of the seventeen are sub-daily, so the
@@ -261,14 +289,16 @@ Request/response traffic — signup, login, chat, the UI — is unaffected.
 
 ### Re-enabling
 
-**Option A — Vercel Pro (~$20/month).** Rename `//crons-disabled` back to
-`crons`, delete the `//crons` note, redeploy. Nothing else changes.
+**Option A — Vercel Pro (~$20/month).** Move the `crons` array from
+`vercel.crons.json` into `vercel.json` under the key `crons`, then redeploy.
+Move it, do not copy it — `cron-schedule-coverage.spec.ts` asserts the list
+exists in exactly one place.
 
 **Option B — external scheduler (free).** The routes were designed for this:
 `/admin/cron/:job` authenticates with a shared secret, sent as `X-Cron-Secret`
 or `Authorization: Bearer`. Point cron-job.org or Upstash QStash at each path
 with the `CRON_SECRET` value, keeping the schedules listed in
-`//crons-disabled`. Costs nothing; 17 endpoints to configure and watch outside
+`vercel.crons.json`. Costs nothing; 17 endpoints to configure and watch outside
 Vercel.
 
 **Option C — run a worker.** Deploy `main.ts` as one always-on process with
