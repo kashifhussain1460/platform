@@ -78,7 +78,7 @@ jobs:
       - name: Pull production environment from Vercel
         run: |
           npx vercel@latest pull --yes --environment=production \
-            --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
+            --token="${{ secrets.VERCEL_TOKEN }}"
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_API }}
@@ -99,7 +99,7 @@ jobs:
           node -e "
           const fs=require('fs'),cp=require('child_process');
           const env={...process.env};
-          for (const l of fs.readFileSync('apps/api/.vercel/.env.production.local','utf8').split(/\r?\n/)) {
+          for (const l of fs.readFileSync('.vercel/.env.production.local','utf8').split(/\r?\n/)) {
             const m=l.match(/^([A-Z0-9_]+)=(.*)\$/);
             if (m) env[m[1]]=m[2].trim().replace(/^\"|\"\$/g,'');
           }
@@ -111,7 +111,7 @@ jobs:
       # workspace would carry it off the machine.
       - name: Remove pulled secrets
         if: always()
-        run: rm -rf apps/api/.vercel
+        run: rm -rf .vercel
 
   # ---------------------------------------------------------------------------
   # Gate 2 — do the tests pass on THIS commit?
@@ -258,6 +258,13 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Deploy. Only reachable once config, tests and schema are all good.
+  #
+  # NOTE: every `vercel` command runs from the REPOSITORY ROOT with no `--cwd`.
+  # Both projects already set a Root Directory (apps/api, apps/web) in their
+  # Vercel settings, so passing `--cwd apps/api` as well made the CLI apply it
+  # TWICE — `vercel deploy` went looking for apps/api/apps/api and failed.
+  # `vercel build` only WARNED about the same mistake, so it survived the build
+  # and surfaced a step later. Do not add `--cwd` back.
   # ---------------------------------------------------------------------------
   deploy-api:
     name: Deploy API
@@ -285,9 +292,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
-      - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
-      - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/api
+      - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+      - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+      - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
 
   deploy-web:
     name: Deploy web
@@ -312,9 +319,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
-      - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
-      - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}" --cwd apps/web
+      - run: npx vercel@latest pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+      - run: npx vercel@latest build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+      - run: npx vercel@latest deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
 
   # ---------------------------------------------------------------------------
   # Gate 4 — prove it. The step whose absence caused all of this.
