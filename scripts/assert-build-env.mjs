@@ -37,8 +37,38 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const REDACTED = '[SENSITIVE]';
+
+/**
+ * Is this variable actually read anywhere in the source?
+ *
+ * A redacted value only does damage if something INLINES it. The first version
+ * of this script failed on any `NEXT_PUBLIC_*`/`VITE_*` name and immediately
+ * blocked a deploy over `VITE_NEON_AUTH_URL` — a variable the Neon integration
+ * adds to the API project, which this repo never reads and which has no Vite
+ * app to inline it.
+ *
+ * That false positive matters more than it looks: a guard that blocks releases
+ * for non-problems is a guard someone deletes, and then the real bug returns.
+ * So the check is narrowed to variables the code genuinely references.
+ */
+function isReferencedInSource(name) {
+  try {
+    execFileSync('git', ['grep', '-q', '--fixed-strings', name, '--', 'apps', 'packages'], {
+      stdio: 'ignore',
+    });
+    return true;
+  } catch (err) {
+    // git grep exits 1 for "no match" — that is an answer, not a failure.
+    if (err.status === 1) return false;
+    // Anything else (no git, not a repo) means we cannot tell. Assume it IS
+    // referenced: a false alarm you can investigate beats shipping a bundle
+    // with "[SENSITIVE]" baked into it.
+    return true;
+  }
+}
 
 /**
  * Prefixes whose values are baked into build output rather than read at runtime.
@@ -64,6 +94,7 @@ try {
 }
 
 const redacted = [];
+const ignored = [];
 let checked = 0;
 
 for (const line of contents.split(/\r?\n/)) {
@@ -73,12 +104,21 @@ for (const line of contents.split(/\r?\n/)) {
   if (!BUILD_TIME_PREFIXES.some((p) => name.startsWith(p))) continue;
   checked += 1;
   const value = rawValue.trim().replace(/^"|"$/g, '');
-  if (value === REDACTED) redacted.push(name);
+  if (value !== REDACTED) continue;
+  if (isReferencedInSource(name)) redacted.push(name);
+  else ignored.push(name);
+}
+
+if (ignored.length > 0) {
+  console.log(
+    `assert-build-env: ignoring ${ignored.join(', ')} — redacted, but not read ` +
+      'anywhere in apps/ or packages/, so nothing can inline it.',
+  );
 }
 
 if (redacted.length === 0) {
   console.log(
-    `assert-build-env: ${checked} build-time variable(s) checked, none redacted.`,
+    `assert-build-env: ${checked} build-time variable(s) checked, none blocking.`,
   );
   process.exit(0);
 }
