@@ -77,7 +77,7 @@ export class StructuredLogger extends ConsoleLogger implements LoggerService {
   }
 }
 
-function safeStringify(value: unknown): string {
+function safeStringify (value: unknown): string {
   try {
     return JSON.stringify(value, (_k, v) =>
       typeof v === 'bigint' ? String(v) : v,
