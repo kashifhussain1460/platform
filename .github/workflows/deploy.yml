@@ -114,12 +114,48 @@ jobs:
         run: rm -rf .vercel
 
   # ---------------------------------------------------------------------------
-  # Gate 2 — do the tests pass on THIS commit?
+  # Gate 2 — lint + typecheck.
   #
-  # api-ci/web-ci already run on push. Re-running the API suite here is
-  # deliberate: `workflow_run` coupling between workflows is easy to get wrong
-  # (it can pass on a stale run), and "the tests passed for the code we are
-  # about to deploy" is the one guarantee worth paying a few minutes for.
+  # Separate from `test` and running in parallel with it, because it finishes in
+  # ~2 minutes against ~15 for the suite: a missing import should not cost a
+  # full e2e run to discover.
+  #
+  # It lives HERE rather than in api-ci/web-ci because those now run on pull
+  # requests only, and this repo pushes straight to master — so without this
+  # job a direct push would deploy with no lint or typecheck at all.
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Lint + typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # typescript-eslint's type-aware rules need @vaep/types built — it is a
+      # CommonJS package resolved from dist, not source.
+      - run: pnpm --filter @vaep/types build
+      - run: pnpm --filter @vaep/api run lint
+      - run: pnpm --filter @vaep/web run lint
+      - run: pnpm turbo run typecheck
+
+  # ---------------------------------------------------------------------------
+  # Gate 3 — do the tests pass on THIS commit?
+  #
+  # The full suite runs here and nowhere else on a push to master. Coupling to
+  # api-ci via `workflow_run` was rejected deliberately: it is easy to get wrong
+  # and can pass on a stale run, and "the tests passed for the exact code we are
+  # about to deploy" is the guarantee worth paying for.
+  #
+  # Only the durable engine. api-ci.yml runs the deprecated `legacy_walk` leg on
+  # pull requests; it is knowingly red on approval RESUME and must never be able
+  # to block a production deploy.
   # ---------------------------------------------------------------------------
   test:
     name: Tests
@@ -215,7 +251,7 @@ jobs:
   # ---------------------------------------------------------------------------
   migrate:
     name: Database migrations
-    needs: [preflight, test]
+    needs: [preflight, quality, test]
     if: ${{ !inputs.skip_migrations }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -268,10 +304,10 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-api:
     name: Deploy API
-    needs: [preflight, test, migrate]
+    needs: [preflight, quality, test, migrate]
     # `always()` + explicit result checks so that skip_migrations still deploys,
     # while a genuinely FAILED migration still blocks.
-    if: ${{ always() && needs.preflight.result == 'success' && needs.test.result == 'success' && needs.migrate.result != 'failure' && needs.migrate.result != 'cancelled' }}
+    if: ${{ always() && needs.preflight.result == 'success' && needs.quality.result == 'success' && needs.test.result == 'success' && needs.migrate.result != 'failure' && needs.migrate.result != 'cancelled' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production

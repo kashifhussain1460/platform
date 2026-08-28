@@ -10,13 +10,18 @@
 # A browser journey that stubs the API proves nothing about the product.
 name: Browser E2E
 
+# Runs on PULL REQUESTS and on demand -- NOT on push to master.
+#
+# Pushing to master triggers deploy.yml, which runs lint, typecheck and the
+# full test suite itself before it will deploy. Leaving `push` on here as well
+# meant every push ran the API e2e suite THREE times (twice via this file's
+# engine matrix, once via deploy.yml) for one deployable commit.
+#
+# The deploy pipeline is the gate that matters; this file is the fast feedback
+# loop for a branch that has not merged yet.
 on:
-  push:
-    branches: [main, master]
   pull_request:
     branches: [main, master]
-  # Browser journeys are slow; a manual trigger keeps them usable on a branch
-  # without waiting for a push to main.
   workflow_dispatch:
 
 env:

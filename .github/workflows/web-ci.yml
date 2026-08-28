@@ -1,13 +1,15 @@
 name: Web CI
 
+# Runs on PULL REQUESTS and on demand -- NOT on push to master.
+#
+# Pushing to master triggers deploy.yml, which runs lint, typecheck and the
+# full test suite itself before it will deploy. Leaving `push` on here as well
+# meant every push ran the API e2e suite THREE times (twice via this file's
+# engine matrix, once via deploy.yml) for one deployable commit.
+#
+# The deploy pipeline is the gate that matters; this file is the fast feedback
+# loop for a branch that has not merged yet.
 on:
-  push:
-    branches: [main, master]
-    paths:
-      - 'apps/web/**'
-      - 'packages/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/web-ci.yml'
   pull_request:
     branches: [main, master]
     paths:
@@ -15,6 +17,7 @@ on:
       - 'packages/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/web-ci.yml'
+  workflow_dispatch:
 
 env:
   NODE_VERSION: '22'
