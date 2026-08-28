@@ -28,9 +28,32 @@ describe('cron schedule coverage (CronController ↔ vercel.json)', () => {
   const vercelJsonPath = join(__dirname, '..', '..', '..', 'vercel.json');
   const manifest = JSON.parse(readFileSync(vercelJsonPath, 'utf8')) as {
     crons?: Array<{ path: string; schedule: string }>;
+    '//crons-disabled'?: Array<{ path: string; schedule: string }>;
   };
-  const crons = manifest.crons ?? [];
+
+  /**
+   * The definitions live under `crons` when they are registered with Vercel,
+   * and under `//crons-disabled` while they are parked — currently the case,
+   * because the Hobby plan rejects any cron running more than once per day
+   * (see docs/runbooks/deployment.md §7).
+   *
+   * This guard deliberately reads WHICHEVER key holds them. Parking the
+   * schedules is a billing decision; letting their CONTENT rot is not. The day
+   * someone re-enables them by renaming the key, the set must already be
+   * complete, typo-free and correctly ordered — which is exactly what the
+   * assertions below check.
+   */
+  const crons = manifest.crons ?? manifest['//crons-disabled'] ?? [];
   const scheduledJobs = crons.map((c) => c.path.replace('/admin/cron/', ''));
+
+  it('keeps the schedules under exactly one key, never both', () => {
+    // Two copies would drift, and the parked one is the copy a future reader
+    // trusts. Renaming to re-enable must MOVE the list, not duplicate it.
+    const active = manifest.crons !== undefined;
+    const parked = manifest['//crons-disabled'] !== undefined;
+    expect(active && parked).toBe(false);
+    expect(active || parked).toBe(true);
+  });
 
   it('schedules every job the controller can run', () => {
     const missing = CRON_JOBS.filter((job) => !scheduledJobs.includes(job));

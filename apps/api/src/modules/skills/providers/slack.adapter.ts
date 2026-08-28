@@ -26,7 +26,7 @@ async function slackFetch(url: string, init: NonNullable<Parameters<typeof fetch
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SLACK_TIMEOUT_MS);
   try {
-    const res = await asFetchResponse(await fetch(url, { ...init, signal: controller.signal }));
+    const res = asFetchResponse(await fetch(url, { ...init, signal: controller.signal }));
     return (await res.json()) as SlackResponse;
   } finally {
     clearTimeout(timer);

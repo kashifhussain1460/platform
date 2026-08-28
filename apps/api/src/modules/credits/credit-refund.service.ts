@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreditLedgerService } from './credit-ledger.service';
-import { decimalToNumber, type PrismaTransaction } from './credits.types';
+import { decimalToNumber } from './credits.types';
 
 export interface RefundInput {
   companyId: string;

@@ -7,10 +7,8 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { AgentRuntimeService } from '../src/modules/employees/runtime/agent-runtime.service';
 import { AiStepNodeHandler } from '../src/modules/workflows/engine/nodes/ai-step.handler';
-import { ToolExecutorService } from '../src/modules/employees/runtime/tool-executor.service';
 import { SkillsService } from '../src/modules/skills/skills.service';
 import { CreditLimitsService } from '../src/modules/credits/credit-limits.service';
-import { CreditBalanceService } from '../src/modules/credits/credit-balance.service';
 
 /**
  * Credit system Phase 8 (Enforcement) e2e — needs live Postgres + Redis.
@@ -31,10 +29,8 @@ describeIfDb('Credit system Phase 8 — Enforcement e2e', () => {
   let prisma: PrismaService;
   let agentRuntime: AgentRuntimeService;
   let aiStep: AiStepNodeHandler;
-  let toolExecutor: ToolExecutorService;
   let skills: SkillsService;
   let creditLimits: CreditLimitsService;
-  let balance: CreditBalanceService;
   const ts = Date.now();
   const companyIds: string[] = [];
 
@@ -82,10 +78,8 @@ describeIfDb('Credit system Phase 8 — Enforcement e2e', () => {
     prisma = app.get(PrismaService);
     agentRuntime = app.get(AgentRuntimeService);
     aiStep = app.get(AiStepNodeHandler);
-    toolExecutor = app.get(ToolExecutorService);
     skills = app.get(SkillsService);
     creditLimits = app.get(CreditLimitsService);
-    balance = app.get(CreditBalanceService);
   });
 
   afterAll(async () => {

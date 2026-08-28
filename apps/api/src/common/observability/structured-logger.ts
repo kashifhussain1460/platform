@@ -71,7 +71,8 @@ export class StructuredLogger extends ConsoleLogger implements LoggerService {
       // call that happens to use the same key name.
       ...currentContext(),
     };
-    // eslint-disable-next-line no-console -- this IS the log sink
+    // This IS the log sink: the one place a bare console.log is correct,
+    // because everything else routes through here.
     console.log(safeStringify(line));
   }
 }

@@ -29,7 +29,7 @@ export async function googleApiGet<T = Record<string, unknown>>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), GOOGLE_TIMEOUT_MS);
   try {
-    const res = await asFetchResponse(
+    const res = asFetchResponse(
       await fetch(url, {
         method: 'GET',
         headers: { authorization: `Bearer ${accessToken}` },

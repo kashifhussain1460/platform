@@ -124,7 +124,13 @@ export function SkillSetupWizard({
     if (stage !== 'verify' || autoChecked.current) return;
     autoChecked.current = true;
     run(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deps are deliberately just [stage]: `run` is rebuilt every render, so
+    // depending on it would re-fire this effect for ever. The ref above is what
+    // actually guards the one-shot, not the dep list.
+    //
+    // (No eslint-disable here — `react-hooks` is not registered in
+    // eslint.config.mjs, so the directive was an error for naming an unknown
+    // rule while suppressing nothing.)
   }, [stage]);
 
   const currentIndex = ORDER.findIndex((s) => s.key === stage);
