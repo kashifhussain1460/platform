@@ -77,7 +77,17 @@ const SKILL_OAUTH: Record<string, { provider: string; scopes: string[] }> = {
   // connecting user (users.lookupByEmail) — added for the Wave-2 adapter;
   // a connection made before this existed correctly reports
   // INSUFFICIENT_SCOPE on the test action alone until reconnected.
-  slack: { provider: 'slack', scopes: ['chat:write', 'channels:read', 'users:read.email'] },
+  //
+  // users:read is required ALONGSIDE users:read.email — Slack's own docs
+  // (docs.slack.dev/reference/scopes/users.read.email, confirmed 2026-08-29):
+  // "This scope must be requested at the same time as users:read." Requesting
+  // users:read.email on its own is rejected outright at the authorize step
+  // ("Invalid permissions requested"), which is what a live connect attempt
+  // hit in production — every Slack connection was broken, not just degraded.
+  slack: {
+    provider: 'slack',
+    scopes: ['chat:write', 'channels:read', 'users:read', 'users:read.email'],
+  },
 };
 
 /** A fully-resolved provider ready to build an authorize URL / exchange a code. */
