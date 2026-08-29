@@ -165,7 +165,7 @@ function dryRunTest(
       sampleTrigger: {
         type: 'string',
         description:
-          'Optional JSON object of sample trigger data, e.g. {"candidate":"Priya","email":"p@example.com"}.',
+          'Optional JSON object of sample trigger data, e.g. {"candidate":"Priya","email":"p@yopmail.com"}.',
       },
     }),
     run: async (ctx, args) => {

@@ -188,7 +188,10 @@ function deriveArg(
     return userText.match(RE_CHANNEL)?.[0] ?? '#general';
   }
   if (/^to$|email|recipient/i.test(name)) {
-    return userText.match(RE_EMAIL)?.[0] ?? 'user@example.com';
+    // yopmail.com, not example.com (RFC 2606 reserved, bounces): a real,
+    // checkable inbox means anything downstream that actually sends to this
+    // fallback can be verified rather than silently swallowed by a dead domain.
+    return userText.match(RE_EMAIL)?.[0] ?? 'user@yopmail.com';
   }
   if (/url/i.test(name)) {
     return userText.match(RE_URL)?.[0] ?? 'https://example.com';

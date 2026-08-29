@@ -76,7 +76,7 @@ export function completeAssistTurn(
     !seen.called.has('dry_run_test')
   ) {
     return toolCall('dry_run_test', {
-      sampleTrigger: JSON.stringify({ candidate: 'Priya', email: 'priya@example.com' }),
+      sampleTrigger: JSON.stringify({ candidate: 'Priya', email: 'priya@yopmail.com' }),
     });
   }
 

@@ -50,7 +50,7 @@ export function LoginForm() {
           icon={Mail}
           type="email"
           autoComplete="email"
-          placeholder="you@example.com"
+          placeholder="you@yopmail.com"
           {...register('email')}
         />
         {errors.email && <p className="mt-1.5 text-sm text-red-400">{errors.email.message}</p>}
