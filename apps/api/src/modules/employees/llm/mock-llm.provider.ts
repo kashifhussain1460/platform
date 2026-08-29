@@ -8,6 +8,14 @@ import {
 } from '../employees.constants';
 import { SkillCatalog } from '../../skills/catalog';
 import { ASSIST_AGENT_MARKER } from '../../assist/agent/assist-prompt';
+import {
+  MARKETING_PLAN_MARKER,
+  MARKETING_VARIANTS_MARKER,
+} from '../../marketing/generation/marketing-prompts';
+import {
+  completeMarketingPlan,
+  completeMarketingVariants,
+} from './mock-marketing-script';
 import { completeAssistTurn } from './mock-assist-script';
 import {
   EMPLOYEES_CLOSE,
@@ -306,6 +314,17 @@ export class MockLlmProvider implements LlmProvider {
 
     if (system.includes(WORKFLOW_GENERATOR_MARKER)) {
       return completeWorkflowGeneration(input);
+    }
+
+    // Marketing AI Employee (see mock-marketing-script.ts). Structurally valid
+    // AND genuinely varied: the real validator drops near-duplicate variants,
+    // so a mock returning six rewordings would fail validation and make every
+    // offline test look like a product bug.
+    if (system.includes(MARKETING_PLAN_MARKER)) {
+      return completeMarketingPlan(input);
+    }
+    if (system.includes(MARKETING_VARIANTS_MARKER)) {
+      return completeMarketingVariants(input);
     }
 
     const userText =
