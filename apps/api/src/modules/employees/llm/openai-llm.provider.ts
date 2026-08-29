@@ -58,11 +58,33 @@ interface OpenAiClient {
   };
 }
 
+/**
+ * Whether the configured model needs `reasoning_effort: 'none'` alongside tools.
+ *
+ * `unknown` until the API tells us — see `createWithToolCompat`.
+ */
+type ToolCompat = 'unknown' | 'needs-none' | 'unsupported';
+
+/**
+ * A reasoning model rejects function tools on /v1/chat/completions unless
+ * `reasoning_effort` is explicitly `'none'`; a non-reasoning model rejects the
+ * parameter outright. Both are 400s, and which one applies depends entirely on
+ * the model in `LLM_MODEL`.
+ */
+const NEEDS_NONE = /function tools with reasoning_effort are not supported/i;
+const PARAM_UNSUPPORTED = /unrecognized request argument supplied: reasoning_effort/i;
+
 @Injectable()
 export class OpenAiLlmProvider implements LlmProvider {
   readonly name = 'openai';
   private readonly logger = new Logger(OpenAiLlmProvider.name);
   private client: OpenAiClient | null = null;
+
+  /**
+   * Learned per model, so the probe costs one rejected request per process,
+   * not one per call.
+   */
+  private toolCompat = new Map<string, ToolCompat>();
 
   constructor(private readonly config: ConfigService) {}
 
@@ -71,9 +93,11 @@ export class OpenAiLlmProvider implements LlmProvider {
     tools?: ToolDefinitionDto[],
   ): Promise<LlmCompletionResult> {
     const client = await this.getClient();
-    const res = (await client.chat.completions.create(
+    const res = (await this.createWithToolCompat(
+      client,
       this.buildRequest(input, tools, false),
       this.requestOptions(input),
+      Boolean(tools && tools.length > 0),
     )) as {
       choices?: Array<{
         message?: {
@@ -115,12 +139,14 @@ export class OpenAiLlmProvider implements LlmProvider {
     tools?: ToolDefinitionDto[],
   ): AsyncIterable<LlmStreamChunk> {
     const client = await this.getClient();
-    const stream = (await client.chat.completions.create(
+    const stream = (await this.createWithToolCompat(
+      client,
       this.buildRequest(input, tools, true),
       // Streaming needs the abort signal MORE than a plain completion does: a
       // stream that is never cancelled holds the connection open for as long as
       // the provider keeps it.
       this.requestOptions(input),
+      Boolean(tools && tools.length > 0),
     )) as AsyncIterable<{
       choices?: Array<{
         delta?: { content?: string | null; tool_calls?: OpenAiToolCallDelta[] };
@@ -164,6 +190,79 @@ export class OpenAiLlmProvider implements LlmProvider {
       };
     }
     yield { kind: 'done' };
+  }
+
+  /**
+   * Send the request, learning from the API whether this model wants
+   * `reasoning_effort: 'none'` next to its tools.
+   *
+   * ## The production bug this fixes
+   *
+   * AI Assist died on every workflow generation with:
+   *
+   *   400 Function tools with reasoning_effort are not supported for
+   *   gpt-5.6-terra in /v1/chat/completions. To use function tools, use
+   *   /v1/responses or set reasoning_effort to 'none'.
+   *
+   * A reasoning model applies a non-none `reasoning_effort` by default, and
+   * that combination is refused on this endpoint. Adding the parameter fixes
+   * it — but ONLY for reasoning models: `gpt-4.1-mini` and `gpt-4o-mini` both
+   * answer `400 Unrecognized request argument supplied: reasoning_effort`.
+   * (All four cases verified against the live API, 2026-08-29.)
+   *
+   * ## Why this is adaptive rather than a model list or an env flag
+   *
+   * A hardcoded list of "reasoning models" is exactly what this file's own
+   * rule forbids — the model is config, and a list would rot the first time
+   * OpenAI ships another one. An env flag would work, but it is one more thing
+   * to remember when `LLM_MODEL` changes, and forgetting it reproduces this
+   * outage.
+   *
+   * So the API is the source of truth. The first tool call with an unknown
+   * model may cost one rejected request; the answer is then cached for the
+   * process. Requests WITHOUT tools never take this path — the conflict only
+   * exists when tools are present.
+   */
+  private async createWithToolCompat(
+    client: OpenAiClient,
+    request: Record<string, unknown>,
+    options: { signal?: AbortSignal },
+    hasTools: boolean,
+  ): Promise<unknown> {
+    const model = String(request.model);
+    if (!hasTools) return client.chat.completions.create(request, options);
+
+    const known = this.toolCompat.get(model) ?? 'unknown';
+    const withNone = { ...request, reasoning_effort: 'none' };
+
+    if (known === 'needs-none') return client.chat.completions.create(withNone, options);
+    if (known === 'unsupported') return client.chat.completions.create(request, options);
+
+    try {
+      const res = await client.chat.completions.create(request, options);
+      this.toolCompat.set(model, 'unsupported');
+      return res;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!NEEDS_NONE.test(message)) throw err;
+
+      this.logger.log(
+        `${model} requires reasoning_effort='none' alongside function tools; ` +
+          'applying it for the rest of this process.',
+      );
+      try {
+        const res = await client.chat.completions.create(withNone, options);
+        this.toolCompat.set(model, 'needs-none');
+        return res;
+      } catch (retryErr) {
+        // Do not cache a guess that also failed — the next call re-probes
+        // rather than locking in a mode that does not work.
+        const retryMessage =
+          retryErr instanceof Error ? retryErr.message : String(retryErr);
+        if (PARAM_UNSUPPORTED.test(retryMessage)) this.toolCompat.set(model, 'unsupported');
+        throw retryErr;
+      }
+    }
   }
 
   /** One request builder for both paths, so they can never drift apart. */
