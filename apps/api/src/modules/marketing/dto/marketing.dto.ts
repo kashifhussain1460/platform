@@ -1,3 +1,5 @@
+import type { ManualCampaignStatus } from '@vaep/types';
+import { MANUAL_CAMPAIGN_STATUSES } from '@vaep/types';
 import {
   IsBoolean,
   IsIn,
@@ -88,9 +90,15 @@ export class UpdateCampaignBodyDto {
   @MaxLength(2_000)
   goal?: string;
 
+  /**
+   * Only the operational states. The generation states are owned by the
+   * pipeline — accepting them here would let a client PATCH straight to
+   * READY_FOR_REVIEW and skip generation, or claim PUBLISHING for work that
+   * never ran.
+   */
   @IsOptional()
-  @IsIn(['ACTIVE', 'PAUSED', 'COMPLETED'])
-  status?: string;
+  @IsIn(MANUAL_CAMPAIGN_STATUSES)
+  status?: ManualCampaignStatus;
 }
 
 export class SetPostizCustomerGroupDto {

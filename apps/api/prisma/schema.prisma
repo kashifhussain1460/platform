@@ -300,6 +300,8 @@ model Company {
   usageEvents                 UsageEvent[]
   socialAccounts              SocialAccount[]
   campaigns                   Campaign[]
+  contentItems                ContentItem[]
+  creativeVariants            CreativeVariant[]
   scheduledPosts              ScheduledPost[]
   publishedPosts              PublishedPost[]
   mediaAssets                 MediaAsset[]
@@ -1781,6 +1783,55 @@ enum ScheduledPostStatus {
   FAILED
 }
 
+/// Marketing AI Employee campaign lifecycle (architecture doc §76/§77).
+///
+/// PAUSED is NOT in the specification's list. It is kept because the shipped
+/// campaigns UI already writes it (`UpdateCampaignBodyDto`), and dropping a
+/// state the product currently uses would break existing rows to satisfy a
+/// document. Everything else follows §76 exactly.
+enum CampaignStatus {
+  DRAFT
+  ANALYZING
+  PLANNING
+  GENERATING
+  MEDIA_GENERATING
+  QUALITY_CHECK
+  READY_FOR_REVIEW
+  PARTIALLY_APPROVED
+  APPROVED
+  SCHEDULED
+  PUBLISHING
+  ACTIVE
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// §26 — one planned piece of content, distinct from a platform publication.
+enum ContentItemStatus {
+  DRAFT
+  GENERATING
+  READY_FOR_REVIEW
+  EDIT_REQUIRED
+  APPROVED
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  CANCELLED
+}
+
+/// §32 (spec doc 1) — one creative option within a content item.
+enum CreativeVariantStatus {
+  GENERATING
+  READY
+  SELECTED
+  REJECTED
+  REGENERATING
+  ARCHIVED
+}
+
 model Campaign {
   id           String          @id @default(cuid())
   companyId    String
@@ -1788,11 +1839,126 @@ model Campaign {
   aiEmployeeId String?
   name         String
   goal         String?
-  status       String          @default("ACTIVE")
+  status       CampaignStatus  @default(DRAFT)
   createdAt    DateTime        @default(now())
   posts        ScheduledPost[]
 
+  // --- Marketing AI Employee campaign planning (§64) ------------------------
+
+  /// The user's original natural-language brief, kept verbatim. §8/§9 derive
+  /// the structured config from this, and keeping the source text means a
+  /// re-plan can start from what the human actually asked for rather than from
+  /// our interpretation of it.
+  brief             String?
+  objective         String?
+  description       String?
+  createdByUserId   String?
+  startDate         DateTime?
+  endDate           DateTime?
+  /// §35 — explicit IANA zone. NEVER infer from the server.
+  timezone          String    @default("UTC")
+  postsPerDayMin    Int?
+  postsPerDayMax    Int?
+  /// Platform keys the campaign targets, e.g. ["linkedin","instagram"].
+  platforms         String[]  @default([])
+  /// Content pillars the strategy step produced (§10).
+  contentPillars    String[]  @default([])
+  /// §47 (doc 1) / §3.4 — when true, nothing publishes without explicit human
+  /// approval. Defaults to TRUE: an approval policy that has to be switched ON
+  /// is one somebody forgets to switch on.
+  approvalRequired  Boolean   @default(true)
+  /// Why generation failed, surfaced to the user rather than only logged.
+  generationError   String?
+  generationStartedAt  DateTime?
+  generationFinishedAt DateTime?
+  updatedAt         DateTime  @updatedAt @default(now())
+
+  contentItems ContentItem[]
+
   @@index([companyId])
+  @@index([companyId, status])
+}
+
+/// §12/§65 — a planned piece of content. Deliberately NOT the same entity as a
+/// platform publication (§18): one content item fans out to several
+/// publications, which is what makes per-platform adaptation and independent
+/// per-platform failure possible.
+model ContentItem {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// 1-based day within the campaign, and the ordinal within that day.
+  dayNumber Int
+  sequence  Int
+
+  objective   String
+  contentType String
+
+  scheduledAt DateTime?
+  /// Copied from the campaign at plan time so a later campaign edit cannot
+  /// silently move already-scheduled content (§95).
+  timezone    String  @default("UTC")
+
+  /// §93 — every edit bumps this. Approval binds to a version, so an edit
+  /// after approval invalidates that approval instead of silently shipping
+  /// content nobody signed off on.
+  currentVersion    Int     @default(1)
+  selectedVariantId String?
+
+  status ContentItemStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variants CreativeVariant[]
+
+  @@index([companyId])
+  @@index([campaignId, dayNumber, sequence])
+  @@index([companyId, status])
+}
+
+/// §13/§66 — one of the 5–6 creative options for a content item.
+///
+/// Text only at this stage, by design: §103/§104 call for generating cheap text
+/// concepts for every variant and expensive media ONLY for the one the human
+/// selects. `mediaBrief` is the instruction that later media generation uses.
+model CreativeVariant {
+  id            String      @id @default(cuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contentItemId String
+  contentItem   ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  variantNumber Int
+  /// Mirrors ContentItem.currentVersion at the time this variant was written.
+  version       Int      @default(1)
+
+  hook         String
+  caption      String
+  cta          String
+  hashtags     String[] @default([])
+  contentAngle String
+  /// What media SHOULD be produced if this variant is selected — not the media
+  /// itself. Generating it now for all six would be the cost mistake §103 warns
+  /// about.
+  mediaBrief   String?
+
+  /// §32 — the AI may recommend one option, with a short user-facing reason.
+  /// A recommendation is explicitly NOT an approval.
+  recommended          Boolean @default(false)
+  recommendationReason String?
+
+  status CreativeVariantStatus @default(GENERATING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contentItemId, variantNumber, version])
+  @@index([companyId])
+  @@index([contentItemId, status])
 }
 
 model ScheduledPost {

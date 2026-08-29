@@ -4174,11 +4174,52 @@ export interface UpdateScheduledPostDto {
   campaignId?: string | null;
 }
 
+/**
+ * Campaign lifecycle (architecture doc §76/§77).
+ *
+ * PAUSED is an addition to the document's list: the shipped campaigns UI
+ * already writes it, and removing a state the product uses to satisfy a spec
+ * would break real rows.
+ */
+export type CampaignStatus =
+  | 'DRAFT'
+  | 'ANALYZING'
+  | 'PLANNING'
+  | 'GENERATING'
+  | 'MEDIA_GENERATING'
+  | 'QUALITY_CHECK'
+  | 'READY_FOR_REVIEW'
+  | 'PARTIALLY_APPROVED'
+  | 'APPROVED'
+  | 'SCHEDULED'
+  | 'PUBLISHING'
+  | 'ACTIVE'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+/**
+ * The subset a human may set directly.
+ *
+ * Generation states (ANALYZING/PLANNING/GENERATING/...) are owned by the
+ * pipeline — letting a client PATCH itself to READY_FOR_REVIEW would be a way
+ * to skip generation entirely, and PATCHing to PUBLISHING would claim work that
+ * never happened. Operational states only.
+ */
+export const MANUAL_CAMPAIGN_STATUSES = [
+  'ACTIVE',
+  'PAUSED',
+  'COMPLETED',
+  'CANCELLED',
+] as const;
+export type ManualCampaignStatus = (typeof MANUAL_CAMPAIGN_STATUSES)[number];
+
 export interface CampaignDto {
   id: string;
   name: string;
   goal: string | null;
-  status: string;
+  status: CampaignStatus;
   aiEmployeeId: string | null;
   /** How many scheduled posts belong to this campaign. */
   postCount: number;
@@ -4194,7 +4235,7 @@ export interface CreateCampaignDto {
 export interface UpdateCampaignDto {
   name?: string;
   goal?: string | null;
-  status?: string;
+  status?: ManualCampaignStatus;
 }
 
 export interface MarketingAnalyticsSnapshotDto {
