@@ -10,7 +10,7 @@ export const metadata = buildMetadata({
   path: '/privacy-policy',
 });
 
-const LAST_UPDATED = 'August 18, 2026';
+const LAST_UPDATED = 'August 29, 2026';
 
 const TOC = [
   { id: 'introduction', label: '1. Introduction' },
@@ -93,12 +93,35 @@ export default function PrivacyPolicyPage() {
 
             <section id="how-we-share-information">
               <h2 className="text-lg font-semibold text-white">4. How we share information</h2>
+              <p className="mt-3">We share information only as needed to provide the Service:</p>
+              <ul className="mt-3 list-disc space-y-2 pl-5">
+                <li>
+                  <strong className="text-white">AI providers</strong> — when you use an AI Employee,
+                  the messages, instructions, and documents involved in that conversation are sent to
+                  our AI provider (OpenAI or Anthropic, depending on configuration) so it can generate
+                  a response and decide what action to take.
+                </li>
+                <li>
+                  <strong className="text-white">Payment processor</strong> — Stripe processes
+                  subscription payments on our behalf. We do not store your card details ourselves.
+                </li>
+                <li>
+                  <strong className="text-white">Infrastructure providers</strong> — database, hosting,
+                  and email delivery, to run the Service.
+                </li>
+                <li>
+                  <strong className="text-white">Third-party tools you connect</strong> — for example
+                  Slack, Gmail, Google Calendar, Google Drive, HubSpot, or Jira. When you connect one,
+                  the AI Employee can act through it only using the specific permissions you granted
+                  during that connection (for example, sending an email on your behalf, or checking
+                  calendar availability) — never more than what you authorized, and only for the
+                  account you connected.
+                </li>
+              </ul>
               <p className="mt-3">
-                We share information with service providers who help us operate the Service (for
-                example, cloud hosting and email delivery), and with third-party tools you choose to
-                connect (so the connected action can actually happen). We do not share your
-                workspace&apos;s data with other customers. We may disclose information if required by
-                law or to protect the rights, property, or safety of Orlixa, our users, or the public.
+                We do not share your workspace&apos;s data with other customers, and we do not sell
+                personal information. We may disclose information if required by law or to protect the
+                rights, property, or safety of Orlixa, our users, or the public.
               </p>
             </section>
 
