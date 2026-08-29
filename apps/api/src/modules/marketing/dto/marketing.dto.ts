@@ -112,3 +112,30 @@ export class SetPostizCustomerGroupDto {
   @MaxLength(200)
   postizCustomerGroupId?: string | null;
 }
+
+export class CreateAiCampaignBodyDto {
+  /**
+   * The brief in the user's own words (§8). Bounded generously — a detailed
+   * brief produces a better plan — but bounded, because this string is sent to
+   * a model.
+   */
+  @IsString()
+  @MinLength(10)
+  @MaxLength(4_000)
+  brief!: string;
+
+  /** IANA zone. When supplied it WINS over whatever the AI infers (§35). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  timezone?: string;
+
+  @IsOptional()
+  @IsString()
+  aiEmployeeId?: string;
+}
+
+export class SelectVariantBodyDto {
+  @IsString()
+  variantId!: string;
+}

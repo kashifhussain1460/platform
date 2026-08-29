@@ -4251,3 +4251,106 @@ export interface ImportSocialAccountsResultDto {
   updated: number;
   accounts: SocialAccountDto[];
 }
+
+// ---------------------------------------------------------------------------
+// Marketing AI Employee — campaign generation (architecture doc §72)
+// ---------------------------------------------------------------------------
+
+export type ContentItemStatus =
+  | 'DRAFT'
+  | 'GENERATING'
+  | 'READY_FOR_REVIEW'
+  | 'EDIT_REQUIRED'
+  | 'APPROVED'
+  | 'SCHEDULED'
+  | 'PUBLISHING'
+  | 'PUBLISHED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export type CreativeVariantStatus =
+  | 'GENERATING'
+  | 'READY'
+  | 'SELECTED'
+  | 'REJECTED'
+  | 'REGENERATING'
+  | 'ARCHIVED';
+
+/** A campaign brief in the user's own words (§8). */
+export interface CreateAiCampaignDto {
+  /** Natural language, e.g. "7 day campaign, 3 posts a day on LinkedIn". */
+  brief: string;
+  /** Optional IANA zone. When given it WINS over anything the AI infers. */
+  timezone?: string;
+  aiEmployeeId?: string;
+}
+
+/** §74 — generation returns a reference, never the finished campaign. */
+export interface CampaignGenerationStatusDto {
+  campaignId: string;
+  status: CampaignStatus;
+  /** Whether generation still has work left to do. */
+  inProgress: boolean;
+  /** Plain-language description of the last thing that happened. */
+  detail: string;
+  /** Why it failed, when it did. Null otherwise. */
+  error: string | null;
+  /** §75 — progress, so the UI can show partial results rather than a spinner. */
+  totalItems: number;
+  itemsWithOptions: number;
+}
+
+export interface CreativeVariantDto {
+  id: string;
+  variantNumber: number;
+  version: number;
+  hook: string;
+  caption: string;
+  cta: string;
+  hashtags: string[];
+  contentAngle: string;
+  /** What media SHOULD be produced if selected — not media itself (§103). */
+  mediaBrief: string | null;
+  /** §32 — a suggestion for a human to weigh, explicitly NOT an approval. */
+  recommended: boolean;
+  recommendationReason: string | null;
+  status: CreativeVariantStatus;
+}
+
+export interface ContentItemDto {
+  id: string;
+  campaignId: string;
+  dayNumber: number;
+  sequence: number;
+  objective: string;
+  contentType: string;
+  /** ISO instant; the wall-clock it represents is in `timezone`. */
+  scheduledAt: string | null;
+  timezone: string;
+  currentVersion: number;
+  selectedVariantId: string | null;
+  status: ContentItemStatus;
+  /** Present on the detail view; omitted from the calendar list (§62). */
+  variants?: CreativeVariantDto[];
+  variantCount: number;
+}
+
+/** The planned campaign with its calendar, for the review screen (§59). */
+export interface AiCampaignDetailDto {
+  id: string;
+  name: string;
+  brief: string | null;
+  objective: string | null;
+  description: string | null;
+  status: CampaignStatus;
+  startDate: string | null;
+  endDate: string | null;
+  timezone: string;
+  postsPerDayMin: number | null;
+  postsPerDayMax: number | null;
+  platforms: string[];
+  contentPillars: string[];
+  approvalRequired: boolean;
+  generation: CampaignGenerationStatusDto;
+  createdAt: string;
+}

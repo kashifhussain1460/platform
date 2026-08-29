@@ -1,6 +1,13 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 import { CampaignStatus, ContentItemStatus, CreativeVariantStatus } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { isInlineExecution } from '../../../common/resilience/workflow-execution-mode';
+import {
+  CAMPAIGN_GENERATION_JOB,
+  CAMPAIGN_GENERATION_QUEUE,
+} from './campaign-generation.constants';
 import { extractJson } from '../../../common/json/extract-json';
 import { LLM_PROVIDER_TOKEN, type LlmProvider } from '../../employees/llm/llm.provider';
 import { AuditLogService } from '../../audit/audit-log.service';
@@ -69,7 +76,80 @@ export class CampaignGenerationService {
     private readonly prisma: PrismaService,
     @Inject(LLM_PROVIDER_TOKEN) private readonly llm: LlmProvider,
     private readonly auditLog: AuditLogService,
+    /**
+     * Optional so unit tests can construct the service without a Redis-backed
+     * queue, and so an inline deployment that registers no queue still works.
+     */
+    @InjectQueue(CAMPAIGN_GENERATION_QUEUE) private readonly queue?: Queue,
   ) {}
+
+  /**
+   * Kick generation off for a campaign in DRAFT.
+   *
+   * Returns as soon as the work is ACCEPTED, never when it is finished (74):
+   * a 21-item campaign is 21 model calls and must not be held open in the
+   * request that asked for it.
+   *
+   * How it then runs depends on the deployment shape, exactly like workflow
+   * execution:
+   *   - queue mode  -> a BullMQ job drives it, plus the repeatable sweep as a
+   *                    safety net if that job is lost.
+   *   - inline mode -> serverless, no worker. ONE pass runs in this request so
+   *                    the customer sees immediate movement, and the
+   *                    /admin/cron/campaign-generation sweep carries it the
+   *                    rest of the way.
+   */
+  async start(companyId: string, campaignId: string): Promise<AdvanceResult> {
+    const claimed = await this.prisma.campaign.updateMany({
+      where: { id: campaignId, companyId, status: CampaignStatus.DRAFT },
+      data: {
+        status: CampaignStatus.ANALYZING,
+        generationStartedAt: new Date(),
+        generationFinishedAt: null,
+        generationError: null,
+      },
+    });
+    if (claimed.count === 0) {
+      const current = await this.prisma.campaign.findFirst({
+        where: { id: campaignId, companyId },
+        select: { status: true },
+      });
+      if (!current) throw new Error('Campaign not found for this company');
+      // Not an error: asking twice should be safe, and the caller can see the
+      // state it is already in.
+      return {
+        campaignId,
+        status: current.status,
+        more: false,
+        detail: `Generation was already started; the campaign is ${current.status}.`,
+      };
+    }
+
+    await this.auditLog.record({
+      companyId,
+      action: 'marketing.campaign.generation_started',
+      entityType: 'Campaign',
+      entityId: campaignId,
+    });
+
+    if (isInlineExecution() || !this.queue) {
+      // One pass now so the progress screen is not empty; the cron sweep
+      // continues from here.
+      return this.advance(campaignId);
+    }
+
+    await this.queue.add(
+      CAMPAIGN_GENERATION_JOB,
+      { campaignId },
+      { removeOnComplete: true, removeOnFail: 100 },
+    );
+    return {
+      campaignId,
+      status: CampaignStatus.ANALYZING,
+      more: true,
+      detail: 'Generation queued.',
+    };
+  }
 
   /**
    * Cross-tenant sweep: advance every campaign that is mid-generation.

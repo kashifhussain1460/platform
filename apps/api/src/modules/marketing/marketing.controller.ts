@@ -10,7 +10,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type {
+  AiCampaignDetailDto,
   CampaignDto,
+  ContentItemDto,
   ImportSocialAccountsResultDto,
   MarketingAnalyticsSnapshotDto,
   ScheduledPostDto,
@@ -18,17 +20,23 @@ import type {
   SocialAccountDto,
 } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.provider';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthorizationGuard } from '../authorization/authorization.guard';
 import { RequirePermission } from '../authorization/require-permission.decorator';
 import {
+  CreateAiCampaignBodyDto,
   CreateCampaignBodyDto,
   CreatePostDto,
+  SelectVariantBodyDto,
   StartConnectDto,
   UpdateCampaignBodyDto,
   UpdatePostDto,
 } from './dto/marketing.dto';
 import { MarketingService } from './marketing.service';
+import { CampaignGenerationService } from './generation/campaign-generation.service';
+import { CampaignQueryService } from './generation/campaign-query.service';
 
 /**
  * The marketing workspace — the human front door to the Marketing AI Employee.
@@ -45,7 +53,11 @@ import { MarketingService } from './marketing.service';
 @Controller('marketing')
 @UseGuards(JwtAuthGuard, AuthorizationGuard)
 export class MarketingController {
-  constructor(private readonly marketing: MarketingService) {}
+  constructor(
+    private readonly marketing: MarketingService,
+    private readonly generation: CampaignGenerationService,
+    private readonly campaigns: CampaignQueryService,
+  ) {}
 
   // --- Social accounts -----------------------------------------------------
 
@@ -153,6 +165,79 @@ export class MarketingController {
     @Param('id') id: string,
   ): Promise<{ id: string; detachedPosts: number }> {
     return this.marketing.deleteCampaign(companyId, id);
+  }
+
+  // --- AI campaigns (architecture doc §72) ---------------------------------
+
+  /**
+   * Create a campaign from a natural-language brief and start generating.
+   *
+   * Returns as soon as the work is ACCEPTED, not when it is finished (§74) — a
+   * 21-post campaign is 21 model calls and must never be held open in the
+   * request that asked for it. Poll the detail endpoint for progress.
+   */
+  @Post('campaigns/ai')
+  @RequirePermission('marketing:manage')
+  async createAiCampaign(
+    @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateAiCampaignBodyDto,
+  ): Promise<AiCampaignDetailDto> {
+    const campaign = await this.marketing.createAiCampaign(companyId, user.userId, dto);
+    await this.generation.start(companyId, campaign.id);
+    return this.campaigns.detail(companyId, campaign.id);
+  }
+
+  /** The campaign, its plan, and generation progress (§75). */
+  @Get('campaigns/:id/detail')
+  @RequirePermission('marketing:read')
+  campaignDetail(
+    @CurrentTenant() companyId: string,
+    @Param('id') id: string,
+  ): Promise<AiCampaignDetailDto> {
+    return this.campaigns.detail(companyId, id);
+  }
+
+  /**
+   * The content calendar (§59) — WITHOUT options.
+   *
+   * §31/§62: 35 posts x 6 options is 210 variants, and sending them all to
+   * render a calendar would be slow and show far more than anyone asked for.
+   * Open a single post to see its options.
+   */
+  @Get('campaigns/:id/content')
+  @RequirePermission('marketing:read')
+  campaignContent(
+    @CurrentTenant() companyId: string,
+    @Param('id') id: string,
+  ): Promise<ContentItemDto[]> {
+    return this.campaigns.contentItems(companyId, id);
+  }
+
+  /** One post with its 5–6 options. */
+  @Get('content/:id')
+  @RequirePermission('marketing:read')
+  contentItem(
+    @CurrentTenant() companyId: string,
+    @Param('id') id: string,
+  ): Promise<ContentItemDto> {
+    return this.campaigns.contentItem(companyId, id);
+  }
+
+  /**
+   * Pick which option to use.
+   *
+   * Selection is NOT approval (§32/§3.4). Nothing becomes publishable here.
+   */
+  @Post('content/:id/select-variant')
+  @RequirePermission('marketing:manage')
+  selectVariant(
+    @CurrentTenant() companyId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: SelectVariantBodyDto,
+  ): Promise<ContentItemDto> {
+    return this.campaigns.selectVariant(companyId, id, dto.variantId, user.userId);
   }
 
   // --- Analytics -----------------------------------------------------------

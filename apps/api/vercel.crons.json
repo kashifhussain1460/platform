@@ -2,6 +2,10 @@
   "_readme": "PARKED CRON DEFINITIONS -- not read by Vercel, kept in version control.\n\nDisabled 2026-08-28: the Vercel account is on the Hobby plan, which rejects any cron running more than once per day. 9 of these 17 are sub-daily, so the deploy fails with 'Hobby accounts are limited to daily cron jobs'.\n\nThey live in this sidecar file rather than as a commented-out key inside vercel.json because vercel.json has a CLOSED schema: `vercel deploy` rejects any unrecognised top-level property ('should NOT have additional property `//crons`'), and there is no comment syntax in JSON. Note that `vercel build` does NOT enforce this, so a bad key passes the build and only fails at deploy.\n\nWHY THIS IS NOT DEAD CONFIG: with WORKFLOW_EXECUTION_MODE=inline there is no BullMQ worker, so these routes ARE the scheduler. While they are parked, no scheduled workflow fires, no inbound mail is polled, no approval SLA escalates, no stuck run is reaped and nobody is paged.\n\nTO RE-ENABLE: upgrade to Vercel Pro and MOVE the `crons` array below into vercel.json under the key `crons` (move, do not copy -- cron-schedule-coverage.spec.ts asserts it lives in exactly one place). Alternatives, incl. an external scheduler against /admin/cron/* using CRON_SECRET: docs/runbooks/deployment.md section 7.",
   "crons": [
     {
+      "path": "/admin/cron/campaign-generation",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/admin/cron/workflow-schedules",
       "schedule": "* * * * *"
     },

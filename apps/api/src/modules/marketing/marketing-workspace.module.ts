@@ -1,3 +1,4 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { AuthorizationModule } from '../authorization/authorization.module';
@@ -6,6 +7,12 @@ import { MarketingModule } from '../engines/marketing/marketing.module';
 import { MarketingController } from './marketing.controller';
 import { MarketingService } from './marketing.service';
 import { PostizTenancyController } from './postiz-tenancy.controller';
+import { LlmModule } from '../employees/llm/llm.module';
+import { CampaignGenerationService } from './generation/campaign-generation.service';
+import { CampaignQueryService } from './generation/campaign-query.service';
+import { CampaignGenerationProcessor } from './generation/campaign-generation.processor';
+import { CAMPAIGN_GENERATION_QUEUE } from './generation/campaign-generation.constants';
+import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
 
 /**
  * The tenant-facing marketing workspace.
@@ -20,9 +27,24 @@ import { PostizTenancyController } from './postiz-tenancy.controller';
  * through the shared instance's cap.
  */
 @Module({
-  imports: [MarketingModule, AuthorizationModule, PlatformAdminModule, AuditModule],
+  imports: [
+    MarketingModule,
+    AuthorizationModule,
+    PlatformAdminModule,
+    AuditModule,
+    LlmModule,
+    BullModule.registerQueue({ name: CAMPAIGN_GENERATION_QUEUE }),
+  ],
   controllers: [MarketingController, PostizTenancyController],
-  providers: [MarketingService],
-  exports: [MarketingService],
+  providers: [
+    MarketingService,
+    // Always provided, so the Vercel cron route can drive generation on
+    // serverless. The PROCESSOR that also drives it is worker-gated — same
+    // split as MarketingSyncService/MarketingSyncProcessor.
+    CampaignGenerationService,
+    CampaignQueryService,
+    ...(queueWorkersEnabled() ? [CampaignGenerationProcessor] : []),
+  ],
+  exports: [MarketingService, CampaignGenerationService, CampaignQueryService],
 })
 export class MarketingWorkspaceModule {}

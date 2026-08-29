@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ApprovalsModule } from '../approvals/approvals.module';
 import { EventsModule } from '../events/events.module';
 import { MarketingModule } from '../engines/marketing/marketing.module';
+import { MarketingWorkspaceModule } from '../marketing/marketing-workspace.module';
 import { HrModule } from '../hr/hr.module';
 import { RetentionModule } from '../retention/retention.module';
 import { WorkflowsModule } from '../workflows/workflows.module';
@@ -35,6 +36,10 @@ import { CREDIT_RESERVATION_SWEEP_QUEUE } from '../credits/credit-reservation-sw
     RetentionModule,
     EventsModule,
     MarketingModule,
+    // The tenant-facing workspace, for CampaignGenerationService — the cron
+    // route is the ONLY thing that advances Marketing AI generation on a
+    // serverless deployment, where no worker exists.
+    MarketingWorkspaceModule,
     CreditsModule,
     // WAVE 5 §5.3 — PRODUCER-side registration only, so the metrics controller
     // can ask each queue for its depth at scrape time. Registering a queue name

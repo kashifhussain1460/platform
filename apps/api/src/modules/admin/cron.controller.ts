@@ -15,6 +15,7 @@ import { GmailInboundService } from '../events/inbound/gmail-inbound.service';
 import { ImapInboundService } from '../events/inbound/imap-inbound.service';
 import { ConnectorReconcileService } from '../events/reconciliation/connector-reconcile.service';
 import { MarketingSyncService } from '../engines/marketing/marketing-sync.service';
+import { CampaignGenerationService } from '../marketing/generation/campaign-generation.service';
 import { AuditRetentionService } from '../audit/audit-retention.service';
 import { HrRetentionService } from '../hr/hr-retention.service';
 import { DataRetentionService } from '../retention/data-retention.service';
@@ -76,6 +77,7 @@ export const CRON_JOBS = [
   'connector-reconcile',
   'marketing-sync',
   'marketing-analytics',
+  'campaign-generation',
   'credit-reservation-sweep',
   'subscription-credit-renewal',
   'enterprise-credit-agreement-renewal',
@@ -99,6 +101,7 @@ export class CronController {
     private readonly imapInbound: ImapInboundService,
     private readonly reconcile: ConnectorReconcileService,
     private readonly marketingSync: MarketingSyncService,
+    private readonly campaignGeneration: CampaignGenerationService,
     private readonly auditRetention: AuditRetentionService,
     private readonly dataRetention: DataRetentionService,
     private readonly alerts: AlertDispatchService,
@@ -173,6 +176,11 @@ export class CronController {
         // Postiz reconciliation is the source of truth (its webhook is a no-op);
         // worker-only otherwise, so it must be cron-driven on serverless.
         return { ...(await this.marketingSync.sweep()) };
+      case 'campaign-generation':
+        // Marketing AI campaign generation. On serverless there is no worker,
+        // so this sweep is the ONLY thing that advances a campaign past its
+        // first pass — see CampaignGenerationService.start().
+        return { ...(await this.campaignGeneration.sweep()) };
       case 'marketing-analytics':
         // M-10 — deliberately a much lower cadence than marketing-sync (daily,
         // not every 10 minutes): see MarketingSyncService.snapshotAnalytics's

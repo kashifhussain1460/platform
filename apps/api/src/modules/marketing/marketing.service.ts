@@ -17,6 +17,7 @@ import type {
   UpdateCampaignDto,
   UpdateScheduledPostDto,
 } from '@vaep/types';
+import { CampaignStatus } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { PostizClientService } from '../engines/marketing/postiz-client.service';
 
@@ -388,6 +389,52 @@ export class MarketingService {
       postCount: row._count.posts,
       createdAt: row.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * Create a campaign from a natural-language brief, ready for generation (§8).
+   *
+   * Stored in DRAFT with the brief kept VERBATIM. Everything else — name,
+   * dates, cadence, platforms, pillars — is left for the ANALYZING step to
+   * derive, so there is exactly one place that interprets the brief. Guessing a
+   * name here and having the AI overwrite it moments later would just show the
+   * customer two different answers.
+   */
+  async createAiCampaign(
+    companyId: string,
+    userId: string,
+    dto: { brief: string; timezone?: string; aiEmployeeId?: string },
+  ): Promise<{ id: string }> {
+    const brief = dto.brief.trim();
+    if (!brief) {
+      throw new BadRequestException('A campaign brief is required');
+    }
+    if (dto.aiEmployeeId) {
+      const employee = await this.prisma.aiEmployee.findFirst({
+        where: { id: dto.aiEmployeeId, companyId },
+        select: { id: true },
+      });
+      if (!employee) {
+        throw new NotFoundException('AI Employee not found for this company');
+      }
+    }
+
+    const row = await this.prisma.campaign.create({
+      data: {
+        companyId,
+        createdByUserId: userId,
+        aiEmployeeId: dto.aiEmployeeId ?? null,
+        // A placeholder the ANALYZING step replaces. Never shown as final.
+        name: 'Planning…',
+        brief,
+        // Only an explicitly chosen zone is stored now; otherwise the planner
+        // decides and UTC is the honest default until it does.
+        timezone: dto.timezone?.trim() || 'UTC',
+        status: CampaignStatus.DRAFT,
+      },
+      select: { id: true },
+    });
+    return row;
   }
 
   async updateCampaign(
