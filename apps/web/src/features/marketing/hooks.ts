@@ -2,7 +2,10 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  AiCampaignDetailDto,
   CampaignDto,
+  ContentItemDto,
+  CreateAiCampaignDto,
   CreateCampaignDto,
   CreateScheduledPostDto,
   ImportSocialAccountsResultDto,
@@ -16,7 +19,12 @@ import { productContextKeys } from '@/features/product-context/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import {
   cancelPost,
+  createAiCampaign,
   createCampaign,
+  getCampaignContent,
+  getCampaignDetail,
+  getContentItem,
+  selectVariant,
   createPost,
   deleteCampaign,
   disconnectAccount,
@@ -152,5 +160,83 @@ export function useDeleteCampaign() {
   return useMutation<{ id: string; detachedPosts: number }, NormalizedApiError, string>({
     mutationFn: deleteCampaign,
     onSuccess: () => qc.invalidateQueries({ queryKey: marketingKeys.all }),
+  });
+}
+
+// --- AI campaigns ----------------------------------------------------------
+
+export const campaignKeys = {
+  detail: (id: string) => ['marketing', 'campaign', id] as const,
+  content: (id: string) => ['marketing', 'campaign', id, 'content'] as const,
+  item: (id: string) => ['marketing', 'content', id] as const,
+};
+
+/**
+ * Campaign detail, polled WHILE generation is running and not after.
+ *
+ * §75 wants a live progress view, but a campaign sitting in READY_FOR_REVIEW is
+ * finished — polling it forever would be a request every few seconds, per open
+ * tab, for a number that will never change again.
+ */
+export function useCampaignDetail(id: string) {
+  const accessToken = useSessionStore((s) => s.accessToken);
+  return useQuery<AiCampaignDetailDto, NormalizedApiError>({
+    queryKey: campaignKeys.detail(id),
+    queryFn: () => getCampaignDetail(id),
+    enabled: Boolean(accessToken && id),
+    refetchInterval: (query) =>
+      query.state.data?.generation.inProgress ? 3_000 : false,
+  });
+}
+
+/** The calendar, refreshed alongside generation so posts appear as they land. */
+export function useCampaignContent(id: string, inProgress: boolean) {
+  const accessToken = useSessionStore((s) => s.accessToken);
+  return useQuery<ContentItemDto[], NormalizedApiError>({
+    queryKey: campaignKeys.content(id),
+    queryFn: () => getCampaignContent(id),
+    enabled: Boolean(accessToken && id),
+    refetchInterval: inProgress ? 3_000 : false,
+  });
+}
+
+/** One post's options — fetched only when the post is actually opened (§62). */
+export function useContentItem(id: string | null) {
+  const accessToken = useSessionStore((s) => s.accessToken);
+  return useQuery<ContentItemDto, NormalizedApiError>({
+    queryKey: campaignKeys.item(id ?? ''),
+    queryFn: () => getContentItem(id as string),
+    enabled: Boolean(accessToken && id),
+  });
+}
+
+export function useCreateAiCampaign() {
+  const qc = useQueryClient();
+  return useMutation<AiCampaignDetailDto, NormalizedApiError, CreateAiCampaignDto>({
+    mutationFn: createAiCampaign,
+    onSuccess: () => qc.invalidateQueries({ queryKey: marketingKeys.campaigns }),
+  });
+}
+
+/**
+ * Select an option.
+ *
+ * NOT optimistic. Selection is a deliberate human decision on a screen the
+ * person is reading carefully; showing it as done and then reverting would be
+ * worse than a short wait. It also invalidates the calendar, because the row's
+ * selected state is shown there.
+ */
+export function useSelectVariant(campaignId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ContentItemDto,
+    NormalizedApiError,
+    { contentItemId: string; variantId: string }
+  >({
+    mutationFn: selectVariant,
+    onSuccess: (item) => {
+      qc.setQueryData(campaignKeys.item(item.id), item);
+      void qc.invalidateQueries({ queryKey: campaignKeys.content(campaignId) });
+    },
   });
 }

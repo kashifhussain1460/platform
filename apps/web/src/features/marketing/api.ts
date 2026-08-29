@@ -1,6 +1,9 @@
 import { apiClient } from '@/lib/apiClient';
 import type {
+  AiCampaignDetailDto,
   CampaignDto,
+  ContentItemDto,
+  CreateAiCampaignDto,
   CreateCampaignDto,
   CreateScheduledPostDto,
   ImportSocialAccountsResultDto,
@@ -81,6 +84,43 @@ export async function deleteCampaign(
 ): Promise<{ id: string; detachedPosts: number }> {
   const { data } = await apiClient.delete<{ id: string; detachedPosts: number }>(
     `/marketing/campaigns/${id}`,
+  );
+  return data;
+}
+
+// --- AI campaigns (architecture doc §72) -----------------------------------
+
+export async function createAiCampaign(
+  body: CreateAiCampaignDto,
+): Promise<AiCampaignDetailDto> {
+  const { data } = await apiClient.post<AiCampaignDetailDto>('/marketing/campaigns/ai', body);
+  return data;
+}
+
+export async function getCampaignDetail(id: string): Promise<AiCampaignDetailDto> {
+  const { data } = await apiClient.get<AiCampaignDetailDto>(`/marketing/campaigns/${id}/detail`);
+  return data;
+}
+
+/** The calendar. Deliberately WITHOUT options — see §31/§62. */
+export async function getCampaignContent(id: string): Promise<ContentItemDto[]> {
+  const { data } = await apiClient.get<ContentItemDto[]>(`/marketing/campaigns/${id}/content`);
+  return data;
+}
+
+/** One post WITH its 5–6 options. */
+export async function getContentItem(id: string): Promise<ContentItemDto> {
+  const { data } = await apiClient.get<ContentItemDto>(`/marketing/content/${id}`);
+  return data;
+}
+
+export async function selectVariant(vars: {
+  contentItemId: string;
+  variantId: string;
+}): Promise<ContentItemDto> {
+  const { data } = await apiClient.post<ContentItemDto>(
+    `/marketing/content/${vars.contentItemId}/select-variant`,
+    { variantId: vars.variantId },
   );
   return data;
 }

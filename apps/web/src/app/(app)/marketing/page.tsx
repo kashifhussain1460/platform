@@ -4,14 +4,16 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
+import { CampaignBriefForm } from '@/features/marketing/components/CampaignBriefForm';
 import { CampaignList } from '@/features/marketing/components/CampaignList';
 import { PostList } from '@/features/marketing/components/PostList';
 import { SocialAccountList } from '@/features/marketing/components/SocialAccountList';
 import { useSessionStore } from '@/stores/session.store';
 
-type Tab = 'posts' | 'accounts' | 'campaigns';
+type Tab = 'ai' | 'posts' | 'accounts' | 'campaigns';
 
 const TABS: Array<{ id: Tab; label: string }> = [
+  { id: 'ai', label: 'AI campaigns' },
   { id: 'posts', label: 'Posts' },
   { id: 'accounts', label: 'Accounts' },
   { id: 'campaigns', label: 'Campaigns' },
@@ -33,7 +35,7 @@ export default function MarketingPage() {
   const router = useRouter();
   const accessToken = useSessionStore((s) => s.accessToken);
   const shellProps = useAppShellProps();
-  const [tab, setTab] = useState<Tab>('posts');
+  const [tab, setTab] = useState<Tab>('ai');
 
   useEffect(() => {
     if (!accessToken) {
@@ -69,6 +71,7 @@ export default function MarketingPage() {
         ))}
       </div>
 
+      {tab === 'ai' && <CampaignBriefForm />}
       {tab === 'posts' && <PostList />}
       {tab === 'accounts' && <SocialAccountList />}
       {tab === 'campaigns' && <CampaignList />}
