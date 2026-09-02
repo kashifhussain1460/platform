@@ -54,6 +54,31 @@ export function ConnectSkillControl({
     return <span className="text-xs text-app-ink-3">No connection required</span>;
   }
 
+  /**
+   * A skill with no real executor must not ask for real credentials.
+   *
+   * `SIMULATED` means not one of this skill's tools reaches a live provider —
+   * today that is `stripe`, `github`, `hubspot` and `jira`. Two of them have
+   * fully working OAuth, so before this a customer could hand Orlixa live
+   * read/write access to their CRM and see CONNECTED, for a capability that does
+   * not exist. The `api_key` branch below was the same problem without the
+   * consent screen.
+   *
+   * The server refuses this too (`OAuthService.assertCanActuallyAct`) — this is
+   * the half that stops a customer walking into it, not the half that enforces
+   * it. Hiding a control is never the control.
+   *
+   * The skill stays installed and usable: a simulated run is a legitimate way to
+   * try a workflow out. Only the credential handover is blocked.
+   */
+  if (def.executionSupport === 'SIMULATED') {
+    return (
+      <span className="text-xs text-sl-warning">
+        Demo only — nothing to connect yet
+      </span>
+    );
+  }
+
   if (isConnected) {
     return (
       <button

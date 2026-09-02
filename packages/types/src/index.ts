@@ -410,7 +410,11 @@ export const updateEmployeeSchema = z
     name: z.string().min(1).max(120).optional(),
     status: z.enum(['ACTIVE', 'PAUSED', 'DISABLED']).optional(),
     persona: z.string().max(2000).optional(),
-    model: z.string().max(120).optional(),
+    // NULLABLE, like `budgetLimit`: the column is nullable and "go back to the
+    // company default" is a real edit. Optional-only meant a cleared field was
+    // indistinguishable from "not editing this", so PATCH ignored it and the
+    // old model silently stuck.
+    model: z.string().max(120).nullable().optional(),
   })
   .merge(employeeConfigSchema);
 

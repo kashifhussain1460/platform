@@ -41,6 +41,7 @@ import { MemoryService, type LoadedMemory } from './memory.service';
 import { OUT_OF_SCOPE_MARKER, readScope } from './out-of-scope';
 import { PlannerService } from './planner.service';
 import { RetrievalService } from './retrieval.service';
+import { modelForCall } from '../llm/llm.provider';
 import { SensitiveScenarioService } from './sensitive-scenario.service';
 import { ToolExecutorService } from './tool-executor.service';
 import { ValidationService } from './validation.service';
@@ -376,6 +377,14 @@ export class AgentRuntimeService {
     // before reaching here, so every call that gets this far is a truly new
     // turn and `userTurnId` is always present and unique. With the flag off
     // this whole block is skipped; nothing about the turn changes.
+    // The model this turn will REALLY use: the employee's own configured
+    // choice → LLM_MODEL → the provider's default. Resolved ONCE and used for
+    // every model call and every price lookup in this turn, because the two
+    // used to disagree — the provider read LLM_MODEL || DEFAULT_MODEL while the
+    // pricer read `process.env.LLM_MODEL ?? 'default'`, so an unset LLM_MODEL
+    // billed a real model against a generic rate (audit P1-F / P2-2).
+    const model = modelForCall(this.router.forTask('act'), employee.model ?? undefined);
+
     let reservation: CreditReservationDto | null = null;
     let reservationRateId: string | null = null;
     let estimatedCredits: number | null = null;
@@ -395,7 +404,7 @@ export class AgentRuntimeService {
       try {
         const priced = await this.costCalculator.priceLlmCall({
           provider: this.router.providerName,
-          model: process.env.LLM_MODEL ?? 'default',
+          model,
           promptTokens: CHAT_TURN_PROMPT_TOKEN_CEILING_ESTIMATE,
           completionTokens: CHAT_TURN_COMPLETION_TOKEN_CEILING,
         });
@@ -506,6 +515,7 @@ export class AgentRuntimeService {
               system,
               messages: working,
               temperature: 0.2,
+              model,
               ...(options?.signal ? { signal: options.signal } : {}),
             },
             tools,
@@ -564,6 +574,7 @@ export class AgentRuntimeService {
             system,
             messages: working,
             temperature: 0.2,
+            model,
             ...(options?.signal ? { signal: options.signal } : {}),
           });
         await this.recordUsage(companyId, employee.id, draft.usage, options);
@@ -645,6 +656,7 @@ export class AgentRuntimeService {
             totalPromptTokens,
             totalCompletionTokens,
             reservationRateId,
+            model,
           )
         : null;
 
@@ -677,11 +689,13 @@ export class AgentRuntimeService {
     promptTokens: number,
     completionTokens: number,
     fallbackRateId: string | null,
+    /** The SAME resolved model the turn actually called (see `run`). */
+    model: string,
   ): Promise<number | null> {
     try {
       const actual = await this.costCalculator.priceLlmCall({
         provider: this.router.providerName,
-        model: process.env.LLM_MODEL ?? 'default',
+        model,
         promptTokens,
         completionTokens,
       });

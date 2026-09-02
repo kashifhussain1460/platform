@@ -85,6 +85,7 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
       workingHoursEnd: employee.workingHoursEnd ?? '',
       timezone: employee.timezone ?? '',
       language: employee.language ?? '',
+      model: employee.model ?? '',
       knowledgeAccess: employee.knowledgeAccess,
       budgetLimit: employee.budgetLimit,
       maxCreditsPerExecution: employee.maxCreditsPerExecution,
@@ -130,6 +131,11 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
         workingHoursEnd: clean(values.workingHoursEnd),
         timezone: clean(values.timezone),
         language: clean(values.language),
+        // `clean` maps '' → undefined, which PATCH would IGNORE — so clearing
+        // the box would silently keep the old model. An empty field means
+        // "use the company default", which is a real change, so it must be
+        // sent as an explicit null.
+        model: values.model?.trim() ? values.model.trim() : null,
         knowledgeAccess: values.knowledgeAccess,
         budgetLimit: values.budgetLimit ?? null,
         maxCreditsPerExecution: values.maxCreditsPerExecution ?? null,
@@ -186,6 +192,29 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
               placeholder="e.g. English"
               {...register('language')}
             />
+          </div>
+          {/*
+            The AI model. Free text rather than a dropdown, deliberately:
+            CLAUDE.md's rule is that a model deprecation must be a config
+            change, and a hardcoded list in the browser bundle is the opposite
+            of that — it would need a redeploy every time a vendor renames
+            something. The trade-off is stated in the hint rather than hidden.
+          */}
+          <div>
+            <label htmlFor="s-model" className="mb-1.5 block text-sm font-medium text-app-ink-2">
+              AI model
+            </label>
+            <input
+              id="s-model"
+              className={inputClass}
+              placeholder="Company default"
+              {...register('model')}
+            />
+            <p className="mt-1 text-xs text-app-ink-3">
+              Leave blank to use the company default. A model name your AI provider
+              doesn&rsquo;t recognise will make this employee&rsquo;s replies fail, so
+              only change it if you know the exact name.
+            </p>
           </div>
           <div>
             <label htmlFor="s-start" className="mb-1.5 block text-sm font-medium text-app-ink-2">

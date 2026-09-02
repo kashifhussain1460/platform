@@ -1,9 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import type { ConditionOp, WorkflowNode } from '@vaep/types';
+import type {
+  ApprovalRoutingConfig,
+  ConditionOp,
+  WorkflowNode,
+} from '@vaep/types';
 import { CONDITION_OPS } from '../schemas';
 import { NODE_HINTS } from '../labels';
+import { ApprovalRoutingEditor } from './ApprovalRoutingEditor';
 
 const inputCls = 'field-modern font-mono text-sm';
 
@@ -279,6 +284,23 @@ export function NodeEditor({
               Skip approval — auto-approve when reached
             </label>
           </Field>
+          {/*
+            Routing. The node catalog has declared this `routing` key since Wave
+            P3-05 and nothing rendered it, so every approval a workflow created
+            was unrouted and only owners/admins could ever decide it. Hidden
+            while `autoApprove` is on, because there is no approval to route.
+          */}
+          {cfg.autoApprove !== true && (
+            <Field
+              label="Who has to approve this"
+              hint="Leave as-is and any owner or admin can approve. Choose a rule to send it to one person, a department, a team, or the AI Employee's manager — with a time limit and a fallback list."
+            >
+              <ApprovalRoutingEditor
+                value={cfg.routing as ApprovalRoutingConfig | undefined}
+                onChange={(routing) => setConfig({ routing })}
+              />
+            </Field>
+          )}
         </>
       )}
 

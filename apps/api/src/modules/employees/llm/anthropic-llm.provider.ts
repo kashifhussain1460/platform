@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ToolDefinitionDto } from '@vaep/types';
+import { resolveModel } from './resolve-model';
 import { SkillCatalog } from '../../skills/catalog';
 import type {
   LlmCompletionInput,
@@ -153,13 +154,30 @@ export class AnthropicLlmProvider implements LlmProvider {
     yield { kind: 'done' };
   }
 
+  /**
+   * The model this provider would use — the same resolution `buildRequest`
+   * applies, exposed so a caller can price the call it is about to make.
+   */
+  resolveModel(requested?: string): string {
+    return resolveModel(
+      requested,
+      this.config.get<string>('LLM_MODEL'),
+      DEFAULT_MODEL,
+    );
+  }
+
   /** One request builder for both paths, so they can never drift apart. */
   private buildRequest(
     input: LlmCompletionInput,
     tools: ToolDefinitionDto[] | undefined,
   ): Record<string, unknown> {
     return {
-      model: this.config.get<string>('LLM_MODEL')?.trim() || DEFAULT_MODEL,
+      // See the OpenAI provider: one resolver for request AND price.
+      model: resolveModel(
+        input.model,
+        this.config.get<string>('LLM_MODEL'),
+        DEFAULT_MODEL,
+      ),
       max_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS,
       temperature: input.temperature ?? 0.2,
       system: input.system,

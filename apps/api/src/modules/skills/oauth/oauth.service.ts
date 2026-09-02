@@ -5,6 +5,7 @@ import { CryptoService } from '../../../common/crypto/crypto.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { asFetchResponse } from '../../../common/http/fetch-response';
 import { SkillsService } from '../skills.service';
+import { hasAnyRealExecution } from '../executors/real-execution-support';
 import {
   providerForSkill,
   resolveOAuthProvider,
@@ -57,6 +58,50 @@ export class OAuthService {
    * Build the provider authorize URL for an installed oauth skill. Throws 400
    * when the skill is not an oauth skill or its provider is not configured.
    */
+  /**
+   * Refuse to start an OAuth flow for a skill that cannot perform a real action.
+   *
+   * ## The trust problem this closes
+   *
+   * `hubspot` and `jira` have fully working OAuth and **no real executor at
+   * all** — `real-execution-support.ts` names them, along with `stripe` and
+   * `github`, as skills where `RealSkillExecutor` has no `case` and falls to the
+   * `default:` branch. So the sequence a customer could walk through was:
+   *
+   *   1. Install HubSpot.
+   *   2. Complete a real OAuth consent screen against their real CRM, granting
+   *      Orlixa live read/write scopes.
+   *   3. See `CONNECTED`.
+   *   4. Build a workflow that "creates a contact".
+   *   5. Have every one of those calls answered by the sandbox (or, in
+   *      production, refused).
+   *
+   * Step 2 is the problem. The catalog already labels these skills "Demo only",
+   * and production already fails closed rather than faking a success — but a
+   * label is not consent, and asking someone to hand over live CRM credentials
+   * for a capability that does not exist is the single most expensive thing this
+   * product could do to its own credibility.
+   *
+   * Gated HERE, at the one place an OAuth flow can begin, rather than in the UI:
+   * the authorize endpoint is reachable directly, and "hidden in the UI" is not
+   * a control (audit §3, the direct-API tests).
+   *
+   * The moment a real executor lands for one of these, it joins
+   * `REAL_EXECUTION_TOOLS` and this gate opens for it automatically — there is
+   * no second list to remember to update. That is why this reads the registry
+   * instead of hard-coding four keys.
+   */
+  private assertCanActuallyAct(skillKey: string): void {
+    if (hasAnyRealExecution(skillKey)) return;
+    throw new BadRequestException(
+      `${skillKey} cannot perform real actions in this build, so there is nothing to ` +
+        'connect an account for — every call would be simulated. Connecting would give ' +
+        'Orlixa live access to your account for no benefit, so it is blocked. This ' +
+        'skill is marked "Demo only" in the catalog and can still be used to try a ' +
+        'workflow out.',
+    );
+  }
+
   async buildAuthorizeUrl(
     companyId: string,
     installedSkillId: string,
@@ -66,6 +111,7 @@ export class OAuthService {
       companyId,
       installedSkillId,
     );
+    this.assertCanActuallyAct(installed.skillKey);
     const provider = this.resolveOrThrow(installed.skillKey);
 
     const returnTo = this.safeReturnPath(opts.returnTo);

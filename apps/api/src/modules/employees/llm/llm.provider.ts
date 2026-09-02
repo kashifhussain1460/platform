@@ -53,6 +53,32 @@ export interface LlmMessage {
 export interface LlmCompletionInput {
   system: string;
   messages: LlmMessage[];
+  /**
+   * Model override for THIS call. Falls back to `LLM_MODEL`, then the
+   * provider's own current default.
+   *
+   * ## Why this exists
+   *
+   * `AiEmployee.model` is a column the product has always offered, mapped to
+   * the DTO and rendered on the employee's Overview tab. The 2026-09-02 audit
+   * found it triple-disconnected: this interface had no `model` field, so every
+   * caller's value was dropped on the floor; both providers read only
+   * `LLM_MODEL`; and the Settings panel had no control to set it. "Choose the
+   * model for this employee" was a stated capability with nothing behind it.
+   *
+   * It also fixes a quieter billing bug. `AiStepNodeHandler` and
+   * `AgentRuntimeService` priced their spend with
+   * `process.env.LLM_MODEL ?? 'default'` while the provider actually called
+   * `config.get('LLM_MODEL') || DEFAULT_MODEL` — so with `LLM_MODEL` unset, a
+   * call to `gpt-5.6-terra` was billed against a generic `default` rate. Now
+   * one resolved value is used for both the request and the price.
+   *
+   * Deliberately a plain string with no validation here: a model id is vendor
+   * data that changes faster than this codebase ships, and the provider is the
+   * only thing that can meaningfully reject one (`CLAUDE.md`: never hardcode a
+   * model in calling code — a deprecation must be a config change).
+   */
+  model?: string;
   temperature?: number;
   /**
    * Output cap. Providers previously hardcoded this (Anthropic at 1024), which
@@ -118,10 +144,43 @@ export interface LlmProvider {
     input: LlmCompletionInput,
     tools?: ToolDefinitionDto[],
   ): AsyncIterable<LlmStreamChunk>;
+  /**
+   * Which model this provider WOULD use for a request carrying `requested`.
+   *
+   * Exists so a caller can price a call against the model that will actually
+   * serve it. OPTIONAL for the same reason `completeStream` is: a hand-rolled
+   * test double should not have to implement it. Callers use
+   * {@link modelForCall}.
+   */
+  resolveModel?(requested?: string): string;
 }
 
 /** DI token for the active LlmProvider implementation. */
 export const LLM_PROVIDER_TOKEN = Symbol('LLM_PROVIDER_TOKEN');
+
+/**
+ * The model a call will actually use — ask the provider, fall back to the same
+ * precedence it would apply.
+ *
+ * Written once, here, because the alternative was two divergent answers: the
+ * providers resolved `LLM_MODEL || DEFAULT_MODEL` while the credit pricers
+ * resolved `process.env.LLM_MODEL ?? 'default'`. With `LLM_MODEL` unset the
+ * vendor got `gpt-5.6-terra` and the ledger got a generic `default` rate. Every
+ * spend site now prices what it sends.
+ *
+ * The `'default'` tail is not a model id — it is the key of the catch-all rate
+ * row in `credit-rates.defaults.ts`, and it is only reachable via a provider
+ * that cannot answer (i.e. a test double), never in production.
+ */
+export function modelForCall(
+  provider: LlmProvider,
+  requested?: string,
+): string {
+  if (provider.resolveModel) return provider.resolveModel(requested);
+  return (
+    requested?.trim() || process.env.LLM_MODEL?.trim() || 'default'
+  );
+}
 
 /**
  * Stream when the provider can, otherwise fall back to one `complete()` call

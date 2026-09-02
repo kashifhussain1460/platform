@@ -30,6 +30,7 @@ import type {
   LlmProvider,
   LlmStreamChunk,
 } from './llm.provider';
+import { resolveModel as resolveModelFrom } from './resolve-model';
 
 /** Split text into ~`size`-char pieces, breaking on whitespace where possible. */
 function chunkText(text: string, size: number): string[] {
@@ -253,6 +254,17 @@ function estimateTokens(text: string): number {
 @Injectable()
 export class MockLlmProvider implements LlmProvider {
   readonly name = 'mock';
+
+  /**
+   * Honours a per-employee model override so the credit path can be exercised
+   * offline with a model that is NOT the env default — otherwise every test
+   * would price against the same rate row and a per-employee pricing bug would
+   * be invisible until production. Falls back to `mock`, which has its own
+   * zero-cost rate in `credit-rates.defaults.ts`.
+   */
+  resolveModel(requested?: string): string {
+    return resolveModelFrom(requested, process.env.LLM_MODEL, 'mock');
+  }
 
   async complete(
     input: LlmCompletionInput,

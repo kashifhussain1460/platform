@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import {
   LLM_PROVIDER_TOKEN,
+  modelForCall,
   type LlmProvider,
 } from '../../../employees/llm/llm.provider';
 import {
@@ -90,6 +91,9 @@ export class AiStepNodeHandler implements NodeHandler {
 
     let persona = '';
     let name = 'the workflow assistant';
+    // The employee's configured model. Was read from the DB, mapped to the DTO,
+    // shown in the UI — and never reached a request or a price (audit P1-F).
+    let employeeModel: string | undefined;
     if (employeeId) {
       const employee = await this.prisma.aiEmployee.findFirst({
         where: { id: employeeId, companyId },
@@ -97,6 +101,7 @@ export class AiStepNodeHandler implements NodeHandler {
       if (employee) {
         persona = employee.persona ?? '';
         name = employee.name;
+        employeeModel = employee.model ?? undefined;
         // Same monthly budget enforcement as chat (agent-runtime.service.ts).
         if (employee.budgetLimit != null) {
           const spent = await this.usage.totalCostForEmployee(
@@ -123,6 +128,12 @@ export class AiStepNodeHandler implements NodeHandler {
       'Follow the instruction below and respond with a concise, useful result.',
     );
 
+    // The model this call will REALLY use, resolved once: employee choice →
+    // LLM_MODEL → the provider's default. Used for the request AND for both
+    // price lookups below, so the ledger can never record a rate for a model
+    // other than the one that served the call.
+    const model = modelForCall(this.llm, employeeModel);
+
     // Credit system Phase 3, Task 3.4 — shadow-mode reservation for this
     // node's one completion, keyed off `stepRunId` (§40.8: the durable engine
     // opens a NEW WorkflowStepRun per LOOP iteration while reusing the same
@@ -142,7 +153,7 @@ export class AiStepNodeHandler implements NodeHandler {
       try {
         const priced = await this.costCalculator.priceLlmCall({
           provider: this.llm.name,
-          model: process.env.LLM_MODEL ?? 'default',
+          model,
           promptTokens: AI_STEP_PROMPT_TOKEN_CEILING_ESTIMATE,
           completionTokens: AI_STEP_COMPLETION_TOKEN_CEILING,
         });
@@ -257,6 +268,7 @@ export class AiStepNodeHandler implements NodeHandler {
         result.usage?.promptTokens ?? 0,
         result.usage?.completionTokens ?? 0,
         reservationRateId,
+        model,
       );
     }
     const text = (result.content ?? '').trim();
@@ -270,11 +282,12 @@ export class AiStepNodeHandler implements NodeHandler {
     promptTokens: number,
     completionTokens: number,
     fallbackRateId: string | null,
+    model: string,
   ): Promise<void> {
     try {
       const actual = await this.costCalculator.priceLlmCall({
         provider: this.llm.name,
-        model: process.env.LLM_MODEL ?? 'default',
+        model,
         promptTokens,
         completionTokens,
       });

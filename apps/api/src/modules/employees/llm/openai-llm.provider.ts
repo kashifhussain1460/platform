@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ToolDefinitionDto } from '@vaep/types';
+import { resolveModel } from './resolve-model';
 import { SkillCatalog } from '../../skills/catalog';
 import type {
   LlmCompletionInput,
@@ -265,6 +266,18 @@ export class OpenAiLlmProvider implements LlmProvider {
     }
   }
 
+  /**
+   * The model this provider would use — the same resolution `buildRequest`
+   * applies, exposed so a caller can price the call it is about to make.
+   */
+  resolveModel(requested?: string): string {
+    return resolveModel(
+      requested,
+      this.config.get<string>('LLM_MODEL'),
+      DEFAULT_MODEL,
+    );
+  }
+
   /** One request builder for both paths, so they can never drift apart. */
   private buildRequest(
     input: LlmCompletionInput,
@@ -272,8 +285,14 @@ export class OpenAiLlmProvider implements LlmProvider {
     stream: boolean,
   ): Record<string, unknown> {
     return {
-      model:
-        this.config.get<string>('LLM_MODEL')?.trim() || DEFAULT_MODEL,
+      // Per-call override (an AI Employee's configured model) wins over
+      // LLM_MODEL, which wins over the current default. Same resolver the
+      // credit pricer uses, so the request and the price cannot disagree.
+      model: resolveModel(
+        input.model,
+        this.config.get<string>('LLM_MODEL'),
+        DEFAULT_MODEL,
+      ),
       temperature: input.temperature ?? 0.2,
       max_completion_tokens: input.maxTokens ?? DEFAULT_MAX_TOKENS,
       messages: [

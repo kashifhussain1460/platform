@@ -114,4 +114,47 @@ describe('real execution support', () => {
       expect(isRealExecutionSupported('gmail', 'read_inbox')).toBe(false);
     });
   });
+
+  /**
+   * The credential gate (audit P1-E).
+   *
+   * `OAuthService.assertCanActuallyAct` and `ConnectSkillControl` both refuse to
+   * take a customer's real credentials for a skill that cannot perform a real
+   * action. Both read `hasAnyRealExecution`, so this registry is the single
+   * source of that decision — and the day a real executor lands for one of these
+   * four, the gate opens for it with no second list to update.
+   *
+   * These assertions exist so that relationship is explicit rather than
+   * incidental. If someone "fixes" the audit by deleting a skill's SIMULATED
+   * flag instead of writing its executor, the drift guards above fail; if
+   * someone writes the executor, the expectation below fails and is meant to be
+   * updated in the same commit.
+   */
+  describe('credential gate', () => {
+    it('refuses credentials for exactly the four skills with no executor', () => {
+      const allKeys = SkillCatalog.list().map((s) => s.key);
+      expect(skillsWithNoRealExecution(allKeys).sort()).toEqual([
+        'github',
+        'hubspot',
+        'jira',
+        'stripe',
+      ]);
+    });
+
+    it('allows credentials for a PARTIAL skill — one real tool is enough to be worth connecting', () => {
+      // gmail can really send. Blocking its connection because `read_inbox` is
+      // simulated would remove a capability the customer does have.
+      expect(hasAnyRealExecution('gmail')).toBe(true);
+      expect(SkillCatalog.get('gmail')?.executionSupport).toBe('PARTIAL');
+    });
+
+    it.each(['hubspot', 'jira'])(
+      'gates %s even though its OAuth is fully configured',
+      (skillKey) => {
+        // The dangerous pair: working consent screen, no executor behind it.
+        expect(hasAnyRealExecution(skillKey)).toBe(false);
+        expect(SkillCatalog.get(skillKey)?.connection?.type).toBe('oauth');
+      },
+    );
+  });
 });

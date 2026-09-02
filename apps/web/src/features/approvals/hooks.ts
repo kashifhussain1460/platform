@@ -26,16 +26,20 @@ type ListFilter = ApprovalStatus | 'ALL';
 
 export const approvalKeys = {
   all: ['approvals'] as const,
-  list: (filter: ListFilter) => ['approvals', filter] as const,
+  // `assignedToMe` is part of the key: the same status filter returns a
+  // DIFFERENT list depending on it, so sharing one cache entry would show one
+  // view's data under the other's heading.
+  list: (filter: ListFilter, assignedToMe = false) =>
+    ['approvals', filter, assignedToMe ? 'mine' : 'all'] as const,
 };
 
 /** Approval requests for a filter (default PENDING queue). */
-export function useApprovals(status?: ApprovalStatus) {
+export function useApprovals(status?: ApprovalStatus, assignedToMe = false) {
   const accessToken = useSessionStore((s) => s.accessToken);
   const filter: ListFilter = status ?? 'ALL';
   return useQuery<ApprovalRequestDto[], NormalizedApiError>({
-    queryKey: approvalKeys.list(filter),
-    queryFn: () => listApprovals(status),
+    queryKey: approvalKeys.list(filter, assignedToMe),
+    queryFn: () => listApprovals(status, assignedToMe),
     enabled: Boolean(accessToken),
   });
 }

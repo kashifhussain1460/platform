@@ -9,6 +9,7 @@ import {
   useRejectRequest,
 } from '../hooks';
 import { STATUS_STYLES, formatStatus } from '../labels';
+import { ApprovalRoutingBadges } from './ApprovalRoutingBadges';
 
 // `green-600/90` over the white card composites to rgb(45,172,92), and white on
 // that is 2.93 — under AA on the one button in the product that commits a real,
@@ -78,6 +79,7 @@ export function ApprovalCard({ request }: { request: ApprovalRequestDto }) {
             </span>
           </div>
           <p className="mt-1 text-xs text-app-ink-2">{metaLine}</p>
+          <ApprovalRoutingBadges request={request} />
 
           {/* Tool args block: only TOOL-kind requests gate a tool call. */}
           {!isWorkflow &&

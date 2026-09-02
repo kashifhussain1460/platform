@@ -1,4 +1,5 @@
 import {
+  ValidateIf,
   IsArray,
   IsIn,
   IsInt,
@@ -36,10 +37,14 @@ export class UpdateEmployeeDto implements IUpdateEmployeeDto {
   @MaxLength(2000)
   persona?: string;
 
+  // Nullable: `null` clears the per-employee override and falls back to
+  // LLM_MODEL. `ValidateIf` rather than a bare `@IsString()` so an explicit
+  // null passes validation instead of 400-ing.
   @IsOptional()
+  @ValidateIf((_o, value) => value !== null)
   @IsString()
   @MaxLength(120)
-  model?: string;
+  model?: string | null;
 
   // --- Rich configuration (Step 5) -----------------------------------------
 
