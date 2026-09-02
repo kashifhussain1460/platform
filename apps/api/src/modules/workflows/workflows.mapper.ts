@@ -95,7 +95,15 @@ export function toWorkflowStepRunDto(s: WorkflowStepRun): WorkflowStepRunDto {
 }
 
 export function toWorkflowRunDto(
-  r: WorkflowRun & { steps?: WorkflowStepRun[] },
+  r: WorkflowRun & {
+    steps?: WorkflowStepRun[];
+    /**
+     * Included by the callers that can afford the join (run detail, run lists).
+     * Optional so the hot paths — enqueue, engine state writes — stay a single
+     * table read: an id with no name is still attribution, just without a label.
+     */
+    actingEmployee?: { name: string } | null;
+  },
 ): WorkflowRunDto {
   return {
     id: r.id,
@@ -112,6 +120,8 @@ export function toWorkflowRunDto(
     failureClass: r.failureClass ?? null,
     resumeNodeId: r.resumeNodeId ?? null,
     startedByUserId: r.startedByUserId ?? null,
+    actingEmployeeId: r.actingEmployeeId ?? null,
+    actingEmployeeName: r.actingEmployee?.name ?? null,
     workflowVersionId: r.workflowVersionId ?? null,
     startedAt: r.startedAt?.toISOString() ?? null,
     finishedAt: r.finishedAt?.toISOString() ?? null,

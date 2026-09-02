@@ -723,15 +723,40 @@ describeIfDb('Credit system Phase 2 — Ledger e2e', () => {
         data: { leaseExpiresAt: new Date(Date.now() - 1000) },
       });
 
-      const [resultA, resultB] = await Promise.all([sweep.sweep(), sweep.sweep()]);
-      const totalSwept = resultA.swept + resultB.swept;
-      expect(totalSwept).toBe(1); // claimed by exactly one of the two concurrent ticks
+      await Promise.all([sweep.sweep(), sweep.sweep()]);
 
+      // Exactly-once is asserted on THIS reservation, not on the sweep's return
+      // counter.
+      //
+      // `CreditReservationSweepService.sweep()` is a CROSS-TENANT scan with no
+      // companyId filter, so `resultA.swept + resultB.swept` counts every stale
+      // hold in the whole database — including ones other suites in this shared
+      // run left behind. Asserting that global total was `1` made this test fail
+      // roughly one run in three, always in the credit suite, which is the
+      // fastest way to teach a team to ignore a billing test. (Same trap as the
+      // retention and SLA sweeps: never assert a global count from a
+      // cross-tenant sweep against a shared database.)
+      //
+      // The three assertions below are the ones that actually prove
+      // exactly-once, and they are tenant-scoped:
+      //   - status is RELEASED (not EXPIRED_UNKNOWN, so a sweep did finish it),
+      //   - the balance is whole again (not 50 + 20 twice, which is what a real
+      //     double-claim would produce),
+      //   - and there is exactly one RELEASE ledger row for it.
       const row = await prisma.creditReservation.findUniqueOrThrow({
         where: { id: reserved.reservation.id },
       });
       expect(row.status).toBe('RELEASED');
-      expect((await balance.getBalance(companyId)).balance).toBe(50); // full amount back
+      expect((await balance.getBalance(companyId)).balance).toBe(50); // full amount back, ONCE
+
+      const releases = await prisma.creditLedger.count({
+        where: {
+          companyId,
+          reservationId: reserved.reservation.id,
+          transactionType: 'RELEASE',
+        },
+      });
+      expect(releases).toBe(1);
     });
 
     it('T3: POST /admin/cron/credit-reservation-sweep with X-Cron-Secret releases a seeded stale reservation', async () => {

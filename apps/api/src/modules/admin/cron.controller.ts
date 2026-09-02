@@ -16,28 +16,41 @@ import { ImapInboundService } from '../events/inbound/imap-inbound.service';
 import { ConnectorReconcileService } from '../events/reconciliation/connector-reconcile.service';
 import { MarketingSyncService } from '../engines/marketing/marketing-sync.service';
 import { CampaignGenerationService } from '../marketing/generation/campaign-generation.service';
-import { AuditRetentionService } from '../audit/audit-retention.service';
 import { HrRetentionService } from '../hr/hr-retention.service';
-import { DataRetentionService } from '../retention/data-retention.service';
-import { AlertDispatchService } from './alert-dispatch.service';
 import { WorkflowsService } from '../workflows/workflows.service';
 import { CreditReservationSweepService } from '../credits/credit-reservation-sweep.service';
-import { SubscriptionCreditRenewalService } from '../credits/subscription-credit-renewal.service';
-import { EnterpriseCreditAgreementService } from '../credits/enterprise-credit-agreement.service';
-import { CreditReconciliationService } from '../credits/credit-reconciliation.service';
-import { CreditRollupService } from '../credits/credit-rollup.service';
+import { PlatformSweepsService } from './sweeps/platform-sweeps.service';
+import {
+  PLATFORM_SWEEPS,
+  type PlatformSweepJob,
+} from './sweeps/platform-sweeps.constants';
 
 /**
  * Time-based sweeps, callable over HTTP.
  *
- * Everything in here normally runs as a BullMQ **repeatable** job. Repeatables
- * need a persistent worker to fire them, so on a serverless-only deployment they
+ * Everything in here also runs as a BullMQ **repeatable** job. Repeatables need
+ * a persistent worker to fire them, so on a serverless-only deployment they
  * never run at all — scheduled workflows never trigger, stuck runs are never
  * reaped, approval SLAs never escalate, retention never prunes.
  *
  * These routes let a platform scheduler (Vercel Cron, cloud scheduler, or plain
  * `curl` from anywhere) drive the same work. One-minute granularity is plenty:
  * the sweeps below run on 5-minute or daily cadences.
+ *
+ * ── The mirror-image trap (audit 2026-09-02) ────────────────────────────────
+ * "Everything in here normally runs as a repeatable" was **not true** when this
+ * comment first said it. Eight of the eighteen jobs — `alerts`,
+ * `audit-retention`, `data-retention`, `marketing-analytics`,
+ * `subscription-credit-renewal`, `enterprise-credit-agreement-renewal`,
+ * `credit-reconciliation` and `credit-finance-rollup` — existed ONLY as cases
+ * in this switch. So a *worker* deployment ran none of them, which is the exact
+ * inverse of the serverless gap this controller was written to close, and it
+ * included the job that grants paying customers their monthly credits.
+ *
+ * Those eight now live in `PlatformSweepsService`, driven by
+ * `PlatformSweepsProcessor` on a worker and delegated to from here over HTTP.
+ * `cron-schedule-coverage.spec.ts` asserts every name in {@link CRON_JOBS} has
+ * a driver in BOTH deployment shapes, so neither gap can reopen.
  *
  * ── Auth ────────────────────────────────────────────────────────────────────
  * A shared secret in `X-Cron-Secret`, NOT a user JWT — a scheduler has no user
@@ -102,15 +115,18 @@ export class CronController {
     private readonly reconcile: ConnectorReconcileService,
     private readonly marketingSync: MarketingSyncService,
     private readonly campaignGeneration: CampaignGenerationService,
-    private readonly auditRetention: AuditRetentionService,
-    private readonly dataRetention: DataRetentionService,
-    private readonly alerts: AlertDispatchService,
     private readonly creditReservationSweep: CreditReservationSweepService,
-    private readonly subscriptionCreditRenewal: SubscriptionCreditRenewalService,
-    private readonly enterpriseCreditAgreement: EnterpriseCreditAgreementService,
-    private readonly creditReconciliation: CreditReconciliationService,
-    private readonly creditRollup: CreditRollupService,
+    // The eight sweeps that have no queue of their own. Shared with
+    // `PlatformSweepsProcessor` so the HTTP driver and the BullMQ driver run
+    // literally the same code — they used to be a switch in this file only,
+    // which is why a worker deployment ran none of them.
+    private readonly platformSweeps: PlatformSweepsService,
   ) {}
+
+  /** The jobs `PlatformSweepsService` owns, for the delegation check below. */
+  private static readonly DELEGATED = new Set<string>(
+    PLATFORM_SWEEPS.map((s) => s.job),
+  );
 
   /**
    * `@All` deliberately: Vercel Cron issues a GET, while a human or another
@@ -132,6 +148,12 @@ export class CronController {
       : undefined;
     this.assertAuthorized(headerSecret ?? bearer);
 
+    // Delegated first: these eight live in PlatformSweepsService so that the
+    // BullMQ repeatables and this route cannot drift apart.
+    if (CronController.DELEGATED.has(job)) {
+      return this.platformSweeps.run(job as PlatformSweepJob);
+    }
+
     switch (job) {
       case 'workflow-schedules':
         return this.fireDueSchedules();
@@ -141,24 +163,6 @@ export class CronController {
         return { ...(await this.sla.sweep()) };
       case 'hr-retention':
         return { ...(await this.retention.runRetention(new Date())) };
-      case 'audit-retention':
-        // WAVE 4 §4.5. Separate from `hr-retention` on purpose: audit has its
-        // own floor and its own legal-hold rule, and must not be swept by a job
-        // whose schedule and policy belong to operational data.
-        return { ...(await this.auditRetention.sweep()) };
-      case 'alerts':
-        // WAVE 9 — the rules already evaluated correctly at `GET /admin/alerts`
-        // and NOTHING EVER CALLED IT. Evaluating an alert nobody receives is a
-        // log line with ambition; this is the half that notifies someone.
-        // Reports `delivered:false` with a reason when it could not.
-        return { ...(await this.alerts.sweep()) };
-      case 'data-retention':
-        // WAVE 8 §8.3 — workflow runs, step attempts, outbox, provider
-        // snapshots, knowledge, memory, conversations and attachments. A third
-        // sweep rather than an extension of the other two because each has a
-        // genuinely different rule: audit has a floor it will not go below, HR
-        // never touches the roster, and this one never touches an in-flight run.
-        return { ...(await this.dataRetention.sweep()) };
       case 'gmail-poll':
         // P1-4: inbound Gmail polling is otherwise a worker-only repeatable, so
         // on a serverless deploy (QUEUE_WORKERS_ENABLED=false) no email ever
@@ -181,12 +185,6 @@ export class CronController {
         // so this sweep is the ONLY thing that advances a campaign past its
         // first pass — see CampaignGenerationService.start().
         return { ...(await this.campaignGeneration.sweep()) };
-      case 'marketing-analytics':
-        // M-10 — deliberately a much lower cadence than marketing-sync (daily,
-        // not every 10 minutes): see MarketingSyncService.snapshotAnalytics's
-        // own doc comment for why folding this into the sync sweep would blow
-        // Postiz's real instance-wide rate cap.
-        return { ...(await this.marketingSync.snapshotAnalytics()) };
       case 'credit-reservation-sweep':
         // Credit system Phase 2, Task 2.8 (kill-critic Q8's "hard
         // prerequisite"): without this case, the sweep's BullMQ repeatable
@@ -194,30 +192,6 @@ export class CronController {
         // deployment path, turning "a reconciliation window" into "no
         // recovery, ever" for orphaned chat/assist credit holds.
         return { ...(await this.creditReservationSweep.sweep()) };
-      case 'subscription-credit-renewal':
-        // Credit system Phase 7, Task 7.3 — the fallback path for every
-        // tenant with no real Stripe subscription to fire
-        // invoice.payment_succeeded (Task 7.2). Daily cadence.
-        return { ...(await this.subscriptionCreditRenewal.grantDuePeriods()) };
-      case 'enterprise-credit-agreement-renewal':
-        // Credit system Phase 7, Task 7.4 — Enterprise's own recurring
-        // allotment mechanism (blocked from the self-serve Stripe path).
-        return { ...(await this.enterpriseCreditAgreement.grantDuePeriods()) };
-      case 'credit-reconciliation':
-        // Credit system Phase 10, Task 10.3 (§25.3) — daily, for the
-        // PREVIOUS UTC day (the day just closed, so every real-time
-        // reservation for it has settled by the time this runs).
-        return {
-          ...(await this.creditReconciliation.runDaily(
-            new Date(Date.now() - 24 * 60 * 60 * 1000),
-          )),
-        };
-      case 'credit-finance-rollup':
-        // Credit system Phase 10, Task 10.4 (§24/§27) — nightly, for the
-        // PREVIOUS UTC day, same timing rationale as credit-reconciliation.
-        return {
-          ...(await this.creditRollup.runNightly(new Date(Date.now() - 24 * 60 * 60 * 1000))),
-        };
       default:
         throw new BadRequestException(
           `Unknown cron job "${job}". Known: ${CRON_JOBS.join(', ')}.`,

@@ -36,6 +36,10 @@ import { WorkflowPermissionService } from '../workflow-permissions/workflow-perm
 import { WorkflowEngine } from './engine/workflow-engine.service';
 import { evaluateConditions } from './engine/conditions';
 import {
+  actingEmployeeIdForGraph,
+  nodesOf,
+} from './engine/employee-references';
+import {
   validateDefinitionStructure,
   validateStorableDefinition,
 } from './engine/definition-validator';
@@ -686,6 +690,9 @@ export class WorkflowsService {
       where: { companyId, workflowId: id },
       orderBy: { createdAt: 'desc' },
       take: clampLimit(limitRaw),
+      // The acting employee's NAME, joined rather than fetched per row — same
+      // reason `listAllRuns` joins the workflow name.
+      include: { actingEmployee: { select: { name: true } } },
     });
     return runs.map((r) => toWorkflowRunDto(r));
   }
@@ -716,7 +723,10 @@ export class WorkflowsService {
       },
       orderBy: { createdAt: 'desc' },
       take: clampLimit(filters.limit),
-      include: { workflow: { select: { name: true } } },
+      include: {
+        workflow: { select: { name: true } },
+        actingEmployee: { select: { name: true } },
+      },
     });
 
     return runs.map((r) => ({
@@ -729,7 +739,10 @@ export class WorkflowsService {
   async getRun(companyId: string, runId: string): Promise<WorkflowRunDto> {
     const run = await this.prisma.workflowRun.findFirst({
       where: { id: runId, companyId },
-      include: { steps: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        steps: { orderBy: { createdAt: 'asc' } },
+        actingEmployee: { select: { name: true } },
+      },
     });
     if (!run) {
       throw new NotFoundException('Workflow run not found');
@@ -969,9 +982,21 @@ export class WorkflowsService {
       where: { id: workflowId, companyId },
       select: {
         activeVersionId: true,
-        activeVersion: { select: { publishedById: true } },
+        activeVersion: { select: { publishedById: true, definition: true } },
+        // Fallback graph for a pre-versioning workflow, read for the same
+        // reason the engine reads it: so attribution works on old automations
+        // instead of silently skipping them.
+        definition: true,
       },
     });
+
+    // The AI Employee this run is attributed to (see `employee-references.ts`
+    // for the rule). Derived from the SAME graph the run will execute — the
+    // pinned version when there is one, the legacy column otherwise — so the
+    // attribution can never describe a graph other than the one that ran.
+    const actingEmployeeId = actingEmployeeIdForGraph(
+      nodesOf(pinned?.activeVersion?.definition ?? pinned?.definition),
+    );
 
     // P3-06 (doc 16 §21): `workflow:run` is authorised HERE, at enqueue — not per
     // attempt. The run-as subject is the clicking user (MANUAL) or the pinned
@@ -994,6 +1019,11 @@ export class WorkflowsService {
           dryRun: opts?.dryRun ?? false,
           // Who started it (MANUAL = the clicking user; automated triggers = system).
           startedByUserId: source === 'MANUAL' ? subjectUserId : null,
+          // WHICH AI EMPLOYEE this run belongs to. Snapshotted at creation from
+          // the pinned graph, exactly like `engineMode` above: re-deriving it
+          // later would let an edit to the workflow rewrite the history of a run
+          // that already happened.
+          actingEmployeeId,
           trigger:
             trigger === undefined
               ? Prisma.JsonNull

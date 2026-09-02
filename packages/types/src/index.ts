@@ -2137,6 +2137,17 @@ export interface WorkflowRunDto {
   resumeNodeId: string | null;
   /** The user who started this run (MANUAL runs); null for automated triggers. */
   startedByUserId: string | null;
+  /**
+   * WHICH AI Employee this run belongs to — the employee of the first
+   * employee-bearing node in the pinned graph, snapshotted at run creation.
+   *
+   * Null only when the graph names no employee at all (a pure integration
+   * workflow: trigger → HTTP → condition → notify), which is a true statement
+   * about that workflow rather than missing data.
+   */
+  actingEmployeeId: string | null;
+  /** Display name for {@link actingEmployeeId}; null when unattributed or deleted. */
+  actingEmployeeName: string | null;
   /** The pinned WorkflowVersion this run executed; null for pre-versioning runs. */
   workflowVersionId: string | null;
   startedAt: string | null;

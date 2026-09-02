@@ -103,6 +103,38 @@ export class CreditLedgerService {
     }
   }
 
+  /**
+   * Which workflow this spend belongs to.
+   *
+   * `CreditLedger.workflowId` was fully plumbed — column, DTO, mapper, and a
+   * "Workflow" column on `/billing/usage` — and **no caller ever passed it**.
+   * The 2026-09-02 audit found every workflow-driven ledger row carrying a
+   * populated `workflowRunId` and a null `workflowId`, so the customer's own
+   * billing table showed "—" for spend it could have attributed precisely. A
+   * business cannot answer "which automation is costing me money" from that.
+   *
+   * Derived here rather than threaded through every call site: the spending
+   * services (`AiStepNodeHandler`, `AgentRuntimeService`, the tool executor)
+   * know the RUN they are in, not the workflow, and passing a second id through
+   * four layers to save one indexed primary-key lookup per ledger row — of
+   * which there are roughly three per run — is the wrong trade.
+   *
+   * An explicit `entry.workflowId` always wins, so a caller that does know
+   * (a grant attributed to a workflow with no run yet) is never second-guessed.
+   */
+  private async resolveWorkflowId(
+    tx: PrismaTransaction,
+    entry: CreditLedgerAppendInput,
+  ): Promise<string | null> {
+    if (entry.workflowId) return entry.workflowId;
+    if (!entry.workflowRunId) return null;
+    const run = await tx.workflowRun.findUnique({
+      where: { id: entry.workflowRunId },
+      select: { workflowId: true },
+    });
+    return run?.workflowId ?? null;
+  }
+
   private async appendWithin(
     tx: PrismaTransaction,
     entry: CreditLedgerAppendInput,
@@ -196,7 +228,7 @@ export class CreditLedgerService {
       data: {
         companyId: entry.companyId,
         employeeId: entry.employeeId ?? null,
-        workflowId: entry.workflowId ?? null,
+        workflowId: await this.resolveWorkflowId(tx, entry),
         workflowRunId: entry.workflowRunId ?? null,
         workflowStepRunId: entry.workflowStepRunId ?? null,
         conversationId: entry.conversationId ?? null,

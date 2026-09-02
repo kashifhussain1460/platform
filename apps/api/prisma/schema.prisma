@@ -732,6 +732,8 @@ model AiEmployee {
   employeeSkills  EmployeeSkill[]
   feedback        EmployeeFeedback[]
   installedSkills InstalledSkill[]
+  /// Runs attributed to this employee (see WorkflowRun.actingEmployeeId).
+  workflowRuns    WorkflowRun[]      @relation("WorkflowRunActingEmployee")
 
   @@index([companyId])
   @@index([companyId, archivedAt])
@@ -1014,7 +1016,18 @@ model WorkflowRun {
   /// RunFailureClass (doc 00 §0.7.1) as a STRING, not a DB enum — adding a
   /// failure class must not require a migration.
   failureClass     String?
+  /// WHICH AI Employee this run belongs to — the platform's primary
+  /// abstraction, finally wired. Snapshotted at run creation from the pinned
+  /// graph by `actingEmployeeIdForGraph` (the employee of the first
+  /// employee-bearing node); null only when the graph names no employee at all,
+  /// which is a true statement about a pure integration workflow.
+  ///
+  /// Was a dead column until 2026-09-03: written by nothing, read by nothing,
+  /// while the PRD's headline claim was that every run is attributed to an
+  /// Employee. `SetNull` rather than `Cascade` because a run's history must
+  /// survive the hard deletion of the employee that performed it.
   actingEmployeeId String?
+  actingEmployee   AiEmployee? @relation("WorkflowRunActingEmployee", fields: [actingEmployeeId], references: [id], onDelete: SetNull)
   startedByUserId  String?
 
   // Credit system (Phase 1 foundation, plan §14.2/§20/§28.3) — the per-run
@@ -1054,6 +1067,11 @@ model WorkflowRun {
   // stuck-run sweep. Previously only companyId was indexed, so every
   // status-filtered listing scanned the tenant's whole run history.
   @@index([companyId, status])
+  // "Show me everything this AI Employee did" — the employee detail page, the
+  // per-employee KPI table, and any future per-employee audit view. Without
+  // this, attributing runs to employees would mean a full tenant scan per
+  // employee card.
+  @@index([companyId, actingEmployeeId, createdAt])
 }
 
 model WorkflowStepRun {

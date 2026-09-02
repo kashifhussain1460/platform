@@ -320,6 +320,8 @@ export const workflowRunDtoSchema = z.object({
   failureClass: z.string().nullable(),
   resumeNodeId: z.string().nullable(),
   startedByUserId: z.string().nullable(),
+  actingEmployeeId: z.string().nullable(),
+  actingEmployeeName: z.string().nullable(),
   workflowVersionId: z.string().nullable(),
   startedAt: isoString.nullable(),
   finishedAt: isoString.nullable(),

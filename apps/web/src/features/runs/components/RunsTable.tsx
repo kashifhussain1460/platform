@@ -79,6 +79,10 @@ export function RunsTable({
         <thead className="bg-app-surface text-xs uppercase tracking-wide text-app-ink-3">
           <tr>
             {showWorkflow && <th className="px-4 py-3 font-medium">Workflow</th>}
+            {/* WHO did it. The product's whole premise is that an AI Employee
+                acts, so this belongs beside the workflow name rather than
+                buried in the run detail. */}
+            <th className="px-4 py-3 font-medium">AI Employee</th>
             <th className="px-4 py-3 font-medium">Started by</th>
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium">Started</th>
@@ -104,6 +108,23 @@ export function RunsTable({
                   )}
                 </td>
               )}
+              <td className="px-4 py-3">
+                {run.actingEmployeeId ? (
+                  <Link
+                    href={`/employees/${run.actingEmployeeId}`}
+                    className="font-medium text-app-ink hover:text-violet"
+                  >
+                    {run.actingEmployeeName ?? 'AI Employee'}
+                  </Link>
+                ) : (
+                  // Not missing data: a graph with no employee node (trigger →
+                  // HTTP → notify) genuinely has nobody acting. Say that rather
+                  // than showing a blank cell that reads as a bug.
+                  <span className="text-app-ink-3" title="This workflow has no AI Employee step">
+                    —
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-3 text-app-ink-2">
                 {triggerSourceLabel(run.source)}
               </td>

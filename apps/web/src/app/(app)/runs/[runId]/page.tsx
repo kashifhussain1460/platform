@@ -72,6 +72,20 @@ export default function RunDetailPage({
           <h1 className="truncate text-2xl font-bold text-app-ink">
             {run.workflowName ?? workflow?.name ?? 'Workflow run'}
           </h1>
+          {/* WHO ran it, before anything else about it. `actingEmployeeId` was
+              a dead column until 2026-09-03, so a run page could describe every
+              detail of an execution except the AI Employee that performed it. */}
+          {run.actingEmployeeId && (
+            <p className="mt-1 text-sm text-app-ink-2">
+              Run by{' '}
+              <Link
+                href={`/employees/${run.actingEmployeeId}`}
+                className="font-medium text-app-ink hover:text-violet"
+              >
+                {run.actingEmployeeName ?? 'an AI Employee'}
+              </Link>
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-app-ink-2">
             <RunStatusPill status={run.status} />
             <span>Started {triggerSourceLabel(run.source).toLowerCase()}</span>
@@ -168,6 +182,7 @@ export default function RunDetailPage({
             <DebugRow label="failureClass" value={run.failureClass} />
             <DebugRow label="resumeNodeId" value={run.resumeNodeId} />
             <DebugRow label="startedByUserId" value={run.startedByUserId} />
+            <DebugRow label="actingEmployeeId" value={run.actingEmployeeId} />
           </dl>
         </details>
       )}

@@ -19,6 +19,8 @@ function makeRun(overrides: Partial<WorkflowRunDto> = {}): WorkflowRunDto {
     failureClass: null,
     resumeNodeId: null,
     startedByUserId: null,
+    actingEmployeeId: null,
+    actingEmployeeName: null,
     workflowVersionId: null,
     startedAt: null,
     finishedAt: null,

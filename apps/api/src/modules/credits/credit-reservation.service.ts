@@ -293,12 +293,89 @@ export class CreditReservationService {
       );
     }
 
+    await this.rollUpSpendOntoRun(tx, reservation, actualAbs);
+
     return [
       toDto(
         await tx.creditReservation.findUniqueOrThrow({ where: { id: input.reservationId } }),
       ),
       true,
     ];
+  }
+
+  /**
+   * Record what a run and its step ACTUALLY cost, on the run and step rows the
+   * product reads.
+   *
+   * ## The defect this closes
+   *
+   * `WorkflowRun.totalCreditsCharged` was incremented in exactly one place —
+   * `CreditLimitsService.checkAndReserveWorkflowLimit` — which returns early
+   * when `run.creditLimit == null`. Null is the default, so for essentially
+   * every run the counter never moved. `WorkflowStepRun.creditsCharged` was
+   * worse: no writer anywhere in the repository.
+   *
+   * `RunCreditPanel` renders both. The 2026-09-02 audit watched a run debit a
+   * real credit against a real balance (1000 → 999) while the run page told the
+   * customer **"Credits 0 — No billable steps in this run yet."** A billing
+   * system may not do that.
+   *
+   * ## Why here
+   *
+   * Settlement is the moment actual cost becomes known, and it already runs in
+   * a transaction with the ledger append — so the rollup either lands with the
+   * DEBIT or not at all. It is also idempotent by construction: the caller
+   * reached this line only after winning the guarded `updateMany` above, so a
+   * replayed settle takes the no-op branch and never double-counts.
+   *
+   * ## Interaction with the per-run cap
+   *
+   * `checkAndReserveWorkflowLimit` still increments the same counter, at
+   * RESERVATION time, because a live per-node cap must reserve against the
+   * ceiling before spending — it cannot wait for settlement. When a run has a
+   * cap, `totalCreditsCharged` is therefore the reserved figure, which is the
+   * conservative one and the one the cap is enforced against. This method fills
+   * the gap for the uncapped default, where nothing was recorded at all, and
+   * deliberately skips capped runs so neither path double-bills.
+   */
+  private async rollUpSpendOntoRun(
+    tx: PrismaTransaction,
+    reservation: { workflowRunId: string | null; workflowStepRunId: string | null },
+    actualCredits: number,
+  ): Promise<void> {
+    if (actualCredits === 0) return;
+
+    if (reservation.workflowStepRunId) {
+      // Accumulating rather than setting, because one step can settle more than
+      // one reservation — an AI_EMPLOYEE_STEP's completion plus each tool call
+      // it makes.
+      //
+      // Raw SQL rather than Prisma's `increment`, and this is not a style
+      // choice: `WorkflowStepRun.creditsCharged` is nullable with NO default,
+      // so `increment` emits `"creditsCharged" + 1`, and in SQL `NULL + 1` is
+      // `NULL`. The first settlement against a step would silently write
+      // nothing at all — which is the exact class of defect this rollup exists
+      // to fix, reintroduced one layer down. Caught only by running it.
+      //
+      // The column stays nullable on purpose: `null` means "no reservation ever
+      // settled here", which is how a control-flow node (WAIT, CONDITION) is
+      // distinguished from a cost-bearing one that happened to cost nothing.
+      // `RunCreditPanel` reads exactly that distinction.
+      await tx.$executeRaw`
+        UPDATE "WorkflowStepRun"
+           SET "creditsCharged" = COALESCE("creditsCharged", 0) + ${actualCredits}::numeric
+         WHERE id = ${reservation.workflowStepRunId}
+      `;
+    }
+
+    if (reservation.workflowRunId) {
+      // `creditLimit: null` in the WHERE is the anti-double-bill guard
+      // described above, not an optimisation.
+      await tx.workflowRun.updateMany({
+        where: { id: reservation.workflowRunId, creditLimit: null },
+        data: { totalCreditsCharged: { increment: actualCredits } },
+      });
+    }
   }
 
   /**

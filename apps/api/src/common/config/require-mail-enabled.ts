@@ -1,27 +1,59 @@
 /**
- * Refuse to boot in production with `CREDIT_GRANTS_ENABLED=true` but no real
- * mail channel to verify a signup email actually belongs to the signer.
- * Mirrors `requireRealProviderInProduction`'s exact shape — a config omission
- * should fail loudly at startup, not silently let free credits go out to
- * anyone who can type an email address nobody will ever verify.
+ * Refuse to boot in production without a real mail channel.
  *
- * Kill-critic Q11: the free-grant premise is exploitable without this — the
- * default OTP is `123456` and there is no production boot-guard tying a
- * grant to a verified mailbox. This function is the boot-guard half of that
- * fix (the other half, the domain-velocity counter, runs at grant time —
- * Task 4.4 — never at registration, per §26's "never break signup" rule).
+ * ## Why this is unconditional
+ *
+ * `MailService.generateOtp()` returns the FIXED dev code (`DEV_OTP_CODE`,
+ * default `123456`) whenever `MAIL_ENABLED !== 'true'` — and `MAIL_ENABLED`
+ * defaults to unset. That generator serves BOTH email verification AND
+ * `AuthService.forgotPassword`, so with mail off the password-reset code is a
+ * public constant. The 2026-09-02 audit reproduced the whole chain against a
+ * live API: `forgot-password` → `verify-reset-otp` with `123456` →
+ * `reset-password` → the attacker logs in and the owner is locked out, knowing
+ * nothing but the victim's email address.
+ *
+ * This guard used to fire only when `CREDIT_GRANTS_ENABLED === 'true'`, because
+ * it was written for a narrower problem (free credits going to unverified
+ * mailboxes — kill-critic Q11). Credit grants default to `false`, so the
+ * common production configuration booted happily with every OTP pinned to a
+ * known value. The condition is gone: account recovery is not a feature you
+ * can have half of.
+ *
+ * `scripts/preflight-env.mjs` checks the same thing at deploy time. That gate
+ * is real but it is OUTSIDE the application — it depends on `NODE_ENV` being
+ * present in the pulled Vercel env, and a manual `vercel deploy`, a different
+ * host or a self-hosted install bypasses it entirely. This function is the
+ * half that travels with the code.
  */
 export function requireMailEnabledInProduction(): void {
-  if (
-    process.env.NODE_ENV === 'production' &&
-    process.env.CREDIT_GRANTS_ENABLED === 'true' &&
-    process.env.MAIL_ENABLED !== 'true'
-  ) {
+  if (process.env.NODE_ENV === 'production' && process.env.MAIL_ENABLED !== 'true') {
     throw new Error(
-      'CREDIT_GRANTS_ENABLED is true but MAIL_ENABLED is not — refusing to ' +
-        'start in production granting free credits with no way to verify a ' +
-        'signup email. Set MAIL_ENABLED=true (with real mail provider config) ' +
-        'or leave CREDIT_GRANTS_ENABLED off.',
+      'MAIL_ENABLED is not "true" but NODE_ENV is production — refusing to start. ' +
+        `MailService.generateOtp() would return the fixed code ${
+          process.env.DEV_OTP_CODE || '123456'
+        }, ` +
+        'which is used for BOTH email verification and password reset: anyone could take ' +
+        'over any account from its email address alone. Set MAIL_ENABLED=true with real ' +
+        'SMTP_* configuration.',
+    );
+  }
+
+  // Belt and braces for the case the guard above cannot see: a deployment that
+  // is really production but does not say so in NODE_ENV. Nothing can be
+  // enforced from here, so say it loudly instead of failing silently.
+  if (process.env.MAIL_ENABLED !== 'true') {
+    // eslint-disable-next-line no-console -- runs before the Nest logger exists
+    console.warn(
+      '[auth] MAIL_ENABLED is not "true": every verification AND password-reset ' +
+        `OTP is the fixed value ${process.env.DEV_OTP_CODE || '123456'}. This is safe ` +
+        'ONLY on a local or test environment. Never expose this process to the internet.',
+    );
+  }
+
+  if (process.env.NODE_ENV === 'production' && process.env.DEV_OTP_CODE) {
+    throw new Error(
+      'DEV_OTP_CODE is set in production — refusing to start. It pins every OTP to a ' +
+        'known value even when mail is enabled. Remove it.',
     );
   }
 }
