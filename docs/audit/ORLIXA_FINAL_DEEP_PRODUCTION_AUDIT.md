@@ -6,6 +6,71 @@
 architect · QA lead · browser E2E · security · reliability · FinOps · kill critic.
 **Companion:** [current-system-inventory.md](current-system-inventory.md)
 
+## REMEDIATION STATUS — 2026-09-03
+
+Three waves have shipped against this report. **The findings below are preserved
+as written** — they are the evidence, and rewriting them would destroy the record
+of what was actually wrong. This section is the delta.
+
+| Measure | At audit (2026-09-02) | Now | Ceiling once the worker is deployed |
+|---|---:|---:|---:|
+| Product Concept Completion | 66% | **78%** | — |
+| Production Readiness | 52% | **71%** | ~86% today, 100% with the worker |
+| Architectural Integration | 62% | **83%** | — |
+| **Verdict** | **C** | **C — closing** | **D** once P0-B lands |
+
+### Founder decisions taken
+- **Always-on worker: APPROVED.** 100% Production Readiness is therefore reachable.
+- **AI Employee category/subcategory: DROPPED.** Eight roles are enough; the rubric
+  is reweighted rather than a second taxonomy being built (§12, §14).
+
+### Closed, with the commit that did it
+
+| Finding | Commit | Evidence |
+|---|---|---|
+| **P0-1** account takeover | `7c11e95` | `NODE_ENV=production` boot now dies with the reason; guard no longer waits on `CREDIT_GRANTS_ENABLED` |
+| **P0-C** (worker half) | `7c11e95` | 8 of 18 cron jobs had NO BullMQ driver — the audit understated this. New `platform-sweeps` queue; 8 schedulers verified in Redis |
+| **P0-B** verifiability | `7c11e95` | `GET /admin/runtime` reports the engine ACTUALLY in use, not the configured one |
+| **P1-A** run attribution | `7c11e95` | `actingEmployeeId` derived at run creation + FK + index + history backfilled; shown in the runs table and run page |
+| **P1-B / P1-9** credit truth | `7c11e95` | The page that read "Credits 0 — No billable steps" now reads "Run by Cassie Credits · Credits 1 · ai (AI_EMPLOYEE_STEP) 1" |
+| **P2-1** flaky credit test | `7c11e95` | 4/4 green, was 1-in-3 red |
+| **P1-D** approval routing UI | `9b20814` | Full routing editor + queue badges + "Waiting on me" |
+| **P1-E** fake-capable skills | `9b20814` | OAuth refused server-side for skills with no executor |
+| **P1-F / P2-2** per-employee model | `9b20814` | Ledger rate row is now the employee's model, not the env default |
+| **P1-4** HR UI | `83162a8` | `/hr` — roster, time off, onboarding; resolver-gated, admin-only |
+| **P1-C / P1-11** deploy gates | `83162a8` | Preflight now covers all four credit flags, OTel and alerts |
+| **P1-10 / P1-G** browser coverage | `83162a8` | **13 tests, was 8** — added cross-tenant and 4 failure journeys |
+
+### Still open
+
+**P0-B and P0-C's other half are infrastructure, not code:** the always-on worker
+must actually be deployed, and the 18 crons registered (or made redundant by that
+worker). Until then `GET /admin/runtime` will keep reporting
+`durableExecution: false` in production, which is now the single check that
+matters.
+
+Also open: real executors for stripe/github/hubspot/jira (**gated**, so no longer
+dangerous — just absent), Postiz/Chatwoot/Plane deployment, an OTel collector
+(now **warned about** at deploy time), HR documents/reviews/attendance UI,
+tenant deletion, and the remaining P2 cleanups. The credit flags need a founder
+pricing decision before they can be switched on — the gate that stops that being
+forgotten now exists.
+
+### Two corrections to this report
+
+1. **§26 P0-2 understated the cron problem.** It said deploying a worker fixes the
+   parked crons "for free". True for 10 of 18 jobs; the other eight —
+   including `subscription-credit-renewal`, which is how paying customers get
+   their monthly credits — existed only as HTTP switch cases and would have run
+   on *no* deployment shape. Fixed in `7c11e95`.
+2. **§10 wrongly slated `GET /workflows/node-types` for deletion.** The stated
+   evidence (zero web references) was true; the conclusion was not. Its consumer
+   is `workflow-p2-nodes.e2e-spec.ts`, asserting the runtime registry against
+   what the engine claims to support — an assertion `node-definitions` cannot
+   make, because it serves a static hand-authored catalog. Kept.
+
+---
+
 ## Changes made during this audit
 
 **No source code, schema, migration or configuration file was modified.** `git status` shows
