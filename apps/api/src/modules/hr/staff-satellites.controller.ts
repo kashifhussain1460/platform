@@ -56,14 +56,12 @@ export class AttendanceController {
 export class OnboardingController {
   constructor(private readonly staff: StaffService) {}
 
+  /** All of this company's onboarding tasks, or one person's with `?staffId=`. */
   @Get()
   list(
     @CurrentTenant() companyId: string,
     @Query('staffId') staffId?: string,
   ): Promise<OnboardingTaskDto[]> {
-    if (!staffId) {
-      throw new BadRequestException('staffId query parameter is required');
-    }
     return this.staff.listOnboarding(companyId, staffId);
   }
 

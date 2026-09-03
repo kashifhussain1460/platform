@@ -10,6 +10,7 @@ import {
   ATTENDANCE_STATUSES,
   EMPLOYMENT_TYPES,
   ONBOARDING_OWNER_TYPES,
+  type OnboardingOwnerType,
   STAFF_STATUSES,
   type CreateAttendanceRecordDto as ICreateAttendanceRecordDto,
   type CreateOnboardingTaskDto as ICreateOnboardingTaskDto,
@@ -169,8 +170,11 @@ export class CreateOnboardingTaskDto implements ICreateOnboardingTaskDto {
   @MaxLength(300)
   title!: string;
 
+  // Typed as the union to match the shared contract: `@IsIn` already rejected
+  // anything else at runtime, so `string` here bought nothing and cost a
+  // compile-time guarantee.
   @IsIn(ONBOARDING_OWNER_TYPES)
-  ownerType!: string;
+  ownerType!: OnboardingOwnerType;
 
   @IsOptional()
   @IsString()

@@ -227,6 +227,90 @@ warn(
 );
 
 // ---------------------------------------------------------------------------
+// Billing. The audit's P1-C: the revenue system defaults to OFF at four
+// independent flags, none of them appeared in any env file, and THIS SCRIPT
+// CHECKED NONE OF THEM. A production deploy could ship with billing entirely
+// disabled and nothing anywhere would notice.
+//
+// Deliberately not `require_`: shipping with credits off is a legitimate
+// choice (a free beta, a pilot). What is NOT legitimate is doing it by
+// accident, so every one of these is a loud WARN naming the consequence, and
+// the genuinely incoherent COMBINATIONS are hard failures.
+// ---------------------------------------------------------------------------
+
+const ledgerOn = get('CREDIT_LEDGER_ENABLED') === 'true';
+const grantsOn = get('CREDIT_GRANTS_ENABLED') === 'true';
+const enforcementOn = get('CREDIT_ENFORCEMENT_ENABLED') === 'true';
+const paygOn = get('CREDIT_PAYG_ENABLED') === 'true';
+
+if (isProduction) {
+  warn(
+    !ledgerOn,
+    'CREDIT_LEDGER_ENABLED is not "true" — every reserve/settle call is a no-op, ' +
+      'so NO credit is ever recorded or charged for AI usage. All AI work is free ' +
+      'and unmetered. Intentional for a free beta; a revenue outage otherwise.',
+  );
+  warn(
+    ledgerOn && !enforcementOn,
+    'CREDIT_ENFORCEMENT_ENABLED is not "true" — the ledger records spend but ' +
+      'nothing is ever BLOCKED. A company at zero balance keeps getting unlimited ' +
+      'AI (shadow mode swallows the insufficient-credits error and proceeds).',
+  );
+  warn(
+    !paygOn,
+    'CREDIT_PAYG_ENABLED is not "true" — the credit purchase endpoint returns ' +
+      '"not available yet", so a customer who runs out has no way to buy more.',
+  );
+}
+
+// Enforcement without a ledger cannot work: there are no balances to enforce
+// against, because nothing writes them. This is a misconfiguration, not a
+// choice.
+if (enforcementOn && !ledgerOn) {
+  errors.push(
+    'CREDIT_ENFORCEMENT_ENABLED=true but CREDIT_LEDGER_ENABLED is not — there is ' +
+      'nothing to enforce against, since with the ledger off no reservation, debit ' +
+      'or balance is ever written. Enable the ledger first.',
+  );
+}
+
+// Selling credits nobody is metering means taking money for a balance that
+// never goes down.
+if (paygOn && !ledgerOn) {
+  errors.push(
+    'CREDIT_PAYG_ENABLED=true but CREDIT_LEDGER_ENABLED is not — customers could ' +
+      'buy credits that are never consumed or deducted. Enable the ledger first.',
+  );
+}
+
+// Mirrors the runtime guard in `require-mail-enabled.ts`, so the deploy fails
+// before the boot does.
+if (isProduction && grantsOn && !mailEnabled) {
+  errors.push(
+    'CREDIT_GRANTS_ENABLED=true but MAIL_ENABLED is not — free credits would go to ' +
+      'any address nobody can verify. The API refuses to boot in this state anyway.',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Observability. Built and inert: the OpenTelemetry SDK is real, and
+// `tracing.ts` no-ops without an endpoint. Nothing was checking whether one
+// was configured, so production had no traces and no signal that it didn't.
+// ---------------------------------------------------------------------------
+
+warn(
+  isProduction && !isSet('OTEL_EXPORTER_OTLP_ENDPOINT'),
+  'OTEL_EXPORTER_OTLP_ENDPOINT is not set — tracing initialises to a no-op, so ' +
+    'there are NO traces in production. Metrics (/admin/metrics) and structured ' +
+    'logs still work.',
+);
+warn(
+  isProduction && !isSet('ALERT_WEBHOOK_URL'),
+  'ALERT_WEBHOOK_URL is not set — the alerts sweep evaluates rules and then has ' +
+    'nowhere to deliver them, so nobody is paged.',
+);
+
+// ---------------------------------------------------------------------------
 // Report.
 // ---------------------------------------------------------------------------
 

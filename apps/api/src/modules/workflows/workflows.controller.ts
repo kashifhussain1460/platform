@@ -178,6 +178,21 @@ export class WorkflowsController {
    *
    * Declared before `:id` so the fixed `node-types` segment is not shadowed by
    * the parametric workflow route.
+   *
+   * ## Not dead, despite having no frontend caller
+   *
+   * The 2026-09-02 audit listed this as SUPERSEDED and slated it for deletion,
+   * on the evidence that `node-definitions` has five web references and this
+   * has none. That was the wrong conclusion from a true fact: its consumer is
+   * `workflow-p2-nodes.e2e-spec.ts`, which uses it to assert that the REGISTRY
+   * — the runtime's own list of executable node types — contains what the
+   * engine claims to support.
+   *
+   * That is a genuine drift guard and it is cheaper here than anywhere else:
+   * `node-definitions` serves a static, hand-authored catalog, so it cannot
+   * detect a node type that was registered but never catalogued. Three
+   * generated lines are a fair price for the only assertion that reads the
+   * registry directly.
    */
   @Get('node-types')
   listNodeTypes(): { types: NodeType[] } {

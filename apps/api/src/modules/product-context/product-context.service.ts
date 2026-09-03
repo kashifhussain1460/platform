@@ -40,6 +40,12 @@ const AREA_AUTHZ_ACTION: Partial<Record<ProductArea, AuthzAction>> = {
   // it, so unlike SKILLS/RUNS below this mapping advertises an enforcement
   // that exists.
   MARKETING: 'marketing:read',
+  // HR is the strictest area in the product: `hr:read` has an ADMIN floor and
+  // every `/hr/*` route enforces it, READS INCLUDED, because staff records
+  // carry special-category personal data. Mapping it here is therefore honest —
+  // the restriction being advertised is one the endpoints really apply, which
+  // is the test the two absences below fail.
+  HR: 'hr:read',
   // SKILLS is deliberately ABSENT.
   //
   // It was mapped to `skill:connect`, which has an ADMIN floor — but

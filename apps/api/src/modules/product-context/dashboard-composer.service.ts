@@ -145,12 +145,17 @@ export class DashboardComposerService {
       kind: 'HR_ACTIVITY',
       title: 'HR',
       metrics,
+      // Points at /hr now that the page exists. It used to send people to
+      // /scheduling — not because interview slots were the right first step,
+      // but because the HR domain had no screen of its own to send them to, so
+      // the nearest neighbour got the traffic. Every number in this widget is
+      // now reachable from the place it is counted.
       setupHint: hasNoData(metrics)
         ? {
             message:
-              'Your HR AI Employee is ready. Add interview slots so it can start scheduling.',
-            ctaLabel: 'Set up interview scheduling',
-            ctaHref: '/scheduling',
+              'Your HR AI Employee is ready. Add the people you employ so it can handle their leave, onboarding and reviews.',
+            ctaLabel: 'Add your people',
+            ctaHref: '/hr',
           }
         : null,
     };

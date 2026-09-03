@@ -240,13 +240,29 @@ export class StaffService {
 
   // --- OnboardingTask (satellite) -----------------------------------------
 
+  /**
+   * Onboarding tasks for one person, or for the whole company.
+   *
+   * `staffId` became OPTIONAL to match `LeaveService.list`, which has always
+   * accepted both. It was mandatory, and the controller 400'd without it — so
+   * there was no way to ask "what onboarding is outstanding here?" over the
+   * API at all, even though the dashboard's HR widget counts exactly that
+   * (it reaches into Prisma directly, which is why nobody noticed). Building
+   * the HR screen surfaced it immediately: the Onboarding tab needs the
+   * company-wide list, and fetching it per-person would have been one request
+   * per staff member.
+   *
+   * The tenant scope is unchanged either way — `companyId` is always in the
+   * WHERE clause, and `findOwned` still runs when a staffId is given so a
+   * cross-tenant id is rejected rather than silently returning nothing.
+   */
   async listOnboarding(
     companyId: string,
-    staffId: string,
+    staffId?: string,
   ): Promise<OnboardingTaskDto[]> {
-    await this.findOwned(companyId, staffId);
+    if (staffId) await this.findOwned(companyId, staffId);
     const rows = await this.prisma.onboardingTask.findMany({
-      where: { companyId, staffId },
+      where: { companyId, ...(staffId ? { staffId } : {}) },
       orderBy: { createdAt: 'asc' },
     });
     return rows.map(toOnboardingTaskDto);

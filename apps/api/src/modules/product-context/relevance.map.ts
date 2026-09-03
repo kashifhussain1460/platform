@@ -71,8 +71,12 @@ export const CORE_AREAS: readonly ProductArea[] = [
  * that have never hired a recruiter and never will.
  */
 export const EMPLOYEE_ROLE_AREAS: Readonly<Record<EmployeeRole, readonly ProductArea[]>> = {
+  // A recruiter schedules interviews but does not own the staff roster; an HR
+  // employee owns both. Keeping them different is the point of this table —
+  // rounding them up to the same set is how the sidebar became identical for
+  // everyone in the first place.
   RECRUITER: ['INTERVIEW_SCHEDULING'],
-  HR: ['INTERVIEW_SCHEDULING'],
+  HR: ['INTERVIEW_SCHEDULING', 'HR'],
   // The marketing workspace is where a human sees what the Marketing AI has
   // queued and published on the company's real social accounts. It appears
   // only once such an employee is hired — a company with no Marketing AI has

@@ -3269,7 +3269,15 @@ export interface OnboardingTaskDto {
 export interface CreateOnboardingTaskDto {
   staffId: string;
   title: string;
-  ownerType: string;
+  /**
+   * Typed as the union, not `string`. It was `string`, which meant a client
+   * could send any value and only find out from a runtime 400 — which is
+   * exactly what happened when the HR screen was built against a guess
+   * (`USER`/`DEPARTMENT`) instead of against `ONBOARDING_OWNER_TYPES`. The
+   * backend `@IsIn` was always right; the type simply wasn't carrying the
+   * information.
+   */
+  ownerType: OnboardingOwnerType;
   ownerId?: string | null;
   dueAt?: string | null;
   runId?: string | null;
@@ -3778,6 +3786,7 @@ export type ProductArea =
   | 'ASSIST'
   | 'MARKETPLACE'
   | 'INTERVIEW_SCHEDULING'
+  | 'HR'
   | 'MARKETING'
   | 'BILLING'
   | 'TEAM'
@@ -3796,6 +3805,7 @@ export const PRODUCT_AREAS: readonly ProductArea[] = [
   'ASSIST',
   'MARKETPLACE',
   'INTERVIEW_SCHEDULING',
+  'HR',
   'MARKETING',
   'BILLING',
   'TEAM',
@@ -3852,6 +3862,10 @@ export const PRODUCT_AREA_NAV: Readonly<
     label: 'Interview scheduling',
     group: 'SECONDARY',
   },
+  // "People" rather than "HR": it is the roster of humans the company employs,
+  // and every other label in this list is what the thing IS rather than which
+  // department owns it.
+  HR: { href: '/hr', label: 'People', group: 'SECONDARY' },
   MARKETING: { href: '/marketing', label: 'Marketing', group: 'SECONDARY' },
   MARKETPLACE: { href: '/marketplace', label: 'Marketplace', group: 'SECONDARY' },
   APPROVALS: { href: '/approvals', label: 'Approvals', group: 'SECONDARY' },
