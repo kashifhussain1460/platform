@@ -41,7 +41,12 @@ export function requireMailEnabledInProduction(): void {
   // Belt and braces for the case the guard above cannot see: a deployment that
   // is really production but does not say so in NODE_ENV. Nothing can be
   // enforced from here, so say it loudly instead of failing silently.
-  if (process.env.MAIL_ENABLED !== 'true') {
+  //
+  // Not under NODE_ENV=test: the e2e suite boots ~100 Nest apps with mail
+  // deliberately off, and the first version of this warning printed once per
+  // boot — a wall of identical text that trained people to scroll past the
+  // suite's real output. A test process cannot be "exposed to the internet".
+  if (process.env.MAIL_ENABLED !== 'true' && process.env.NODE_ENV !== 'test') {
     // eslint-disable-next-line no-console -- runs before the Nest logger exists
     console.warn(
       '[auth] MAIL_ENABLED is not "true": every verification AND password-reset ' +

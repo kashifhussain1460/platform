@@ -1,7 +1,7 @@
 # Orlixa — Current System Inventory
 
-**Built:** 2026-09-02
-**Commit audited:** `00552e4` (master, working tree clean apart from `.claude/worktrees/`)
+**Built:** 2026-09-02 · **Refreshed:** 2026-09-03 (re-audit)
+**Commit audited:** `d749900` + the re-audit fix commit (master, working tree clean apart from `.claude/worktrees/`). v1 was built at `00552e4`.
 **Method:** read from the running system, not from documentation. Route list extracted from the
 NestJS boot log of a live API; model list from `schema.prisma`; migration count cross-checked
 against `_prisma_migrations` in the live database.
@@ -22,7 +22,7 @@ d:\Vertical AI\                     ← proposal/brand assets (not code)
     ├── packages\config
     ├── e2e\                        Playwright browser suite
     ├── infra\                      docker-compose (postgres/redis/minio/adminer/jaeger/prometheus/grafana)
-    ├── poc\workflow-sdk            302 MB dead proof-of-concept (verdict: do not adopt)
+    (poc\workflow-sdk removed 2026-09-03; verdict kept in docs/status/workflow-sdk-poc-report.md)
     ├── scripts\                     preflight, smoke test, seeds, edge-case scripts
     └── docs\                        142 markdown files
 ```
@@ -41,14 +41,14 @@ d:\Vertical AI\                     ← proposal/brand assets (not code)
 |---|---:|
 | Prisma models | 82 |
 | Prisma enums | 40 |
-| Migrations on disk / applied in DB | 64 / 64 |
+| Migrations on disk / applied in DB | 66 / 66 |
 | NestJS modules | 41 (+5 common/config) |
 | Controllers | 54 |
 | HTTP routes mapped at boot | 217 |
-| Queue processors / workers | 15 |
+| Queue processors / workers | 16 (+ `platform-sweeps`) |
 | Cron job endpoints | 18 |
-| Web page routes | 48 (26 app, 22 marketing/public) |
-| Web feature folders | 22 |
+| Web page routes | 49 (27 app incl. `/hr`, 22 marketing/public) |
+| Web feature folders | 23 (+ `hr`) |
 
 ## 3. API modules
 
@@ -66,12 +66,12 @@ logger), `prisma`, `resilience` (circuit breaker, retry classifier, rate limiter
 
 ## 4. Web page routes
 
-**App (authenticated, 26):** `/dashboard` · `/employees` · `/employees/[id]` · `/skills` ·
+**App (authenticated, 27):** `/dashboard` · `/employees` · `/employees/[id]` · `/skills` ·
 `/knowledge` · `/workflows` · `/workflows/new` · `/workflows/[id]` · `/workflows/[id]/runs` ·
 `/workflows/[id]/versions` · `/workflows/templates` · `/runs` · `/runs/[runId]` · `/schedules` ·
 `/approvals` · `/assist` · `/assist/[sessionId]` · `/marketing` · `/marketing/campaigns/[id]` ·
 `/marketplace` · `/billing` · `/billing/usage` · `/team` · `/organization` · `/scheduling` ·
-`/admin/health` · `/onboarding`
+`/hr` · `/admin/health` · `/onboarding`
 
 **Auth (6):** `/login` · `/register` · `/verify-email` · `/forgot-password` ·
 `/reset-password` · `/account-locked`
@@ -80,8 +80,9 @@ logger), `prisma`, `resilience` (circuit breaker, retry classifier, rate limiter
 `/contact-sales` · `/automation` · `/ai-employees` (+ `/[slug]`) · `/integrations`
 (+ `/[slug]`) · `/careers` (+ `/[slug]`) · `/privacy-policy` · `/terms-of-service`
 
-**Missing entirely:** no HR page, no support-conversation page, no audit page of its own
-(audit lives inside `/organization`), no platform-operator console.
+**Missing entirely:** no support-conversation page, no audit page of its own (audit lives inside
+`/organization`), no platform-operator console. (`/hr` exists since 2026-09-03: roster, time off,
+onboarding — documents/reviews/attendance are still endpoint-only.)
 
 ## 5. Database model groups
 
@@ -121,6 +122,7 @@ logger), `prisma`, `resilience` (circuit breaker, retry classifier, rate limiter
 | `hr-retention.processor` | prune HR satellite records |
 | `marketing-sync.processor` | Postiz/social sync |
 | `campaign-generation.processor` | AI campaign planning state machine |
+| `platform-sweeps.processor` | the 8 periodic sweeps that had no queue: alerts, audit/data retention, marketing-analytics, subscription & enterprise credit renewal, credit reconciliation, finance rollup |
 
 ## 7. Cron endpoints (`/admin/cron/:job`, shared-secret auth)
 
@@ -131,7 +133,10 @@ logger), `prisma`, `resilience` (circuit breaker, retry classifier, rate limiter
 `enterprise-credit-agreement-renewal` · `credit-reconciliation` · `credit-finance-rollup`
 
 All 18 schedules are defined in `apps/api/vercel.crons.json` — a **sidecar file Vercel does not
-read**. `apps/api/vercel.json` has no `crons` key.
+read**. `apps/api/vercel.json` has no `crons` key. Since 2026-09-03 all 18 ALSO have a BullMQ
+repeatable in worker mode (10 in their own modules, 8 via `platform-sweeps`), asserted by
+`cron-schedule-coverage.spec.ts` in both shapes — so a worker deployment needs no external
+scheduler.
 
 ## 8. External integrations (skill catalog, 15 skills)
 
@@ -166,7 +171,7 @@ Verify-before-connect adapters exist for 5 providers only: `gmail`, `calendar`, 
 | `BILLING_PROVIDER` | `mock` | no Stripe |
 | `EMBEDDINGS_PROVIDER` | `hash` | offline embeddings |
 | `STORAGE_PROVIDER` | `local` | local disk |
-| `MAIL_ENABLED` | **`false`** | **every OTP is the fixed `123456`** |
+| `MAIL_ENABLED` | **`false`** | every OTP is the fixed `123456` — **production now REFUSES TO BOOT** unless `"true"` |
 | `WORKFLOW_EXECUTION_MODE` | `queue` | production sets `inline` |
 | `WORKFLOW_ENGINE_MODE` | `state_machine` | **forced to `legacy_walk` whenever execution is inline** |
 | `QUEUE_WORKERS_ENABLED` | on | production sets `false` |
@@ -196,10 +201,10 @@ Two engines can execute any of these: the legacy graph-walk and the durable stat
 
 | Suite | Command | Result observed 2026-09-02 |
 |---|---|---|
-| API unit | `pnpm --filter @vaep/api run test:unit --maxWorkers=2` | **103 suites / 1015 tests pass**, 13 s |
-| API e2e (durable) | `WORKFLOW_ENGINE_MODE=state_machine npx jest -c test/jest-e2e.json --forceExit` | **101 suites / 745 tests pass**, 207 s |
-| API e2e (legacy) | `WORKFLOW_ENGINE_MODE=legacy_walk …` | **744 pass / 1 fail**, 194 s (flaky cross-tenant sweep test) |
-| Browser E2E | `cd e2e && npx playwright test` | **8 / 8 pass**, 66 s |
+| API unit | `pnpm --filter @vaep/api run test:unit --maxWorkers=2` | **105 suites / 1058 tests pass** (2026-09-03) |
+| API e2e (durable) | `WORKFLOW_ENGINE_MODE=state_machine npx jest -c test/jest-e2e.json --forceExit` | **744 / 745** (2026-09-03) — one intermittent, see report §25 |
+| API e2e (legacy) | `WORKFLOW_ENGINE_MODE=legacy_walk …` | **745 / 745** (2026-09-03) |
+| Browser E2E | `cd e2e && npx playwright test` | **13 / 13 pass** (2026-09-03, own servers, quiet machine) |
 | Web unit | `pnpm --filter @vaep/web test` | not run this session |
 
 Provider env must be pinned per run (`LLM_PROVIDER=mock` etc.). Running the e2e suite without
@@ -216,5 +221,22 @@ pinning produces 78 failures that are purely configuration, not product defects.
 
 `scripts/preflight-env.mjs` is the production config gate. It hard-fails on
 `MAIL_ENABLED != true`, `DEV_OTP_CODE` set, mock providers, missing `CRON_SECRET`, and the
-`QUEUE_WORKERS_ENABLED`/`WORKFLOW_EXECUTION_MODE` mismatch. It does **not** check any credit
-flag and does **not** check that crons are registered.
+`QUEUE_WORKERS_ENABLED`/`WORKFLOW_EXECUTION_MODE` mismatch. Since 2026-09-03 it also warns on every
+credit flag that is off (naming the consequence), hard-fails incoherent flag combinations, and warns
+when `OTEL_EXPORTER_OTLP_ENDPOINT` / `ALERT_WEBHOOK_URL` are unset. It still does **not** check that
+crons are registered.
+
+## 13. New since v1 (2026-09-03)
+
+| Addition | Where |
+|---|---|
+| `GET /admin/runtime` — the engine ACTUALLY in force (`durableExecution`), not the configured one | `modules/admin/dlq.controller.ts` |
+| `platform-sweeps` queue + `PlatformSweepsService` shared by HTTP cron and BullMQ | `modules/admin/sweeps/` |
+| `WorkflowRun.actingEmployeeId` FK + index + backfill; `engine/employee-references.ts` | `workflows/` + migration `20260903120000` |
+| Run/step credit rollups + `CreditLedger.workflowId`; history backfilled | `credits/` + migration `20260903130000` |
+| `LlmCompletionInput.model`, `resolveModel`, `LlmProvider.resolveModel?`, `modelForCall` | `employees/llm/` |
+| `ApprovalRoutingEditor`, `ApprovalRoutingBadges`, `?assignedToMe` in the approvals UI | `features/workflows`, `features/approvals` |
+| `OAuthService.assertCanActuallyAct` + `ConnectSkillControl` demo-only state | `skills/oauth`, `features/skills` |
+| `/hr` page, `features/hr`, `HR` product area (`EMPLOYEE_ROLE_AREAS.HR`, `hr:read`) | `apps/web`, `product-context/` |
+| Browser specs `04-tenant-isolation-journey`, `05-failure-journeys` | `e2e/tests/` |
+| `poc/workflow-sdk` removed (verdict report kept in `docs/status/`) | — |
