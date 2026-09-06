@@ -30,6 +30,7 @@ import { MarketingModule } from '../engines/marketing/marketing.module';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ChatwootClientService } from '../engines/support/chatwoot-client.service';
 import { SupportModule } from '../engines/support/support.module';
+import { WhatsappModule } from '../engines/whatsapp/whatsapp.module';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PlaneClientService } from '../engines/pm/plane-client.service';
 import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
@@ -122,6 +123,7 @@ export function skillExecutorFactory(
     SchedulingModule,
     MarketingModule,
     SupportModule,
+    WhatsappModule,
     CreditsModule,
   ],
   controllers: [
