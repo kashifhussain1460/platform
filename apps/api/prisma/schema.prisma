@@ -319,6 +319,8 @@ model Company {
   workflowTemplates           WorkflowTemplate[]
   workflowPermissions         WorkflowPermission[]
   assistSessions              AssistSession[]
+  whatsAppAccounts            WhatsAppAccount[]
+  leads                       Lead[]
   // Credit system (Phase 1 foundation) — Convention A 1:1 tables only; the
   // financial-history tables (CreditLedger, CreditReservation, etc.) use
   // Convention B (plain companyId, no relation), same as SkillExecution.
@@ -593,6 +595,7 @@ model User {
   managedEmployees    AiEmployee[]         @relation("AiEmployeeManager")
   passwordResetTokens PasswordResetToken[]
   refreshTokens       RefreshToken[]
+  leads               Lead[]
 
   @@unique([companyId, email])
   @@index([companyId, departmentId])
@@ -734,6 +737,7 @@ model AiEmployee {
   installedSkills InstalledSkill[]
   /// Runs attributed to this employee (see WorkflowRun.actingEmployeeId).
   workflowRuns    WorkflowRun[]      @relation("WorkflowRunActingEmployee")
+  whatsAppAccounts WhatsAppAccount[]
 
   @@index([companyId])
   @@index([companyId, archivedAt])
@@ -748,6 +752,7 @@ model Conversation {
   createdAt  DateTime   @default(now())
 
   messages Message[]
+  lead     Lead?
 
   @@index([companyId])
 }
@@ -2083,6 +2088,59 @@ model ChatwootAccount {
   conversations     SupportConversation[]
 
   @@index([companyId])
+}
+
+enum LeadSource {
+  WHATSAPP
+}
+
+enum LeadStatus {
+  NEW
+  QUALIFIED
+  HOT
+  NURTURE
+  DISQUALIFIED
+  CONVERTED
+}
+
+model WhatsAppAccount {
+  id                   String                @id @default(cuid())
+  companyId            String
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// Per-employee-skill-connections shape (nullable = company-wide, matches
+  /// the existing Gmail per-employee pattern) — see whatsapp-webhook.controller.ts
+  /// for how an inbound message resolves which employee owns the conversation.
+  employeeId           String?
+  employee             AiEmployee?           @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  twilioAccountSid     String
+  twilioAuthToken      String // CryptoService-encrypted at rest
+  whatsappSenderNumber String // E.164, no "whatsapp:" prefix stored (added at call time)
+  status               SkillConnectionStatus @default(NOT_CONNECTED)
+  createdAt            DateTime              @default(now())
+
+  @@unique([companyId, whatsappSenderNumber])
+  @@index([companyId])
+}
+
+model Lead {
+  id                String        @id @default(cuid())
+  companyId         String
+  company           Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  source            LeadSource
+  phone             String
+  name              String?
+  email             String?
+  status            LeadStatus    @default(NEW)
+  qualificationData Json?
+  conversationId    String?       @unique
+  conversation      Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  assignedToUserId  String?
+  assignedToUser    User?         @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  createdAt         DateTime      @default(now())
+  lastContactedAt   DateTime?
+
+  @@unique([companyId, source, phone])
+  @@index([companyId, status])
 }
 
 enum SupportConversationStatus {
