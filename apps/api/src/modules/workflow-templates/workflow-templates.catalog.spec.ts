@@ -1,21 +1,23 @@
 import { SkillCatalog } from '../skills/catalog';
 import { HR_WORKFLOW_TEMPLATES } from './hr-workflow-templates.catalog';
 import { MARKETING_WORKFLOW_TEMPLATES } from './marketing-workflow-templates.catalog';
+import { SALES_WORKFLOW_TEMPLATES } from './sales-workflow-templates.catalog';
 import { FIRST_PARTY_WORKFLOW_TEMPLATES } from './workflow-templates.catalog';
 import { validateManifest } from './workflow-templates.util';
 
 /**
- * Guards the first-party catalog (P3-03 HR + P3-04 Marketing). This is the SAME
- * validation the boot seeder runs, so a broken template is caught here (fast, no
- * infra) instead of crashing the app on startup.
+ * Guards the first-party catalog (P3-03 HR + P3-04 Marketing + the WhatsApp Sales
+ * template). This is the SAME validation the boot seeder runs, so a broken
+ * template is caught here (fast, no infra) instead of crashing the app on startup.
  */
 describe('first-party workflow template catalog', () => {
   const validSkills = new Set(SkillCatalog.list().map((s) => s.key));
 
-  it('has 11 HR + 11 Marketing = 22 templates', () => {
+  it('has 11 HR + 11 Marketing + 1 Sales = 23 templates', () => {
     expect(HR_WORKFLOW_TEMPLATES).toHaveLength(11);
     expect(MARKETING_WORKFLOW_TEMPLATES).toHaveLength(11);
-    expect(FIRST_PARTY_WORKFLOW_TEMPLATES).toHaveLength(22);
+    expect(SALES_WORKFLOW_TEMPLATES).toHaveLength(1);
+    expect(FIRST_PARTY_WORKFLOW_TEMPLATES).toHaveLength(23);
   });
 
   it('every (key,version) is unique', () => {
@@ -33,7 +35,7 @@ describe('first-party workflow template catalog', () => {
     }
   });
 
-  it('HR templates are category HR + require the HR role; Marketing are MARKETING', () => {
+  it('HR templates are category HR + require the HR role; Marketing are MARKETING; Sales are SALES', () => {
     for (const t of HR_WORKFLOW_TEMPLATES) {
       expect(t.category).toBe('HR');
       expect(t.requires.employeeRoles).toContain('HR');
@@ -43,6 +45,11 @@ describe('first-party workflow template catalog', () => {
       expect(t.category).toBe('MARKETING');
       expect(t.requires.employeeRoles).toContain('MARKETING');
       expect(t.key.startsWith('mkt.')).toBe(true);
+    }
+    for (const t of SALES_WORKFLOW_TEMPLATES) {
+      expect(t.category).toBe('SALES');
+      expect(t.requires.employeeRoles).toContain('SALES');
+      expect(t.key.startsWith('sales.')).toBe(true);
     }
   });
 
