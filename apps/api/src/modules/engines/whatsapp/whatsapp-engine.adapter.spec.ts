@@ -1,5 +1,5 @@
 import { WhatsappEngineAdapter } from './whatsapp-engine.adapter';
-import { ENGINE_ADAPTER_METHODS } from '../engine-adapter';
+import { ENGINE_ADAPTER_METHODS, EngineCapabilityUnsupportedError } from '../engine-adapter';
 
 describe('WhatsappEngineAdapter', () => {
   const prisma = {
@@ -27,6 +27,13 @@ describe('WhatsappEngineAdapter', () => {
     ]);
     expect(adapter.capabilities()).toContain('disconnect');
     expect(adapter.capabilities()).toContain('healthCheck');
+    expect(adapter.capabilities()).not.toContain('handleWebhook');
+  });
+
+  it('handleWebhook rejects with EngineCapabilityUnsupportedError (verification happens in the controller)', async () => {
+    await expect(
+      adapter.handleWebhook({ rawBody: Buffer.from(''), headers: {} }),
+    ).rejects.toBeInstanceOf(EngineCapabilityUnsupportedError);
   });
 
   it('healthCheck reports ok when an account is registered for the company', async () => {
