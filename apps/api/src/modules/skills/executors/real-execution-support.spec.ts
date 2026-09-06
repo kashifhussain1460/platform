@@ -52,10 +52,10 @@ describe('real execution support', () => {
     });
   });
 
-  describe('the four skills the audit found', () => {
+  describe('the skills with no real execution', () => {
     const allKeys = SkillCatalog.list().map((s) => s.key);
 
-    it.each(['hubspot', 'jira', 'github', 'stripe'])(
+    it.each(['hubspot', 'jira', 'github', 'stripe', 'whatsapp'])(
       '%s is still SIMULATED — remove it from this list only when a real executor lands',
       (skillKey) => {
         expect(hasAnyRealExecution(skillKey)).toBe(false);
@@ -66,7 +66,7 @@ describe('real execution support', () => {
 
     it('reports exactly the simulated skills and no others', () => {
       expect(skillsWithNoRealExecution(allKeys).sort()).toEqual(
-        ['github', 'hubspot', 'jira', 'stripe'].sort(),
+        ['github', 'hubspot', 'jira', 'stripe', 'whatsapp'].sort(),
       );
     });
 
@@ -131,13 +131,14 @@ describe('real execution support', () => {
    * updated in the same commit.
    */
   describe('credential gate', () => {
-    it('refuses credentials for exactly the four skills with no executor', () => {
+    it('refuses credentials for exactly the skills with no executor', () => {
       const allKeys = SkillCatalog.list().map((s) => s.key);
       expect(skillsWithNoRealExecution(allKeys).sort()).toEqual([
         'github',
         'hubspot',
         'jira',
         'stripe',
+        'whatsapp',
       ]);
     });
 

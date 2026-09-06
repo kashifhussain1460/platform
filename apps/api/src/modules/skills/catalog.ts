@@ -848,6 +848,58 @@ const CATALOG: readonly CatalogEntry[] = [
       },
     ],
   },
+  {
+    key: 'whatsapp',
+    name: 'WhatsApp (Twilio)',
+    description: 'Send and receive WhatsApp Business messages via Twilio for lead qualification and sales outreach.',
+    category: 'communication',
+    connection: { type: 'api_key', label: 'Connect WhatsApp (Twilio)' },
+    configSchema: [
+      { key: 'twilioAccountSid', label: 'Twilio Account SID', type: 'string', placeholder: 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
+      { key: 'twilioAuthToken', label: 'Twilio Auth Token', type: 'string', secret: true, help: 'Stored encrypted-at-rest; never returned in responses.' },
+      { key: 'whatsappSenderNumber', label: 'WhatsApp sender number', type: 'string', placeholder: '+15550001111', help: 'The approved WhatsApp Business number this company sends from, in E.164 format.' },
+    ],
+    tools: [
+      {
+        name: 'send_message',
+        description: 'Send a free-form WhatsApp reply. Only works within 24 hours of the lead\'s last inbound message.',
+        highRisk: true,
+        parameters: {
+          type: 'object',
+          properties: {
+            leadId: { type: 'string', description: 'The Lead id to reply to.' },
+            content: { type: 'string', description: 'The message text to send.' },
+          },
+          required: ['leadId', 'content'],
+        },
+      },
+      {
+        name: 'send_template',
+        description: 'Send a pre-approved WhatsApp template message. Works any time, including outside the 24-hour window.',
+        highRisk: true,
+        parameters: {
+          type: 'object',
+          properties: {
+            leadId: { type: 'string', description: 'The Lead id to message.' },
+            templateId: { type: 'string', description: 'The Twilio Content SID of the approved template (starts with HX).' },
+            params: { type: 'object', description: 'Template variable substitutions, e.g. {"1": "March 25"}.' },
+          },
+          required: ['leadId', 'templateId'],
+        },
+      },
+      {
+        name: 'get_conversation',
+        description: 'Read the full WhatsApp message history for a lead.',
+        parameters: {
+          type: 'object',
+          properties: {
+            leadId: { type: 'string', description: 'The Lead id.' },
+          },
+          required: ['leadId'],
+        },
+      },
+    ],
+  },
 ];
 
 /**
