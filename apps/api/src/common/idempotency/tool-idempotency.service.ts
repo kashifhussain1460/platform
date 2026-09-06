@@ -59,9 +59,7 @@ export class ToolIdempotencyService {
       });
       recordId = created.id;
     } catch (err) {
-      if (
-        !(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')
-      ) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') {
         throw err;
       }
       // Lost the race (or a genuine prior call) — decide from the winning row.
