@@ -63,8 +63,17 @@ export class WhatsappWebhookController {
       throw new UnauthorizedException('Missing To number');
     }
 
+    // whatsappSenderNumber is unique per-company (@@unique([companyId, whatsappSenderNumber])),
+    // NOT globally unique, so this lookup can in principle match >1 row. In production a real
+    // WhatsApp Business Account number can only be registered to one Twilio (sub)account at a
+    // time, so a genuine collision between two different Orlixa companies' real numbers isn't
+    // realistically possible. The one known collision case is Twilio's shared WhatsApp Sandbox
+    // test number, used identically by every trial account during dev/onboarding — a documented,
+    // accepted risk for non-production use. orderBy makes the (otherwise arbitrary) choice
+    // between colliding rows deterministic/reproducible rather than whatever Postgres returns first.
     const account = await this.prisma.whatsAppAccount.findFirst({
       where: { whatsappSenderNumber: toNumber },
+      orderBy: { createdAt: 'asc' },
     });
     if (!account) {
       throw new UnauthorizedException('Unknown WhatsApp sender number');
