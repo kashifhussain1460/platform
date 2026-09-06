@@ -265,3 +265,36 @@ describe('event-mapper — Plane (§3.5)', () => {
     });
   });
 });
+
+describe('event-mapper — WhatsApp', () => {
+  it('maps an inbound WhatsApp message to NEW_LEAD', () => {
+    const result = mapRawEvent({
+      provider: 'whatsapp',
+      externalId: 'MM123',
+      headers: null,
+      payload: {
+        MessageSid: 'MM123',
+        From: 'whatsapp:+15550002222',
+        To: 'whatsapp:+15550001111',
+        Body: 'Hi, I am interested in your product',
+      },
+    });
+
+    expect(result.type).toBe('NEW_LEAD');
+    expect(result.dedupeKey).toBe('whatsapp:MM123');
+    expect(result.data).toMatchObject({
+      phone: '+15550002222',
+      body: 'Hi, I am interested in your product',
+    });
+  });
+
+  it('falls back to UNKNOWN when MessageSid is missing', () => {
+    const result = mapRawEvent({
+      provider: 'whatsapp',
+      externalId: null,
+      headers: null,
+      payload: { From: 'whatsapp:+15550002222' },
+    });
+    expect(result.type).toBe('UNKNOWN');
+  });
+});

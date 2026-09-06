@@ -381,6 +381,32 @@ function planeChangedKeys(payload: Record<string, unknown>): string[] {
   return field ? [field, ...fromList] : fromList;
 }
 
+/**
+ * WhatsApp mapper (via Twilio).
+ *
+ * Inbound WhatsApp messages from Twilio arrive with MessageSid, From/To
+ * (both prefixed `whatsapp:` in E.164 format), and Body. Maps to NEW_LEAD.
+ * dedupeKey = `whatsapp:<MessageSid>`.
+ */
+function mapWhatsapp(raw: RawEventInput): CanonicalMapping {
+  const p = obj(raw.payload);
+  const messageSid = str(p?.MessageSid);
+  const fromRaw = str(p?.From);
+  const body = str(p?.Body);
+  if (!messageSid || !fromRaw) {
+    return { type: 'UNKNOWN', dedupeKey: `whatsapp:${raw.externalId ?? 'no-id'}`, occurredAt: null, subject: null, data: null };
+  }
+  // Twilio prefixes WhatsApp numbers "whatsapp:+E164" on both From/To.
+  const phone = fromRaw.replace(/^whatsapp:/, '');
+  return {
+    type: 'NEW_LEAD',
+    dedupeKey: `whatsapp:${messageSid}`,
+    occurredAt: null,
+    subject: { phone },
+    data: { phone, body: body ?? null, messageSid },
+  };
+}
+
 /** Dispatch to the provider's mapper (generic fallback). Pure + total. */
 export function mapRawEvent(raw: RawEventInput): CanonicalMapping {
   switch (raw.provider) {
@@ -394,6 +420,8 @@ export function mapRawEvent(raw: RawEventInput): CanonicalMapping {
       return mapChatwoot(raw);
     case 'plane':
       return mapPlane(raw);
+    case 'whatsapp':
+      return mapWhatsapp(raw);
     default:
       return mapGeneric(raw);
   }
