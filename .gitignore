@@ -60,3 +60,6 @@ infra/backup/artifacts/
 
 .vercel
 .env*
+
+# Local scratch worktrees (subagent-driven-development plan execution)
+.worktrees/
