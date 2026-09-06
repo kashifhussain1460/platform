@@ -19,6 +19,8 @@ import type {
   SuppressionChannel,
   SuppressionService,
 } from '../../engines/marketing/suppression.service';
+import type { TwilioWhatsappClientService } from '../../engines/whatsapp/twilio-whatsapp-client.service';
+import { WHATSAPP_SESSION_WINDOW_MS } from '../../engines/whatsapp/whatsapp.constants';
 import { extractRecipients } from '../recipient-extraction';
 import {
   asFetchResponse,
@@ -81,6 +83,39 @@ const CHATWOOT_REPLY_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 
 function chatwootReplyIdempotencyKey(conversationId: string, content: string): string {
   return createHash('sha256').update(`${conversationId}\0${content}`).digest('hex');
+}
+
+/**
+ * M-06: `whatsapp.send_message`/`send_template` are real, irreversible,
+ * external side effects reaching a real lead's phone — the same risk class
+ * `postiz.schedule_post` and `chatwoot.reply_to_conversation` are already in,
+ * and the catalog marks both `highRisk: true` for exactly this reason. A
+ * retried TOOL_ACTION (queue redelivery, a crash-replay) must not double-send
+ * the same WhatsApp message. Short window, same reasoning as Chatwoot's reply
+ * dedupe: a sales agent may legitimately send byte-identical follow-up text
+ * ("Are you still interested?") to the SAME lead hours/days apart, which a
+ * long (e.g. 24h) window would silently swallow.
+ */
+const WHATSAPP_SEND_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
+
+function whatsappSendMessageIdempotencyKey(leadId: string, content: string): string {
+  return createHash('sha256').update(`${leadId}\0${content}`).digest('hex');
+}
+
+/** Canonicalizes `params` (key order is not guaranteed stable) so the same
+ * template+variables always hashes to the same key. */
+function whatsappSendTemplateIdempotencyKey(
+  leadId: string,
+  templateId: string,
+  params: Record<string, string>,
+): string {
+  const stableParams = Object.keys(params)
+    .sort()
+    .map((k) => `${k}=${params[k]}`)
+    .join('&');
+  return createHash('sha256')
+    .update(`${leadId}\0${templateId}\0${stableParams}`)
+    .digest('hex');
 }
 
 /** Hard ceiling on a body the http skill will hold in memory. */
@@ -170,6 +205,8 @@ export class RealSkillExecutor implements SkillExecutor {
      * class directly keeps today's offline behaviour.
      */
     private readonly failClosed = false,
+    /** Twilio WhatsApp REST wrapper for the 'whatsapp' sales skill (per-company encrypted credentials). */
+    private readonly whatsappClient: TwilioWhatsappClientService,
   ) {}
 
   async execute(
@@ -232,6 +269,12 @@ export class RealSkillExecutor implements SkillExecutor {
           return await this.planeUpdateIssueStatus(args, ctx);
         case 'marketing.check_consent':
           return await this.marketingCheckConsent(args, ctx);
+        case 'whatsapp.send_message':
+          return await this.whatsappSendMessage(args, ctx);
+        case 'whatsapp.send_template':
+          return await this.whatsappSendTemplate(args, ctx);
+        case 'whatsapp.get_conversation':
+          return await this.whatsappGetConversation(args, ctx);
         default:
           // No real implementation for this tool. In production that must be
           // said out loud, not answered from the sandbox (see the class doc).
@@ -1404,5 +1447,116 @@ export class RealSkillExecutor implements SkillExecutor {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'update_issue_status failed' };
     }
+  }
+
+  // --- whatsapp.* (Twilio WhatsApp REST wrapper; per-company encrypted credentials) ---
+
+  private async whatsappSendMessage(
+    args: Record<string, unknown>,
+    ctx: ExecutorContext,
+  ): Promise<SkillExecutionResult> {
+    const leadId = str(args.leadId);
+    const content = str(args.content);
+    if (!leadId || !content) {
+      return { ok: false, error: 'send_message requires leadId and content' };
+    }
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, companyId: ctx.companyId },
+      include: { conversation: { include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } } } },
+    });
+    if (!lead) return { ok: false, error: 'Lead not found for this company' };
+
+    const lastInbound = lead.conversation?.messages.find((m) => m.role === 'USER');
+    const withinWindow =
+      !!lastInbound && Date.now() - lastInbound.createdAt.getTime() <= WHATSAPP_SESSION_WINDOW_MS;
+    if (!withinWindow) {
+      return {
+        ok: false,
+        error: 'send_message refused: outside the 24h session window, use send_template instead',
+      };
+    }
+
+    const account = await this.prisma.whatsAppAccount.findFirst({ where: { companyId: ctx.companyId } });
+    if (!account) return { ok: false, error: 'No WhatsAppAccount configured for this company' };
+
+    // M-06: see WHATSAPP_SEND_DEDUPE_WINDOW_MS doc — a retried TOOL_ACTION
+    // must not double-send this message to a real lead.
+    try {
+      const { result, deduped } = await this.idempotency.runIdempotent({
+        companyId: ctx.companyId,
+        skillKey: 'whatsapp',
+        tool: 'send_message',
+        key: whatsappSendMessageIdempotencyKey(leadId, content),
+        windowMs: WHATSAPP_SEND_DEDUPE_WINDOW_MS,
+        effect: () =>
+          this.whatsappClient.sendFreeform({
+            accountSid: account.twilioAccountSid,
+            authToken: this.crypto.decrypt(account.twilioAuthToken),
+            from: account.whatsappSenderNumber,
+            to: lead.phone,
+            body: content,
+          }),
+      });
+      return { ok: true, result: { ...result, deduped } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'send_message failed' };
+    }
+  }
+
+  private async whatsappSendTemplate(
+    args: Record<string, unknown>,
+    ctx: ExecutorContext,
+  ): Promise<SkillExecutionResult> {
+    const leadId = str(args.leadId);
+    const templateId = str(args.templateId);
+    if (!leadId || !templateId) {
+      return { ok: false, error: 'send_template requires leadId and templateId' };
+    }
+    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, companyId: ctx.companyId } });
+    if (!lead) return { ok: false, error: 'Lead not found for this company' };
+
+    const account = await this.prisma.whatsAppAccount.findFirst({ where: { companyId: ctx.companyId } });
+    if (!account) return { ok: false, error: 'No WhatsAppAccount configured for this company' };
+
+    const params = (args.params as Record<string, string>) ?? {};
+
+    // M-06: same reasoning as whatsappSendMessage above — send_template is
+    // just as real and irreversible, and templates are typically the exact
+    // tool a retried outreach workflow would call again.
+    try {
+      const { result, deduped } = await this.idempotency.runIdempotent({
+        companyId: ctx.companyId,
+        skillKey: 'whatsapp',
+        tool: 'send_template',
+        key: whatsappSendTemplateIdempotencyKey(leadId, templateId, params),
+        windowMs: WHATSAPP_SEND_DEDUPE_WINDOW_MS,
+        effect: () =>
+          this.whatsappClient.sendTemplate({
+            accountSid: account.twilioAccountSid,
+            authToken: this.crypto.decrypt(account.twilioAuthToken),
+            from: account.whatsappSenderNumber,
+            to: lead.phone,
+            contentSid: templateId,
+            contentVariables: params,
+          }),
+      });
+      return { ok: true, result: { ...result, deduped } };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'send_template failed' };
+    }
+  }
+
+  private async whatsappGetConversation(
+    args: Record<string, unknown>,
+    ctx: ExecutorContext,
+  ): Promise<SkillExecutionResult> {
+    const leadId = str(args.leadId);
+    if (!leadId) return { ok: false, error: 'get_conversation requires leadId' };
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, companyId: ctx.companyId },
+      include: { conversation: { include: { messages: { orderBy: { createdAt: 'asc' } } } } },
+    });
+    if (!lead) return { ok: false, error: 'Lead not found for this company' };
+    return { ok: true, result: { messages: lead.conversation?.messages ?? [] } };
   }
 }

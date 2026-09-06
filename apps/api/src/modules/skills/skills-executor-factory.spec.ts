@@ -23,13 +23,14 @@ describe('skillExecutorFactory', () => {
     ({ get: (key: string) => (key === 'SKILL_EXECUTOR' ? value : undefined) }) as ConfigService;
 
   /**
-   * The factory's other nine dependencies are only ever stored on
+   * The factory's other ten dependencies are only ever stored on
    * RealSkillExecutor's fields — never called during construction — so empty
    * stubs are sufficient to exercise the selection logic.
    */
   const build = (value: string | undefined) =>
     skillExecutorFactory(
       configWith(value),
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

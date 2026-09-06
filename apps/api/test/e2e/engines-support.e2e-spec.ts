@@ -65,6 +65,7 @@ import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { CryptoService } from '../../src/common/crypto/crypto.service';
 import { ToolIdempotencyService } from '../../src/common/idempotency/tool-idempotency.service';
 import { SuppressionService } from '../../src/modules/engines/marketing/suppression.service';
+import { TwilioWhatsappClientService } from '../../src/modules/engines/whatsapp/twilio-whatsapp-client.service';
 
 describe('Support engine — schema', () => {
   const prisma = new PrismaClient();
@@ -138,10 +139,11 @@ describeIfDb('Support engine — full tool-calling loop', () => {
           planeClient: PlaneClientService,
           idempotency: ToolIdempotencyService,
           suppression: SuppressionService,
+          twilioWhatsappClient: TwilioWhatsappClientService,
         ) => {
           const mock = new MockSkillExecutor();
           return new AutoSkillExecutor(
-            new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient, idempotency, suppression),
+            new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient, idempotency, suppression, false, twilioWhatsappClient),
             mock,
           );
         },
@@ -155,6 +157,7 @@ describeIfDb('Support engine — full tool-calling loop', () => {
           PlaneClientService,
           ToolIdempotencyService,
           SuppressionService,
+          TwilioWhatsappClientService,
         ],
       })
       .compile();

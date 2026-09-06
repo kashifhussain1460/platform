@@ -28,6 +28,9 @@ const idempotencyMock = {
 // M-08: only exercised by the 'marketing.check_consent' tests below, which
 // construct their own executor with a real SuppressionService-shaped mock.
 const suppressionMock = {} as any;
+// Not exercised by any of the non-whatsapp cases below — every one of those
+// call sites passes this only to satisfy the constructor signature.
+const twilioClientMock = { sendFreeform: jest.fn(), sendTemplate: jest.fn() } as any;
 
 const ctx = { companyId: 'c_1' };
 
@@ -60,6 +63,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -96,6 +101,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -159,6 +166,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         realIdempotency,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
 
       const first = await executor.execute('postiz', 'schedule_post', args, ctx);
@@ -204,6 +213,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -265,6 +276,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -303,6 +316,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute('postiz', 'list_connected_accounts', {}, ctx);
       expect(result.ok).toBe(true);
@@ -329,6 +344,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -354,6 +371,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute('postiz', 'start_connect_account', {}, ctx);
       expect(result.ok).toBe(false);
@@ -385,6 +404,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -424,6 +445,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -456,6 +479,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -492,6 +517,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -524,6 +551,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -553,6 +582,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -584,6 +615,8 @@ describe('RealSkillExecutor — postiz.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'postiz',
@@ -617,6 +650,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute('chatwoot', 'list_open_conversations', {}, ctx);
       expect(result.ok).toBe(true);
@@ -644,6 +679,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -674,6 +711,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -718,6 +757,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -766,6 +807,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -794,6 +837,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -828,6 +873,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -866,6 +913,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -896,6 +945,8 @@ describe('RealSkillExecutor — chatwoot.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'chatwoot',
@@ -921,6 +972,8 @@ describe('RealSkillExecutor — marketing.check_consent (M-08)', () => {
       planeClientMock,
       idempotencyMock,
       suppression,
+      false,
+      twilioClientMock,
     );
   }
 
@@ -1032,6 +1085,8 @@ describe('RealSkillExecutor — plane.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute('plane', 'list_issues', { projectId: 'proj_1' }, ctx);
       expect(result.ok).toBe(true);
@@ -1060,6 +1115,8 @@ describe('RealSkillExecutor — plane.*', () => {
         planeClientMock,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'plane',
@@ -1101,6 +1158,8 @@ describe('RealSkillExecutor — plane.*', () => {
         planeClient as any,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'plane',
@@ -1148,6 +1207,8 @@ describe('RealSkillExecutor — plane.*', () => {
         planeClient as any,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'plane',
@@ -1176,6 +1237,8 @@ describe('RealSkillExecutor — plane.*', () => {
         planeClient as any,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'plane',
@@ -1225,6 +1288,8 @@ describe('RealSkillExecutor — plane.*', () => {
         planeClient as any,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'plane',
@@ -1264,6 +1329,8 @@ describe('RealSkillExecutor — plane.*', () => {
         planeClient as any,
         idempotencyMock,
         suppressionMock,
+        false,
+        twilioClientMock,
       );
       const result = await executor.execute(
         'plane',
@@ -1273,6 +1340,68 @@ describe('RealSkillExecutor — plane.*', () => {
       );
       expect(result.ok).toBe(false);
       expect(planeClient.updateIssueStatus).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('RealSkillExecutor — whatsapp.*', () => {
+  describe('whatsapp.send_message', () => {
+    it('refuses to send outside the 24-hour session window', async () => {
+      const prisma = {
+        lead: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'lead_1',
+            companyId: 'c_1',
+            phone: '+15550002222',
+            conversation: { messages: [{ role: 'USER', createdAt: new Date(Date.now() - 25 * 60 * 60_000) }] },
+          }),
+        },
+        whatsAppAccount: {
+          findFirst: jest.fn().mockResolvedValue({ twilioAccountSid: 'AC1', twilioAuthToken: 'enc-token', whatsappSenderNumber: '+19990000000' }),
+        },
+      };
+      const twilioClient = { sendFreeform: jest.fn() };
+      const crypto = { decrypt: jest.fn((v: string) => v) };
+      const executor = new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, crypto as any, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClient as any,
+      );
+
+      const result = await executor.execute('whatsapp', 'send_message', { leadId: 'lead_1', content: 'hi' }, ctx);
+
+      expect(result).toEqual({ ok: false, error: expect.stringContaining('24h') });
+      expect(twilioClient.sendFreeform).not.toHaveBeenCalled();
+    });
+
+    it('sends within the window via TwilioWhatsappClientService', async () => {
+      const prisma = {
+        lead: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'lead_1',
+            companyId: 'c_1',
+            phone: '+15550002222',
+            conversation: { messages: [{ role: 'USER', createdAt: new Date() }] },
+          }),
+        },
+        whatsAppAccount: {
+          findFirst: jest.fn().mockResolvedValue({ twilioAccountSid: 'AC1', twilioAuthToken: 'enc-token', whatsappSenderNumber: '+19990000000' }),
+        },
+      };
+      const twilioClient = { sendFreeform: jest.fn().mockResolvedValue({ sid: 'MM1', status: 'queued' }) };
+      const crypto = { decrypt: jest.fn((v: string) => v) };
+      const executor = new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, crypto as any, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClient as any,
+      );
+
+      const result = await executor.execute('whatsapp', 'send_message', { leadId: 'lead_1', content: 'hi' }, ctx);
+
+      expect(result.ok).toBe(true);
+      expect(twilioClient.sendFreeform).toHaveBeenCalledWith(
+        expect.objectContaining({ to: '+15550002222', from: '+19990000000', body: 'hi' }),
+      );
     });
   });
 });

@@ -36,6 +36,7 @@ import { PlaneClientService } from '../engines/pm/plane-client.service';
 import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
 import { ToolIdempotencyService } from '../../common/idempotency/tool-idempotency.service';
 import { SuppressionService } from '../engines/marketing/suppression.service';
+import { TwilioWhatsappClientService } from '../engines/whatsapp/twilio-whatsapp-client.service';
 import { CreditsModule } from '../credits/credits.module';
 import { requireRealProviderInProduction } from '../../common/config/require-real-provider';
 
@@ -79,6 +80,7 @@ export function skillExecutorFactory(
   planeClient: PlaneClientService,
   idempotency: ToolIdempotencyService,
   suppression: SuppressionService,
+  twilioWhatsappClient: TwilioWhatsappClientService,
 ): SkillExecutor {
   const raw = (config.get<string>('SKILL_EXECUTOR') ?? 'mock').trim().toLowerCase();
   if (!(KNOWN_SKILL_EXECUTORS as readonly string[]).includes(raw)) {
@@ -94,7 +96,7 @@ export function skillExecutorFactory(
   const failClosed = process.env.NODE_ENV === 'production';
   const mock = new MockSkillExecutor();
   const makeReal = (): RealSkillExecutor =>
-    new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient, idempotency, suppression, failClosed);
+    new RealSkillExecutor(config, mock, scheduling, postizClient, prisma, chatwootClient, crypto, planeClient, idempotency, suppression, failClosed, twilioWhatsappClient);
 
   switch (kind) {
     case 'real':
@@ -155,6 +157,7 @@ export function skillExecutorFactory(
         PlaneClientService,
         ToolIdempotencyService,
         SuppressionService,
+        TwilioWhatsappClientService,
       ],
       useFactory: skillExecutorFactory,
     },

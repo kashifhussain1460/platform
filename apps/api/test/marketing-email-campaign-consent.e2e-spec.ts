@@ -8,6 +8,7 @@ import { CryptoService } from '../src/common/crypto/crypto.service';
 import { PrismaService } from '../src/common/prisma/prisma.service';
 import { ToolIdempotencyService } from '../src/common/idempotency/tool-idempotency.service';
 import { ChatwootClientService } from '../src/modules/engines/support/chatwoot-client.service';
+import { TwilioWhatsappClientService } from '../src/modules/engines/whatsapp/twilio-whatsapp-client.service';
 import { PostizClientService } from '../src/modules/engines/marketing/postiz-client.service';
 import { SuppressionService } from '../src/modules/engines/marketing/suppression.service';
 import { PlaneClientService } from '../src/modules/engines/pm/plane-client.service';
@@ -74,10 +75,11 @@ describeIfDb('M-08 — real consent gate for email campaigns', () => {
           planeClient: PlaneClientService,
           idempotency: ToolIdempotencyService,
           suppressionSvc: SuppressionService,
+          twilioWhatsappClient: TwilioWhatsappClientService,
         ) => {
           const mock = new MockSkillExecutor();
           return new AutoSkillExecutor(
-            new RealSkillExecutor(config, mock, scheduling, postizClient, prismaSvc, chatwootClient, crypto, planeClient, idempotency, suppressionSvc),
+            new RealSkillExecutor(config, mock, scheduling, postizClient, prismaSvc, chatwootClient, crypto, planeClient, idempotency, suppressionSvc, false, twilioWhatsappClient),
             mock,
           );
         },
@@ -91,6 +93,7 @@ describeIfDb('M-08 — real consent gate for email campaigns', () => {
           PlaneClientService,
           ToolIdempotencyService,
           SuppressionService,
+          TwilioWhatsappClientService,
         ],
       })
       .compile();
