@@ -1404,4 +1404,131 @@ describe('RealSkillExecutor — whatsapp.*', () => {
       );
     });
   });
+
+  describe('whatsapp.send_template', () => {
+    it('calls TwilioWhatsappClientService.sendTemplate with the decrypted credentials, lead phone, templateId and params', async () => {
+      const prisma = {
+        lead: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'lead_1',
+            companyId: 'c_1',
+            phone: '+15550002222',
+          }),
+        },
+        whatsAppAccount: {
+          findFirst: jest.fn().mockResolvedValue({
+            twilioAccountSid: 'AC1',
+            twilioAuthToken: 'enc-token',
+            whatsappSenderNumber: '+19990000000',
+          }),
+        },
+      };
+      const twilioClient = {
+        sendTemplate: jest.fn().mockResolvedValue({ sid: 'MM2', status: 'queued' }),
+      };
+      // Distinguishable from the ciphertext so the assertion proves decrypt()
+      // actually ran, not just that some string was passed through.
+      const crypto = { decrypt: jest.fn((v: string) => `dec-${v}`) };
+      const executor = new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, crypto as any, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClient as any,
+      );
+
+      const result = await executor.execute(
+        'whatsapp',
+        'send_template',
+        { leadId: 'lead_1', templateId: 'tmpl_123', params: { name: 'Kashif' } },
+        ctx,
+      );
+
+      expect(result.ok).toBe(true);
+      expect(twilioClient.sendTemplate).toHaveBeenCalledWith({
+        accountSid: 'AC1',
+        authToken: 'dec-enc-token',
+        from: '+19990000000',
+        to: '+15550002222',
+        contentSid: 'tmpl_123',
+        contentVariables: { name: 'Kashif' },
+      });
+    });
+
+    it('fails cleanly without hitting Twilio when the lead does not resolve for this company (cross-tenant lookup miss)', async () => {
+      const prisma = {
+        lead: { findFirst: jest.fn().mockResolvedValue(null) },
+        whatsAppAccount: { findFirst: jest.fn() },
+      };
+      const twilioClient = { sendTemplate: jest.fn() };
+      const crypto = { decrypt: jest.fn((v: string) => v) };
+      const executor = new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, crypto as any, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClient as any,
+      );
+
+      const result = await executor.execute(
+        'whatsapp',
+        'send_template',
+        { leadId: 'lead_other_company', templateId: 'tmpl_123', params: {} },
+        ctx,
+      );
+
+      expect(result).toEqual({ ok: false, error: expect.any(String) });
+      expect(prisma.lead.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'lead_other_company', companyId: 'c_1' } }),
+      );
+      expect(twilioClient.sendTemplate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('whatsapp.get_conversation', () => {
+    it("returns the lead's conversation messages", async () => {
+      const messages = [
+        { id: 'm_1', role: 'USER', content: 'hi', createdAt: new Date('2026-08-01T09:00:00Z') },
+        { id: 'm_2', role: 'ASSISTANT', content: 'hello, how can I help?', createdAt: new Date('2026-08-01T09:01:00Z') },
+      ];
+      const prisma = {
+        lead: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'lead_1',
+            companyId: 'c_1',
+            phone: '+15550002222',
+            conversation: { messages },
+          }),
+        },
+      };
+      const executor = new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, cryptoMock, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClientMock,
+      );
+
+      const result = await executor.execute('whatsapp', 'get_conversation', { leadId: 'lead_1' }, ctx);
+
+      expect(result).toEqual({ ok: true, result: { messages } });
+    });
+
+    it('fails cleanly when the lead does not resolve for this company (cross-tenant lookup miss)', async () => {
+      const prisma = {
+        lead: { findFirst: jest.fn().mockResolvedValue(null) },
+      };
+      const executor = new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, cryptoMock, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClientMock,
+      );
+
+      const result = await executor.execute(
+        'whatsapp',
+        'get_conversation',
+        { leadId: 'lead_other_company' },
+        ctx,
+      );
+
+      expect(result).toEqual({ ok: false, error: expect.any(String) });
+      expect(prisma.lead.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'lead_other_company', companyId: 'c_1' } }),
+      );
+    });
+  });
 });

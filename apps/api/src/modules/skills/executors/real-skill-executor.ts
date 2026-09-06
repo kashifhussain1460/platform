@@ -1462,11 +1462,26 @@ export class RealSkillExecutor implements SkillExecutor {
     }
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, companyId: ctx.companyId },
-      include: { conversation: { include: { messages: { orderBy: { createdAt: 'desc' }, take: 1 } } } },
+      include: {
+        conversation: {
+          include: {
+            // Fixed: this must fetch the most recent message FROM THE USER,
+            // not just the most recent message of any role. Filtering `where:
+            // { role: 'USER' }` at the query level means `take: 1` actually
+            // returns the last inbound message — previously this fetched the
+            // single latest message regardless of role, so in the ordinary
+            // case (AI has already replied and the latest message is
+            // ASSISTANT) `lastInbound` came back undefined and every send was
+            // wrongly refused as "outside the 24h window", even seconds after
+            // the customer messaged.
+            messages: { where: { role: 'USER' }, orderBy: { createdAt: 'desc' }, take: 1 },
+          },
+        },
+      },
     });
     if (!lead) return { ok: false, error: 'Lead not found for this company' };
 
-    const lastInbound = lead.conversation?.messages.find((m) => m.role === 'USER');
+    const lastInbound = lead.conversation?.messages[0];
     const withinWindow =
       !!lastInbound && Date.now() - lastInbound.createdAt.getTime() <= WHATSAPP_SESSION_WINDOW_MS;
     if (!withinWindow) {
