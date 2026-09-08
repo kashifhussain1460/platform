@@ -55,7 +55,7 @@ describe('real execution support', () => {
   describe('the skills with no real execution', () => {
     const allKeys = SkillCatalog.list().map((s) => s.key);
 
-    it.each(['hubspot', 'jira', 'github', 'stripe', 'whatsapp'])(
+    it.each(['hubspot', 'jira', 'github', 'stripe'])(
       '%s is still SIMULATED — remove it from this list only when a real executor lands',
       (skillKey) => {
         expect(hasAnyRealExecution(skillKey)).toBe(false);
@@ -66,7 +66,7 @@ describe('real execution support', () => {
 
     it('reports exactly the simulated skills and no others', () => {
       expect(skillsWithNoRealExecution(allKeys).sort()).toEqual(
-        ['github', 'hubspot', 'jira', 'stripe', 'whatsapp'].sort(),
+        ['github', 'hubspot', 'jira', 'stripe'].sort(),
       );
     });
 
@@ -138,7 +138,6 @@ describe('real execution support', () => {
         'hubspot',
         'jira',
         'stripe',
-        'whatsapp',
       ]);
     });
 

@@ -54,6 +54,9 @@ export const REAL_EXECUTION_TOOLS: readonly string[] = [
   'plane.create_issue',
   'plane.update_issue_status',
   'marketing.check_consent',
+  'whatsapp.send_message',
+  'whatsapp.send_template',
+  'whatsapp.get_conversation',
 ] as const;
 
 const REAL_TOOL_SET: ReadonlySet<string> = new Set(REAL_EXECUTION_TOOLS);
