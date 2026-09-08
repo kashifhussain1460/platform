@@ -2,8 +2,10 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
+import { buttonClasses } from '@/components/ui/Button';
 import { LeadsList } from '@/features/leads/components/LeadsList';
 import { useSessionStore } from '@/stores/session.store';
 
@@ -30,9 +32,14 @@ export default function LeadsPage() {
 
   return (
     <AppShell {...shellProps}>
-      <header className="mb-6 pt-2">
-        <p className="text-sm text-app-ink-3">Leads</p>
-        <h1 className="text-2xl font-bold text-app-ink">Prospects</h1>
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3 pt-2">
+        <div>
+          <p className="text-sm text-app-ink-3">Leads</p>
+          <h1 className="text-2xl font-bold text-app-ink">Prospects</h1>
+        </div>
+        <Link href="/leads/whatsapp-connect" className={buttonClasses('violet')}>
+          Connect WhatsApp
+        </Link>
       </header>
 
       <LeadsList />
