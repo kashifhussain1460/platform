@@ -4428,3 +4428,31 @@ export interface LeadDetailDto extends LeadDto {
     messages: MessageDto[];
   } | null;
 }
+
+// ---------------------------------------------------------------------------
+// WhatsAppAccount (Task 13) — `WhatsAppAccount` is its OWN top-level Prisma
+// model, not a config blob on `InstalledSkill`, and there is no FK between the
+// two tables. The generic Skill Config `api_key` connect flow
+// (`POST /skills/installed/:id/connect`) only ever writes `InstalledSkill`, so
+// it has no path to create or update a `WhatsAppAccount` row — this dedicated
+// request/response pair is what `POST /engines/whatsapp/accounts` uses instead.
+// ---------------------------------------------------------------------------
+
+export interface ConnectWhatsAppAccountDto {
+  twilioAccountSid: string;
+  twilioAuthToken: string;
+  whatsappSenderNumber: string;
+  /** Omitted = company-wide, matching the existing per-employee-skill shape. */
+  employeeId?: string | null;
+}
+
+/** Never carries `twilioAuthToken` — it is encrypted at rest and never returned raw. */
+export interface WhatsAppAccountDto {
+  id: string;
+  companyId: string;
+  employeeId: string | null;
+  twilioAccountSid: string;
+  whatsappSenderNumber: string;
+  status: 'NOT_CONNECTED' | 'CONNECTED' | 'DEGRADED' | 'DISCONNECTED';
+  createdAt: string;
+}
