@@ -1,4 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
@@ -6,6 +7,17 @@ import twilio from 'twilio';
 import { AppModule } from '../src/app.module';
 import { CryptoService } from '../src/common/crypto/crypto.service';
 import { PrismaService } from '../src/common/prisma/prisma.service';
+import { ToolIdempotencyService } from '../src/common/idempotency/tool-idempotency.service';
+import { SuppressionService } from '../src/modules/engines/marketing/suppression.service';
+import { ChatwootClientService } from '../src/modules/engines/support/chatwoot-client.service';
+import { PlaneClientService } from '../src/modules/engines/pm/plane-client.service';
+import { PostizClientService } from '../src/modules/engines/marketing/postiz-client.service';
+import { TwilioWhatsappClientService } from '../src/modules/engines/whatsapp/twilio-whatsapp-client.service';
+import { SchedulingService } from '../src/modules/scheduling/scheduling.service';
+import { AutoSkillExecutor } from '../src/modules/skills/executors/auto-skill-executor';
+import { MockSkillExecutor } from '../src/modules/skills/executors/mock-skill-executor';
+import { RealSkillExecutor } from '../src/modules/skills/executors/real-skill-executor';
+import { SKILL_EXECUTOR_TOKEN, type SkillExecutor } from '../src/modules/skills/executors/skill-executor';
 
 /**
  * The WhatsApp lead pipeline, end to end over real HTTP.
@@ -191,7 +203,7 @@ describeIfDb('WhatsApp lead pipeline e2e (signed webhook → Lead → /leads)', 
       where: { conversationId: leads[0].conversationId as string },
       orderBy: { createdAt: 'asc' },
     });
-    expect(messages.map((m) => m.content)).toEqual([
+    expect(messages.map((m: { content: string }) => m.content)).toEqual([
       'Hi, how much for the enterprise plan?',
       'Still interested.',
     ]);
@@ -259,5 +271,114 @@ describeIfDb('WhatsApp lead pipeline e2e (signed webhook → Lead → /leads)', 
     } finally {
       await prisma.company.deleteMany({ where: { id: otherCompanyId } });
     }
+  });
+
+  /**
+   * Real-Estate-flavored site-visit round-trip.
+   *
+   * `leads.record_site_visit` (the `leads` skill added alongside this
+   * workflow) needs no external credentials (`connection: { type: 'none' }`
+   * in the catalog), so `AutoSkillExecutor` always routes it to the REAL
+   * executor regardless of connection status — the same
+   * `.overrideProvider(SKILL_EXECUTOR_TOKEN)` technique
+   * `integrations.e2e-spec.ts` uses to force a non-default executor for one
+   * dedicated app. This suite's ambient `SKILL_EXECUTOR=mock` would otherwise
+   * answer from the side-effect-free `MockSkillExecutor`, which never writes
+   * to the Lead row — the whole point of this case is proving the DB write
+   * really happens, not a sandboxed echo of the args.
+   */
+  describe('leads.record_site_visit through the live executor', () => {
+    let executorApp: INestApplication;
+
+    beforeAll(async () => {
+      const moduleRef: TestingModule = await Test.createTestingModule({
+        imports: [AppModule],
+      })
+        .overrideProvider(SKILL_EXECUTOR_TOKEN)
+        .useFactory({
+          factory: (
+            config: ConfigService,
+            scheduling: SchedulingService,
+            postizClient: PostizClientService,
+            prismaSvc: PrismaService,
+            chatwootClient: ChatwootClientService,
+            crypto: CryptoService,
+            planeClient: PlaneClientService,
+            idempotency: ToolIdempotencyService,
+            suppression: SuppressionService,
+            twilioWhatsappClient: TwilioWhatsappClientService,
+          ) => {
+            const mock = new MockSkillExecutor();
+            return new AutoSkillExecutor(
+              new RealSkillExecutor(
+                config,
+                mock,
+                scheduling,
+                postizClient,
+                prismaSvc,
+                chatwootClient,
+                crypto,
+                planeClient,
+                idempotency,
+                suppression,
+                false,
+                twilioWhatsappClient,
+              ),
+              mock,
+            );
+          },
+          inject: [
+            ConfigService,
+            SchedulingService,
+            PostizClientService,
+            PrismaService,
+            ChatwootClientService,
+            CryptoService,
+            PlaneClientService,
+            ToolIdempotencyService,
+            SuppressionService,
+            TwilioWhatsappClientService,
+          ],
+        })
+        .compile();
+      executorApp = moduleRef.createNestApplication();
+      await executorApp.init();
+    });
+
+    afterAll(async () => {
+      await executorApp?.close();
+    });
+
+    it('records a site visit and it round-trips through GET /leads/:id', async () => {
+      const visitPhone = `+1555${String(ts + 1).slice(-7)}`;
+      await postWebhook({
+        MessageSid: `MM_${ts}_visit`,
+        From: `whatsapp:${visitPhone}`,
+        To: `whatsapp:${SENDER}`,
+        Body: 'Can we schedule a viewing this weekend?',
+      }).expect(200);
+
+      const created = await prisma.lead.findFirst({ where: { companyId, phone: visitPhone } });
+      expect(created).not.toBeNull();
+      const leadId = (created as { id: string }).id;
+
+      const eventId = `evt_${ts}_visit`;
+      const start = '2026-09-12T15:00:00.000Z';
+
+      const executor = executorApp.get<SkillExecutor>(SKILL_EXECUTOR_TOKEN);
+      const result = await executor.execute(
+        'leads',
+        'record_site_visit',
+        { leadId, eventId, start },
+        { companyId },
+      );
+      expect(result.ok).toBe(true);
+
+      const res = await request(server()).get(`/leads/${leadId}`).set(auth()).expect(200);
+      expect(res.body.qualificationData).toMatchObject({
+        siteVisitAt: start,
+        siteVisitEventId: eventId,
+      });
+    });
   });
 });
