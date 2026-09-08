@@ -38,6 +38,7 @@ export const REAL_EXECUTION_TOOLS: readonly string[] = [
   'gdrive.move_file',
   'gdrive.list_files',
   'gdrive.read_file',
+  'leads.record_site_visit',
   'scheduling.claim_slot',
   'scheduling.reschedule_slot',
   'postiz.list_connected_accounts',
