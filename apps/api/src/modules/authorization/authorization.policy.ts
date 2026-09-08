@@ -60,6 +60,11 @@ const MIN_ROLE: Record<AuthzAction, Role> = {
   // a real social account is public and irreversible.
   'marketing:read': 'MEMBER',
   'marketing:manage': 'ADMIN',
+  // Leads are the WhatsApp Sales AI Employee's prospects — same read shape as
+  // marketing:read: any member can see what has come in, since the whole
+  // point of the screen is that a person can check what the AI is doing with
+  // real prospects. No lead:manage yet — this task only adds reads.
+  'lead:read': 'MEMBER',
 };
 
 export function roleSatisfies(role: Role, minimum: Role): boolean {

@@ -4383,3 +4383,48 @@ export interface AiCampaignDetailDto {
   generation: CampaignGenerationStatusDto;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Leads — the WhatsApp Sales AI Employee's prospects (Task 1's `Lead` model)
+//
+// A `Lead` is a shared, channel-agnostic external contact/prospect record; the
+// `source` enum is what tells you which channel captured it (WhatsApp today).
+// This section is the human-facing read surface over it, mirroring the
+// Marketing workspace's list/detail shape.
+// ---------------------------------------------------------------------------
+
+export type LeadSource = 'WHATSAPP';
+
+export type LeadStatus =
+  | 'NEW'
+  | 'QUALIFIED'
+  | 'HOT'
+  | 'NURTURE'
+  | 'DISQUALIFIED'
+  | 'CONVERTED';
+
+export interface LeadDto {
+  id: string;
+  source: LeadSource;
+  phone: string;
+  name: string | null;
+  email: string | null;
+  status: LeadStatus;
+  qualificationData: Record<string, unknown> | null;
+  conversationId: string | null;
+  assignedToUserId: string | null;
+  createdAt: string;
+  lastContactedAt: string | null;
+}
+
+/** One lead with its full conversation thread, for the Lead Detail screen. */
+export interface LeadDetailDto extends LeadDto {
+  conversation: {
+    id: string;
+    /** Which AI Employee owns this thread — `MessageBubble` needs it for feedback. */
+    employeeId: string;
+    title: string | null;
+    createdAt: string;
+    messages: MessageDto[];
+  } | null;
+}

@@ -38,6 +38,7 @@ import { OrganizationModule } from './modules/organization/organization.module';
 import { ProductContextModule } from './modules/product-context/product-context.module';
 import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { HrModule } from './modules/hr/hr.module';
+import { LeadsModule } from './modules/leads/leads.module';
 import { RetentionModule } from './modules/retention/retention.module';
 import { HealthModule } from './modules/health/health.module';
 
@@ -85,6 +86,7 @@ import { HealthModule } from './modules/health/health.module';
     OrganizationModule,
     ProductContextModule,
     HrModule,
+    LeadsModule,
     RetentionModule,
     AdminModule,
   ],
