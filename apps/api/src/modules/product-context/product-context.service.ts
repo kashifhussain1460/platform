@@ -40,6 +40,10 @@ const AREA_AUTHZ_ACTION: Partial<Record<ProductArea, AuthzAction>> = {
   // it, so unlike SKILLS/RUNS below this mapping advertises an enforcement
   // that exists.
   MARKETING: 'marketing:read',
+  // Same honesty test as MARKETING above: `lead:read` has a MEMBER floor and
+  // `LeadsController` really does apply `@RequirePermission('lead:read')` on
+  // both of its routes, so this mapping advertises an enforcement that exists.
+  LEADS: 'lead:read',
   // HR is the strictest area in the product: `hr:read` has an ADMIN floor and
   // every `/hr/*` route enforces it, READS INCLUDED, because staff records
   // carry special-category personal data. Mapping it here is therefore honest —

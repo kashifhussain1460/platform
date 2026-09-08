@@ -122,6 +122,19 @@ describe('capability resolver', () => {
       expect(marketing().productAreas).not.toContain('INTERVIEW_SCHEDULING');
     });
 
+    // I2 — `/leads` had ZERO references anywhere in apps/web outside its own
+    // feature: the screen existed and nothing linked to it, because the
+    // resolver-driven sidebar had no LEADS area to resolve.
+    it('does NOT unlock the Leads workspace (no Sales AI hired)', () => {
+      expect(marketing().productAreas).not.toContain('LEADS');
+    });
+
+    it('unlocks the Leads workspace once a SALES employee is hired', () => {
+      const sales = resolve({ hiredEmployees: [employee('SALES')] });
+      expect(sales.productAreas).toContain('LEADS');
+      expect(sales.navigation.find((n) => n.area === 'LEADS')?.href).toBe('/leads');
+    });
+
     it('reads the free-text industry through normalisation', () => {
       // 'Retail / Ecommerce' → RETAIL_ECOMMERCE. The column is free text, so a
       // literal key lookup would silently match nothing.

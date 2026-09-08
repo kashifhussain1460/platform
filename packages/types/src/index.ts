@@ -3788,6 +3788,7 @@ export type ProductArea =
   | 'INTERVIEW_SCHEDULING'
   | 'HR'
   | 'MARKETING'
+  | 'LEADS'
   | 'BILLING'
   | 'TEAM'
   | 'ORGANIZATION'
@@ -3807,6 +3808,7 @@ export const PRODUCT_AREAS: readonly ProductArea[] = [
   'INTERVIEW_SCHEDULING',
   'HR',
   'MARKETING',
+  'LEADS',
   'BILLING',
   'TEAM',
   'ORGANIZATION',
@@ -3867,6 +3869,9 @@ export const PRODUCT_AREA_NAV: Readonly<
   // department owns it.
   HR: { href: '/hr', label: 'People', group: 'SECONDARY' },
   MARKETING: { href: '/marketing', label: 'Marketing', group: 'SECONDARY' },
+  // The Sales AI Employee's inbound prospects. Same shape as MARKETING: the
+  // workspace exists only once a company has hired the employee that fills it.
+  LEADS: { href: '/leads', label: 'Leads', group: 'SECONDARY' },
   MARKETPLACE: { href: '/marketplace', label: 'Marketplace', group: 'SECONDARY' },
   APPROVALS: { href: '/approvals', label: 'Approvals', group: 'SECONDARY' },
   BILLING: { href: '/billing', label: 'Billing', group: 'ADMIN' },

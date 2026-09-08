@@ -84,7 +84,12 @@ export const EMPLOYEE_ROLE_AREAS: Readonly<Record<EmployeeRole, readonly Product
   // noise this table exists to remove.
   MARKETING: ['MARKETING'],
   SUPPORT: [],
-  SALES: [],
+  // The Leads workspace is where a human sees the prospects the Sales AI
+  // Employee has picked up from WhatsApp and what it said to them. Exactly the
+  // MARKETING case one line up: a company with no Sales AI has nothing to show
+  // there. Before this, `/leads` existed with ZERO references anywhere in
+  // apps/web outside the feature itself — the screen was built and unreachable.
+  SALES: ['LEADS'],
   ACCOUNTANT: [],
   PROJECT_MANAGER: [],
   // A CUSTOM employee is defined by its persona, not its role, so it unlocks
