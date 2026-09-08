@@ -44,10 +44,26 @@ Lead action that happens to be triggered by a WhatsApp conversation. A new, smal
 to `whatsapp`, not nested under it) keeps `Lead`-level actions available to any future channel, matching
 the entity's own "shared, reusable" design goal from the WhatsApp plan.
 
-- **`leads.schedule_site_visit(leadId, start, end)`** — wraps the existing, already-real
-  `calendar.create_event` tool (no Google Meet link — this is an in-person visit) and, on success, writes
-  `qualificationData.siteVisitAt`/`siteVisitEventId` onto the `Lead` row so the booking stays linked and
-  visible on `/leads/:id`.
+**Correction found while grounding this plan in the real code (not part of the original brainstorm,
+kept transparent rather than silently changed):** the tool does NOT itself call the Calendar API.
+`SkillsService.runTool(ctx, skillKey, tool, args)` resolves `ctx.credentials`/`ctx.config` freshly
+**per skillKey, per call** — a `leads.*` tool has no calendar OAuth token in its own resolved `ctx`, so
+if it tried to call `RealSkillExecutor`'s internal `calendarCreateEvent()` directly (bypassing
+`runTool`), that call would see no credentials and silently fall through to the **mock** Calendar
+executor — a real, invisible booking failure of exactly the "silent success" class this codebase's own
+`REAL_EXECUTION_TOOLS` framework exists to prevent (the same class of bug Task 13 of the WhatsApp plan
+found and fixed once already). The single-execution-path rule (`engine-adapter.ts`'s own §38/§55
+reasoning: one tool, one real path, never a second way to reach a provider) means a cross-skill call
+inside one executor method is exactly the shape to avoid.
+
+**Corrected design:** the workflow template (§5) uses the EXISTING `calendar.create_event` as its own,
+separate TOOL_ACTION node — run through the normal `runTool` path, so it gets Calendar's own real OAuth
+credentials — and the new tool only records the result against the Lead afterward:
+
+- **`leads.record_site_visit(leadId, eventId, start)`** — no external API call. Company-scoped lookup
+  of the `Lead`, then writes `qualificationData.siteVisitAt = start`,
+  `qualificationData.siteVisitEventId = eventId` (the id `calendar.create_event`'s own TOOL_ACTION
+  already returned, threaded in via `{{visitEvent.result.id}}`). Visible on `/leads/:id` afterward.
 - **Status updates reuse the existing `whatsapp.update_lead_status` tool as-is** — its actual
   implementation is already channel-agnostic (a plain `companyId`-scoped `Lead.status` update, nothing
   WhatsApp-specific in the logic despite living in the `whatsapp` skill's catalog entry) — no new tool
@@ -67,8 +83,10 @@ EVENT trigger (WhatsApp inbound message → NEW_LEAD canonical event, shared wit
   → CONDITION (interested?) — {{qualification.interested}} eq 'true'
      → TRUE:
         → CONDITION (preferred time given?) — {{qualification.preferredTime}} neq ''
-           → TRUE:  TOOL_ACTION (leads.schedule_site_visit) → TOOL_ACTION (whatsapp.update_lead_status
-                     → QUALIFIED) → TOOL_ACTION (notify agent, Slack)
+           → TRUE:  TOOL_ACTION (calendar.create_event, outputKey: visitEvent) →
+                     TOOL_ACTION (leads.record_site_visit, using {{visitEvent.result.id}}) →
+                     TOOL_ACTION (whatsapp.update_lead_status → QUALIFIED) →
+                     TOOL_ACTION (notify agent, Slack)
            → FALSE: TOOL_ACTION (whatsapp.send_message — ask for a preferred visit day/time) →
                      TOOL_ACTION (notify agent, Slack, for manual follow-up)
      → FALSE: TOOL_ACTION (whatsapp.send_template — nurture follow-up)
