@@ -920,6 +920,29 @@ const CATALOG: readonly CatalogEntry[] = [
       },
     ],
   },
+  {
+    key: 'leads',
+    name: 'Leads',
+    description: 'Record actions taken on a Lead (e.g. a scheduled site visit) — channel-agnostic, works for any Lead regardless of how it arrived.',
+    category: 'crm',
+    connection: { type: 'none' },
+    configSchema: [],
+    tools: [
+      {
+        name: 'record_site_visit',
+        description: 'Link an already-scheduled calendar event to a Lead as its site visit. Does not create the calendar event itself — call calendar.create_event first and pass its returned id here.',
+        parameters: {
+          type: 'object',
+          properties: {
+            leadId: { type: 'string', description: 'The Lead id.' },
+            eventId: { type: 'string', description: 'The calendar event id returned by calendar.create_event.' },
+            start: { type: 'string', description: 'ISO start datetime of the visit (for display on the Leads screen).' },
+          },
+          required: ['leadId', 'eventId', 'start'],
+        },
+      },
+    ],
+  },
 ];
 
 /**
