@@ -398,12 +398,19 @@ function mapWhatsapp(raw: RawEventInput): CanonicalMapping {
   }
   // Twilio prefixes WhatsApp numbers "whatsapp:+E164" on both From/To.
   const phone = fromRaw.replace(/^whatsapp:/, '');
+  // NOT a Twilio field: `WhatsappWebhookController` upserts the `Lead` row
+  // before it calls `ingestVerified` and stamps the id onto the persisted
+  // payload, because this mapper is pure and has no database access. It is the
+  // only way a workflow can learn WHICH Lead a `NEW_LEAD` event is about — the
+  // `sales.whatsapp-lead-qualify` template's `{{trigger.data.leadId}}` reads it.
+  // Null-safe: an older RawEvent recorded before that fix simply has no id.
+  const leadId = str(p?.leadId);
   return {
     type: 'NEW_LEAD',
     dedupeKey: `whatsapp:${messageSid}`,
     occurredAt: null,
     subject: { phone },
-    data: { phone, body: body ?? null, messageSid },
+    data: { phone, body: body ?? null, messageSid, leadId: leadId ?? null },
   };
 }
 

@@ -288,6 +288,33 @@ describe('event-mapper — WhatsApp', () => {
     });
   });
 
+  it('carries the leadId the webhook stamped onto the payload', () => {
+    const result = mapRawEvent({
+      provider: 'whatsapp',
+      externalId: 'MM124',
+      headers: null,
+      payload: {
+        MessageSid: 'MM124',
+        From: 'whatsapp:+15550002222',
+        Body: 'quote please',
+        leadId: 'lead_abc',
+      },
+    });
+    // This is what `{{trigger.data.leadId}}` in sales.whatsapp-lead-qualify
+    // binds to — without it the nurture branch has no lead to message.
+    expect(result.data).toMatchObject({ leadId: 'lead_abc' });
+  });
+
+  it('is null-safe for a RawEvent recorded before leads were written', () => {
+    const result = mapRawEvent({
+      provider: 'whatsapp',
+      externalId: 'MM125',
+      headers: null,
+      payload: { MessageSid: 'MM125', From: 'whatsapp:+15550002222', Body: 'hi' },
+    });
+    expect(result.data).toMatchObject({ leadId: null });
+  });
+
   it('falls back to UNKNOWN when MessageSid is missing', () => {
     const result = mapRawEvent({
       provider: 'whatsapp',

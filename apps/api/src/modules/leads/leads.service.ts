@@ -11,12 +11,22 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 /**
  * The human-facing read surface over `Lead` (Task 1's model).
  *
- * The WhatsApp Sales AI Employee's tools already create and update `Lead`
- * rows (`real-skill-executor.ts`), but until this module there was no
- * tenant-facing API over any of it — the same defect class the Marketing
- * workspace closed for `ScheduledPost`/`SocialAccount`: an AI could be
- * qualifying real prospects with no screen showing a human what came in or
- * what the AI said to them.
+ * `Lead` rows are written in exactly one place: `WhatsappWebhookController`
+ * upserts one (plus its `Conversation` and the inbound `Message`) for every
+ * signature-verified inbound WhatsApp delivery. The `whatsapp.*` tools in
+ * `real-skill-executor.ts` only READ leads — except `update_lead_status`,
+ * which moves an already-existing lead to `QUALIFIED` — so nothing else in the
+ * product creates them.
+ *
+ * (An earlier version of this comment claimed the tools created leads. They
+ * never did, and for a while nothing else did either: `/leads` was permanently
+ * empty and every WhatsApp tool answered "Lead not found". Kept here as a
+ * pointer to the one writer, so the next reader does not have to grep for it.)
+ *
+ * Until this module there was no tenant-facing API over any of it — the same
+ * defect class the Marketing workspace closed for `ScheduledPost`/`SocialAccount`:
+ * an AI could be qualifying real prospects with no screen showing a human what
+ * came in or what the AI said to them.
  *
  * Read-only for now (§ this task adds `lead:read` only). Every query is
  * scoped by `companyId` so a wrong id is a 404, never another company's lead.
