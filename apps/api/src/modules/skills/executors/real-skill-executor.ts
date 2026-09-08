@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
+import { LEAD_STATUSES, type LeadStatus } from '@vaep/types';
 import type {
   ExecutorContext,
   SkillExecutor,
@@ -275,6 +276,8 @@ export class RealSkillExecutor implements SkillExecutor {
           return await this.whatsappSendTemplate(args, ctx);
         case 'whatsapp.get_conversation':
           return await this.whatsappGetConversation(args, ctx);
+        case 'whatsapp.update_lead_status':
+          return await this.whatsappUpdateLeadStatus(args, ctx);
         default:
           // No real implementation for this tool. In production that must be
           // said out loud, not answered from the sandbox (see the class doc).
@@ -1594,5 +1597,46 @@ export class RealSkillExecutor implements SkillExecutor {
     });
     if (!lead) return { ok: false, error: 'Lead not found for this company' };
     return { ok: true, result: { messages: lead.conversation?.messages ?? [] } };
+  }
+
+  /**
+   * Move a lead between pipeline stages.
+   *
+   * I5: nothing wrote `Lead.status`, so every lead sat at `NEW` for ever and
+   * the `QUALIFIED` stage the whole qualification workflow exists to reach was
+   * unreachable. `sales.whatsapp-lead-qualify`'s hot-lead branch calls this.
+   *
+   * Deliberately the ONLY lead mutation exposed as a tool — no rename, no
+   * reassign, no delete. The Leads module stays a read surface; this is the one
+   * state transition the shipped workflow needs.
+   *
+   * `updateMany` (not `update`) so the company scope is part of the WHERE
+   * clause: a leadId from another tenant matches zero rows and reports a clean
+   * failure rather than mutating someone else's data.
+   */
+  private async whatsappUpdateLeadStatus(
+    args: Record<string, unknown>,
+    ctx: ExecutorContext,
+  ): Promise<SkillExecutionResult> {
+    const leadId = str(args.leadId);
+    const status = str(args.status);
+    if (!leadId || !status) {
+      return { ok: false, error: 'update_lead_status requires leadId and status' };
+    }
+    if (!LEAD_STATUSES.includes(status as LeadStatus)) {
+      return {
+        ok: false,
+        error: `update_lead_status: unknown status '${status}' (expected one of ${LEAD_STATUSES.join(', ')})`,
+      };
+    }
+
+    const updated = await this.prisma.lead.updateMany({
+      where: { id: leadId, companyId: ctx.companyId },
+      data: { status: status as LeadStatus },
+    });
+    if (updated.count === 0) {
+      return { ok: false, error: 'Lead not found for this company' };
+    }
+    return { ok: true, result: { leadId, status } };
   }
 }

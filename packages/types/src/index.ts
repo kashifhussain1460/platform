@@ -4408,6 +4408,16 @@ export type LeadStatus =
   | 'DISQUALIFIED'
   | 'CONVERTED';
 
+/** Runtime companion to `LeadStatus` — used to validate a tool argument. */
+export const LEAD_STATUSES: readonly LeadStatus[] = [
+  'NEW',
+  'QUALIFIED',
+  'HOT',
+  'NURTURE',
+  'DISQUALIFIED',
+  'CONVERTED',
+];
+
 export interface LeadDto {
   id: string;
   source: LeadSource;

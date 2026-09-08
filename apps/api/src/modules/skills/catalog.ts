@@ -898,6 +898,26 @@ const CATALOG: readonly CatalogEntry[] = [
           required: ['leadId'],
         },
       },
+      {
+        // Not highRisk: this moves a lead between internal pipeline stages. It
+        // sends nothing to the customer and is fully reversible, unlike the two
+        // send_* tools above.
+        name: 'update_lead_status',
+        description:
+          'Move a lead to a new pipeline stage (e.g. QUALIFIED once the AI has assessed it). Internal only — sends nothing to the customer.',
+        parameters: {
+          type: 'object',
+          properties: {
+            leadId: { type: 'string', description: 'The Lead id.' },
+            status: {
+              type: 'string',
+              enum: ['NEW', 'QUALIFIED', 'HOT', 'NURTURE', 'DISQUALIFIED', 'CONVERTED'],
+              description: 'The new pipeline stage.',
+            },
+          },
+          required: ['leadId', 'status'],
+        },
+      },
     ],
   },
 ];

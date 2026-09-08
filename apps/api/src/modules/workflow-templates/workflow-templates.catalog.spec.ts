@@ -1,4 +1,5 @@
 import { SkillCatalog } from '../skills/catalog';
+import { resolveTemplate } from '../workflows/engine/template';
 import { HR_WORKFLOW_TEMPLATES } from './hr-workflow-templates.catalog';
 import { MARKETING_WORKFLOW_TEMPLATES } from './marketing-workflow-templates.catalog';
 import { SALES_WORKFLOW_TEMPLATES } from './sales-workflow-templates.catalog';
@@ -68,5 +69,76 @@ describe('first-party workflow template catalog', () => {
     // 8 HR + 7 Marketing per docs 27/28 (social scheduling/publishing rely on the
     // highRisk auto-gate instead of an explicit APPROVAL node).
     expect(withApproval.length).toBeGreaterThanOrEqual(14);
+  });
+
+  /**
+   * I4 — the template referenced `{{trigger.leadId}}` / `{{trigger.body}}` /
+   * `{{trigger.phone}}`, but an EVENT run's trigger context is the payload
+   * `EventNormalizeProcessor` passes `fireEvent`: `{ eventId, subject, data }`.
+   * The flat paths resolved to the empty string, so the qualification step got
+   * an instruction with a hole in it and the nurture send was called with no
+   * lead id at all.
+   *
+   * Proved here with the REAL resolver against the REAL canonical payload
+   * shape, rather than by eyeballing the strings.
+   */
+  describe('sales.whatsapp-lead-qualify trigger-data paths', () => {
+    const template = SALES_WORKFLOW_TEMPLATES[0];
+
+    /** Exactly what `EventNormalizeProcessor` hands `fireEvent` for a WhatsApp NEW_LEAD. */
+    const runContext = {
+      trigger: {
+        eventId: 'MM123',
+        subject: { phone: '+15550002222' },
+        data: {
+          phone: '+15550002222',
+          body: 'I want a quote',
+          messageSid: 'MM123',
+          leadId: 'lead_1',
+        },
+      },
+    };
+
+    const nodeConfig = (id: string): Record<string, unknown> =>
+      (template.definition.nodes.find((n) => n.id === id)?.config ?? {}) as Record<string, unknown>;
+
+    it('resolves the qualification instruction to the real message body', () => {
+      const instruction = resolveTemplate(nodeConfig('qualify').instruction, runContext);
+      expect(instruction).toContain('I want a quote');
+      expect(instruction).not.toContain('{{');
+    });
+
+    it('resolves the nurture send to the real lead id', () => {
+      const args = nodeConfig('nurture').args as Record<string, unknown>;
+      expect(resolveTemplate(args.leadId, runContext)).toBe('lead_1');
+    });
+
+    it('resolves the sales notification to the real phone number', () => {
+      const args = nodeConfig('notifySales').args as Record<string, unknown>;
+      expect(resolveTemplate(args.text, runContext)).toContain('+15550002222');
+    });
+
+    // I5 — nothing wrote `Lead.status`, so every lead sat at NEW for ever.
+    it('marks the lead QUALIFIED on the hot branch', () => {
+      const node = template.definition.nodes.find((n) => n.id === 'markQualified');
+      expect(node?.type).toBe('TOOL_ACTION');
+      const config = node?.config as { skillKey?: string; tool?: string; args?: Record<string, unknown> };
+      expect(config.skillKey).toBe('whatsapp');
+      expect(config.tool).toBe('update_lead_status');
+      expect(config.args?.status).toBe('QUALIFIED');
+      expect(resolveTemplate(config.args?.leadId, runContext)).toBe('lead_1');
+      // On the TRUE (hot) branch only — a nurtured lead is not qualified.
+      expect(
+        template.definition.edges.some(
+          (e) => e.from === 'isHot' && e.to === 'markQualified' && e.branch === 'true',
+        ),
+      ).toBe(true);
+    });
+
+    it('has no flat {{trigger.x}} references left anywhere in the template', () => {
+      const serialized = JSON.stringify(template.definition);
+      const flat = serialized.match(/\{\{trigger\.(?!data\.)[\w.]+\}\}/g) ?? [];
+      expect(flat).toEqual([]);
+    });
   });
 });

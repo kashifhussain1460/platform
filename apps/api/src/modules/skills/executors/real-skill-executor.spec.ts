@@ -1541,4 +1541,67 @@ describe('RealSkillExecutor — whatsapp.*', () => {
       );
     });
   });
+
+  /**
+   * I5 — nothing anywhere wrote `Lead.status`, so every lead sat at `NEW` for
+   * ever and the QUALIFIED stage the qualification workflow exists to reach was
+   * unreachable. `sales.whatsapp-lead-qualify`'s hot branch calls this.
+   */
+  describe('whatsapp.update_lead_status', () => {
+    const build = (updateMany: jest.Mock) => {
+      const prisma = { lead: { updateMany } };
+      return new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, cryptoMock, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClientMock,
+      );
+    };
+
+    it('moves the lead to QUALIFIED, scoped to the calling company', async () => {
+      const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      const executor = build(updateMany);
+
+      const result = await executor.execute(
+        'whatsapp',
+        'update_lead_status',
+        { leadId: 'lead_1', status: 'QUALIFIED' },
+        ctx,
+      );
+
+      expect(result).toEqual({ ok: true, result: { leadId: 'lead_1', status: 'QUALIFIED' } });
+      expect(updateMany).toHaveBeenCalledWith({
+        where: { id: 'lead_1', companyId: 'c_1' },
+        data: { status: 'QUALIFIED' },
+      });
+    });
+
+    it("fails without writing when the lead belongs to another company", async () => {
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      const executor = build(updateMany);
+
+      const result = await executor.execute(
+        'whatsapp',
+        'update_lead_status',
+        { leadId: 'lead_other_company', status: 'QUALIFIED' },
+        ctx,
+      );
+
+      expect(result).toEqual({ ok: false, error: expect.stringContaining('not found') });
+    });
+
+    it('rejects a status that is not a real LeadStatus, without touching the database', async () => {
+      const updateMany = jest.fn();
+      const executor = build(updateMany);
+
+      const result = await executor.execute(
+        'whatsapp',
+        'update_lead_status',
+        { leadId: 'lead_1', status: 'SUPER_HOT' },
+        ctx,
+      );
+
+      expect(result).toEqual({ ok: false, error: expect.stringContaining('SUPER_HOT') });
+      expect(updateMany).not.toHaveBeenCalled();
+    });
+  });
 });

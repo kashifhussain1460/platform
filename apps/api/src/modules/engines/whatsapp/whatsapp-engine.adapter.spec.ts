@@ -24,6 +24,7 @@ describe('WhatsappEngineAdapter', () => {
       'whatsapp.send_message',
       'whatsapp.send_template',
       'whatsapp.get_conversation',
+      'whatsapp.update_lead_status',
     ]);
     expect(adapter.capabilities()).toContain('disconnect');
     expect(adapter.capabilities()).toContain('healthCheck');

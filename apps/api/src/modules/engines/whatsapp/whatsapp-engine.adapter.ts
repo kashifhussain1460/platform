@@ -48,7 +48,12 @@ export class WhatsappEngineAdapter implements EngineAdapter {
   }
 
   tools(): readonly string[] {
-    return ['whatsapp.send_message', 'whatsapp.send_template', 'whatsapp.get_conversation'];
+    return [
+      'whatsapp.send_message',
+      'whatsapp.send_template',
+      'whatsapp.get_conversation',
+      'whatsapp.update_lead_status',
+    ];
   }
 
   connect(): Promise<never> {

@@ -57,6 +57,7 @@ export const REAL_EXECUTION_TOOLS: readonly string[] = [
   'whatsapp.send_message',
   'whatsapp.send_template',
   'whatsapp.get_conversation',
+  'whatsapp.update_lead_status',
 ] as const;
 
 const REAL_TOOL_SET: ReadonlySet<string> = new Set(REAL_EXECUTION_TOOLS);
