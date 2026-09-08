@@ -1444,12 +1444,22 @@ describe('RealSkillExecutor — whatsapp.*', () => {
 
       expect(result.ok).toBe(true);
       expect(twilioClient.sendTemplate).toHaveBeenCalledWith({
+        // I1: the circuit breaker / rate limiter are keyed on the TENANT, so
+        // the company id travels with every Twilio call.
+        companyId: 'c_1',
         accountSid: 'AC1',
         authToken: 'dec-enc-token',
         from: '+19990000000',
         to: '+15550002222',
         contentSid: 'tmpl_123',
         contentVariables: { name: 'Kashif' },
+      });
+      // I7: the same deterministic ordering the webhook controller's account
+      // lookup got — a company with two sender numbers must resolve to the
+      // SAME row on every call, not to whatever Postgres returns first.
+      expect(prisma.whatsAppAccount.findFirst).toHaveBeenCalledWith({
+        where: { companyId: 'c_1' },
+        orderBy: { createdAt: 'asc' },
       });
     });
 

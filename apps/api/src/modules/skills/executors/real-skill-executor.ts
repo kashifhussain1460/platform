@@ -1451,6 +1451,25 @@ export class RealSkillExecutor implements SkillExecutor {
 
   // --- whatsapp.* (Twilio WhatsApp REST wrapper; per-company encrypted credentials) ---
 
+  /**
+   * The company's WhatsApp account.
+   *
+   * `orderBy createdAt asc` for the SAME reason `whatsapp-webhook.controller.ts`
+   * has one (I7): `WhatsAppAccount` is unique per `[companyId,
+   * whatsappSenderNumber]`, not per company, so a company that has registered
+   * two sender numbers has two rows here. A real production number belongs to
+   * one sender, so this is not expected to matter — but without an order the
+   * tool would send from whichever row Postgres happened to return first, which
+   * can change between calls. Deterministic beats arbitrary, and it means the
+   * webhook and the outbound tools agree on the same row.
+   */
+  private async findWhatsAppAccount(companyId: string) {
+    return this.prisma.whatsAppAccount.findFirst({
+      where: { companyId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   private async whatsappSendMessage(
     args: Record<string, unknown>,
     ctx: ExecutorContext,
@@ -1491,7 +1510,7 @@ export class RealSkillExecutor implements SkillExecutor {
       };
     }
 
-    const account = await this.prisma.whatsAppAccount.findFirst({ where: { companyId: ctx.companyId } });
+    const account = await this.findWhatsAppAccount(ctx.companyId);
     if (!account) return { ok: false, error: 'No WhatsAppAccount configured for this company' };
 
     // M-06: see WHATSAPP_SEND_DEDUPE_WINDOW_MS doc — a retried TOOL_ACTION
@@ -1505,6 +1524,7 @@ export class RealSkillExecutor implements SkillExecutor {
         windowMs: WHATSAPP_SEND_DEDUPE_WINDOW_MS,
         effect: () =>
           this.whatsappClient.sendFreeform({
+            companyId: ctx.companyId,
             accountSid: account.twilioAccountSid,
             authToken: this.crypto.decrypt(account.twilioAuthToken),
             from: account.whatsappSenderNumber,
@@ -1530,7 +1550,7 @@ export class RealSkillExecutor implements SkillExecutor {
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, companyId: ctx.companyId } });
     if (!lead) return { ok: false, error: 'Lead not found for this company' };
 
-    const account = await this.prisma.whatsAppAccount.findFirst({ where: { companyId: ctx.companyId } });
+    const account = await this.findWhatsAppAccount(ctx.companyId);
     if (!account) return { ok: false, error: 'No WhatsAppAccount configured for this company' };
 
     const params = (args.params as Record<string, string>) ?? {};
@@ -1547,6 +1567,7 @@ export class RealSkillExecutor implements SkillExecutor {
         windowMs: WHATSAPP_SEND_DEDUPE_WINDOW_MS,
         effect: () =>
           this.whatsappClient.sendTemplate({
+            companyId: ctx.companyId,
             accountSid: account.twilioAccountSid,
             authToken: this.crypto.decrypt(account.twilioAuthToken),
             from: account.whatsappSenderNumber,
