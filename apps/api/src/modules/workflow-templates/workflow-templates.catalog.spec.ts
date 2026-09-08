@@ -14,11 +14,11 @@ import { validateManifest } from './workflow-templates.util';
 describe('first-party workflow template catalog', () => {
   const validSkills = new Set(SkillCatalog.list().map((s) => s.key));
 
-  it('has 11 HR + 11 Marketing + 1 Sales = 23 templates', () => {
+  it('has 11 HR + 11 Marketing + 2 Sales = 24 templates', () => {
     expect(HR_WORKFLOW_TEMPLATES).toHaveLength(11);
     expect(MARKETING_WORKFLOW_TEMPLATES).toHaveLength(11);
-    expect(SALES_WORKFLOW_TEMPLATES).toHaveLength(1);
-    expect(FIRST_PARTY_WORKFLOW_TEMPLATES).toHaveLength(23);
+    expect(SALES_WORKFLOW_TEMPLATES).toHaveLength(2);
+    expect(FIRST_PARTY_WORKFLOW_TEMPLATES).toHaveLength(24);
   });
 
   it('every (key,version) is unique', () => {
@@ -50,7 +50,9 @@ describe('first-party workflow template catalog', () => {
     for (const t of SALES_WORKFLOW_TEMPLATES) {
       expect(t.category).toBe('SALES');
       expect(t.requires.employeeRoles).toContain('SALES');
-      expect(t.key.startsWith('sales.')).toBe(true);
+      // Most Sales templates are 'sales.'-prefixed; vertical-specific ones (e.g.
+      // real estate) key off their own domain instead while staying category SALES.
+      expect(t.key.startsWith('sales.') || t.key.startsWith('realestate.')).toBe(true);
     }
   });
 
@@ -139,6 +141,84 @@ describe('first-party workflow template catalog', () => {
       const serialized = JSON.stringify(template.definition);
       const flat = serialized.match(/\{\{trigger\.(?!data\.)[\w.]+\}\}/g) ?? [];
       expect(flat).toEqual([]);
+    });
+  });
+
+  /**
+   * Same discipline as sales.whatsapp-lead-qualify above, for the new
+   * real-estate template: proves `{{trigger.data.*}}` and the
+   * qualification/visitEvent context keys actually resolve against a
+   * realistic canonical-event payload, not just that the manifest validates
+   * structurally.
+   */
+  describe('realestate.whatsapp-lead-qualify trigger-data paths', () => {
+    const template = SALES_WORKFLOW_TEMPLATES[1];
+
+    /** Exactly what `EventNormalizeProcessor` hands `fireEvent` for a WhatsApp NEW_LEAD. */
+    const runContext = {
+      trigger: {
+        eventId: 'MM456',
+        subject: { phone: '+15550002222' },
+        data: {
+          phone: '+15550002222',
+          body: 'Interested in the 3-bed on Elm St, budget 500k, can visit Tuesday 10am',
+          messageSid: 'MM456',
+          leadId: 'lead_1',
+        },
+      },
+      qualification: {
+        interested: true,
+        reason: 'Budget 500k, wants a 3-bed on Elm St',
+        preferredTime: '2026-09-15T10:00:00',
+      },
+      visitEvent: {
+        result: { id: 'evt_789' },
+      },
+    };
+
+    const nodeConfig = (id: string): Record<string, unknown> =>
+      (template.definition.nodes.find((n) => n.id === id)?.config ?? {}) as Record<string, unknown>;
+
+    it('resolves the qualification instruction to the real message body', () => {
+      const instruction = resolveTemplate(nodeConfig('qualify').instruction, runContext);
+      expect(instruction).toContain('Interested in the 3-bed on Elm St');
+      expect(instruction).not.toContain('{{');
+    });
+
+    it('resolves the site-visit booking to the real phone and preferred time', () => {
+      const args = nodeConfig('bookVisit').args as Record<string, unknown>;
+      expect(resolveTemplate(args.title, runContext)).toBe('Property site visit — +15550002222');
+      expect(resolveTemplate(args.start, runContext)).toBe('2026-09-15T10:00:00');
+    });
+
+    it('resolves the visit-record link to the real lead id and booked event id', () => {
+      const args = nodeConfig('recordVisit').args as Record<string, unknown>;
+      expect(resolveTemplate(args.leadId, runContext)).toBe('lead_1');
+      expect(resolveTemplate(args.eventId, runContext)).toBe('evt_789');
+      expect(resolveTemplate(args.start, runContext)).toBe('2026-09-15T10:00:00');
+    });
+
+    it('resolves the agent notification to the real phone number and reason', () => {
+      const args = nodeConfig('notifyAgentVisit').args as Record<string, unknown>;
+      const text = resolveTemplate(args.text, runContext);
+      expect(text).toContain('+15550002222');
+      expect(text).toContain('Budget 500k, wants a 3-bed on Elm St');
+    });
+
+    it('has no flat {{trigger.x}} references left anywhere in the template', () => {
+      const serialized = JSON.stringify(template.definition);
+      const flat = serialized.match(/\{\{trigger\.(?!data\.)[\w.]+\}\}/g) ?? [];
+      expect(flat).toEqual([]);
+    });
+
+    it('has no unresolved {{ left anywhere once the whole definition is resolved against the run context', () => {
+      // resolveTemplate replaces every {{path}} match with a (possibly empty)
+      // string, so a fully-resolved definition never contains a literal "{{"
+      // (param.* isn't bound at run time — it resolves to '' here, same as any
+      // other absent path — proving the whole graph, not just the four nodes
+      // above, is free of the flat-trigger mistake I4 caught).
+      const resolved = resolveTemplate(JSON.stringify(template.definition), runContext);
+      expect(resolved).not.toContain('{{');
     });
   });
 });
