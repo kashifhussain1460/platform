@@ -1,7 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { ConnectWhatsAppAccountDto, WhatsAppAccountDto } from '@vaep/types';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { AuditLogService } from '../../audit/audit-log.service';
+import { TwilioWhatsappClientService } from './twilio-whatsapp-client.service';
 
 /**
  * The dedicated connect surface for `WhatsAppAccount` (Task 13).
@@ -17,12 +24,25 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
  *
  * `twilioAuthToken` is encrypted at rest via `CryptoService` (matching the
  * `InstalledSkill.credentials` pattern) and never returned raw.
+ *
+ * VERIFY BEFORE CONNECTED (I3). This route used to write `status: 'CONNECTED'`
+ * without ever exercising the credentials, so a typo'd Account SID or a
+ * revoked Auth Token produced a green "Connected" badge and a WhatsApp sender
+ * that could never send or receive anything — the same over-claim
+ * `SkillsService.verifyConnection` / `providers/provider-adapter.ts` exist to
+ * stop for every other provider (`smtp.adapter.ts` does a real AUTH check for
+ * exactly this reason). One authenticated Twilio read now stands between the
+ * form and CONNECTED.
  */
 @Injectable()
 export class WhatsappAccountsService {
+  private readonly logger = new Logger(WhatsappAccountsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
+    private readonly twilioClient: TwilioWhatsappClientService,
+    private readonly audit: AuditLogService,
   ) {}
 
   async connect(
@@ -39,6 +59,12 @@ export class WhatsappAccountsService {
         throw new NotFoundException('Employee not found');
       }
     }
+
+    // The real credential check: fetch the Twilio account these credentials
+    // claim to be. A bad SID or token throws (401/404) and nothing is written
+    // as CONNECTED. Deliberately BEFORE the upsert — a failed verification
+    // must not leave a half-written row behind.
+    await this.verifyTwilioCredentials(companyId, dto);
 
     const row = await this.prisma.whatsAppAccount.upsert({
       where: {
@@ -62,7 +88,62 @@ export class WhatsappAccountsService {
         status: 'CONNECTED',
       },
     });
+
+    await this.audit.record({
+      companyId,
+      action: 'connector.verified',
+      entityType: 'WhatsAppAccount',
+      entityId: row.id,
+      metadata: {
+        provider: 'whatsapp',
+        twilioAccountSid: dto.twilioAccountSid,
+        whatsappSenderNumber: dto.whatsappSenderNumber,
+        employeeId,
+      },
+    });
+
     return this.toDto(row);
+  }
+
+  /**
+   * One authenticated Twilio read — `GET /Accounts/{sid}` via the SDK — which
+   * is the standard "are these credentials real?" probe.
+   *
+   * Failure is reported to the caller as a 400 carrying Twilio's own reason
+   * (rather than a generic error), and audited as `connector.verify_failed` to
+   * match the shape `SkillsService.verifyConnection` records for every generic
+   * connector.
+   */
+  private async verifyTwilioCredentials(
+    companyId: string,
+    dto: ConnectWhatsAppAccountDto,
+  ): Promise<void> {
+    try {
+      await this.twilioClient.verifyCredentials({
+        companyId,
+        accountSid: dto.twilioAccountSid,
+        authToken: dto.twilioAuthToken,
+      });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Twilio credential verification failed for company=${companyId} sid=${dto.twilioAccountSid}: ${reason}`,
+      );
+      await this.audit.record({
+        companyId,
+        action: 'connector.verify_failed',
+        entityType: 'WhatsAppAccount',
+        metadata: {
+          provider: 'whatsapp',
+          twilioAccountSid: dto.twilioAccountSid,
+          whatsappSenderNumber: dto.whatsappSenderNumber,
+          reason,
+        },
+      });
+      throw new BadRequestException(
+        `Twilio rejected these credentials — the account was not connected. (${reason})`,
+      );
+    }
   }
 
   /** The company's current WhatsApp account (company-wide, employeeId=null), if any. */

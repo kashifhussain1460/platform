@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { WhatsappAccountsService } from './whatsapp-accounts.service';
 
 /**
@@ -35,8 +35,12 @@ describe('WhatsappAccountsService', () => {
     const crypto: any = {
       encrypt: jest.fn((s: string) => `enc:${s}`),
     };
-    const service = new WhatsappAccountsService(prisma, crypto);
-    return { service, prisma, crypto };
+    const twilioClient: any = {
+      verifyCredentials: jest.fn().mockResolvedValue({ accountSid: 'ACxxx', status: 'active' }),
+    };
+    const audit: any = { record: jest.fn().mockResolvedValue('audit_1') };
+    const service = new WhatsappAccountsService(prisma, crypto, twilioClient, audit);
+    return { service, prisma, crypto, twilioClient, audit };
   }
 
   describe('connect', () => {
@@ -101,6 +105,57 @@ describe('WhatsappAccountsService', () => {
       const { service } = build();
       const result = await service.connect('c_1', dto);
       expect(result).not.toHaveProperty('twilioAuthToken');
+    });
+
+    /**
+     * I3 — this route used to write CONNECTED without ever exercising the
+     * credentials, so a typo'd SID produced a green badge over a sender that
+     * could never send or receive anything.
+     */
+    describe('verify-before-CONNECTED', () => {
+      it('makes one real Twilio call with the SUPPLIED credentials before writing anything', async () => {
+        const { service, twilioClient, prisma } = build();
+        await service.connect('c_1', dto);
+        expect(twilioClient.verifyCredentials).toHaveBeenCalledWith({
+          companyId: 'c_1',
+          accountSid: 'ACxxx',
+          authToken: 'secret-token',
+        });
+        const verifyOrder = twilioClient.verifyCredentials.mock.invocationCallOrder[0];
+        const upsertOrder = prisma.whatsAppAccount.upsert.mock.invocationCallOrder[0];
+        expect(verifyOrder).toBeLessThan(upsertOrder);
+      });
+
+      it('refuses to mark the account CONNECTED when Twilio rejects the credentials', async () => {
+        const { service, prisma, twilioClient, audit } = build();
+        twilioClient.verifyCredentials.mockRejectedValueOnce(
+          Object.assign(new Error('Authenticate (401)'), { status: 401 }),
+        );
+        await expect(service.connect('c_1', dto)).rejects.toThrow(BadRequestException);
+        expect(prisma.whatsAppAccount.upsert).not.toHaveBeenCalled();
+        expect(audit.record).toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'connector.verify_failed', companyId: 'c_1' }),
+        );
+      });
+
+      it('audits a successful connect as connector.verified', async () => {
+        const { service, audit } = build();
+        await service.connect('c_1', dto);
+        expect(audit.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'connector.verified',
+            companyId: 'c_1',
+            entityType: 'WhatsAppAccount',
+            entityId: 'wa_1',
+          }),
+        );
+      });
+
+      it('never puts the auth token in an audit record', async () => {
+        const { service, audit } = build();
+        await service.connect('c_1', dto);
+        expect(JSON.stringify(audit.record.mock.calls)).not.toContain('secret-token');
+      });
     });
   });
 
