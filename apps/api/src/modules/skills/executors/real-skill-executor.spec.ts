@@ -1605,3 +1605,64 @@ describe('RealSkillExecutor — whatsapp.*', () => {
     });
   });
 });
+
+describe('RealSkillExecutor — leads.*', () => {
+  describe('leads.record_site_visit', () => {
+    it("merges the site-visit fields into the Lead's existing qualificationData", async () => {
+      const prisma = {
+        lead: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'lead_1',
+            companyId: 'c_1',
+            qualificationData: { budget: '500k-700k' },
+          }),
+          update: jest.fn().mockResolvedValue({}),
+        },
+      };
+      const executor = new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, cryptoMock, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClientMock,
+      );
+
+      const result = await executor.execute(
+        'leads', 'record_site_visit',
+        { leadId: 'lead_1', eventId: 'evt_abc', start: '2026-09-15T10:00:00.000Z' },
+        ctx,
+      );
+
+      expect(result.ok).toBe(true);
+      expect(prisma.lead.update).toHaveBeenCalledWith({
+        where: { id: 'lead_1' },
+        data: {
+          qualificationData: {
+            budget: '500k-700k',
+            siteVisitAt: '2026-09-15T10:00:00.000Z',
+            siteVisitEventId: 'evt_abc',
+          },
+        },
+      });
+    });
+
+    it('fails without writing when the lead is not found for this company', async () => {
+      const prisma = { lead: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() } };
+      const executor = new RealSkillExecutor(
+        configMock, fallbackMock, schedulingMock, {} as any, prisma as any,
+        chatwootClientMock, cryptoMock, planeClientMock, idempotencyMock,
+        suppressionMock, false, twilioClientMock,
+      );
+
+      const result = await executor.execute(
+        'leads', 'record_site_visit',
+        { leadId: 'lead_other_company', eventId: 'evt_abc', start: '2026-09-15T10:00:00.000Z' },
+        ctx,
+      );
+
+      expect(result).toEqual({ ok: false, error: expect.any(String) });
+      expect(prisma.lead.update).not.toHaveBeenCalled();
+      expect(prisma.lead.findFirst).toHaveBeenCalledWith({
+        where: { id: 'lead_other_company', companyId: 'c_1' },
+      });
+    });
+  });
+});

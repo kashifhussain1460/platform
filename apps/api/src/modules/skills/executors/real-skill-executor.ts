@@ -278,6 +278,8 @@ export class RealSkillExecutor implements SkillExecutor {
           return await this.whatsappGetConversation(args, ctx);
         case 'whatsapp.update_lead_status':
           return await this.whatsappUpdateLeadStatus(args, ctx);
+        case 'leads.record_site_visit':
+          return await this.leadsRecordSiteVisit(args, ctx);
         default:
           // No real implementation for this tool. In production that must be
           // said out loud, not answered from the sandbox (see the class doc).
@@ -1638,5 +1640,37 @@ export class RealSkillExecutor implements SkillExecutor {
       return { ok: false, error: 'Lead not found for this company' };
     }
     return { ok: true, result: { leadId, status } };
+  }
+
+  // --- leads.* (channel-agnostic Lead actions; no external credentials) ---
+
+  private async leadsRecordSiteVisit(
+    args: Record<string, unknown>,
+    ctx: ExecutorContext,
+  ): Promise<SkillExecutionResult> {
+    const leadId = str(args.leadId);
+    const eventId = str(args.eventId);
+    const start = str(args.start);
+    if (!leadId || !eventId || !start) {
+      return { ok: false, error: 'record_site_visit requires leadId, eventId and start' };
+    }
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, companyId: ctx.companyId },
+    });
+    if (!lead) return { ok: false, error: 'Lead not found for this company' };
+
+    // Merge, not overwrite — qualificationData is a free-form bag other steps
+    // may already have written to (e.g. budget/location captured during
+    // qualification); a plain `data: { qualificationData: {...} }` would
+    // silently drop those fields, the same class of bug this codebase's own
+    // JSON-column conventions elsewhere are careful to avoid.
+    const existing = (lead.qualificationData as Record<string, unknown> | null) ?? {};
+    await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        qualificationData: { ...existing, siteVisitAt: start, siteVisitEventId: eventId },
+      },
+    });
+    return { ok: true, result: { leadId, eventId, start } };
   }
 }
