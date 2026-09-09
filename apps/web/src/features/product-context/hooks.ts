@@ -24,6 +24,22 @@ export const productContextKeys = {
  * Cached for a minute: it changes when someone hires an employee, installs a
  * skill, changes plan or is moved between departments — none of which happen
  * mid-click, and all of which invalidate through their own mutations.
+ *
+ * 🔴 **That last clause was false until 2026-09-09.** `productContextKeys.all`
+ * had ZERO `invalidateQueries` callers anywhere in the app, so hiring your last
+ * seat left the counter reading "1 of 2" for up to 60s — and TanStack's prefix
+ * matching does NOT help, because invalidating the child
+ * `['product-context','dashboard']` never matches the parent
+ * `['product-context']`. `refetchOnWindowFocus` is off globally, so there was no
+ * self-heal either. A Playwright run failed on exactly this.
+ *
+ * **The invariant, for anyone adding a mutation:** if it writes any of the six
+ * things `product-context.service.ts` resolves from — `Company`
+ * (industry/size/businessGoals), `Subscription.plan`, `Department` (incl.
+ * `scopes`), `AiEmployee` (role/status/archivedAt), `InstalledSkill`
+ * (skillKey/connectionStatus/enabled), or `WorkflowTemplate` — it must
+ * invalidate `productContextKeys.all` alongside its own key. Pinned by
+ * `e2e/tests/06-plan-seats-journey.spec.ts`.
  */
 export function useProductContext() {
   const accessToken = useSessionStore((s) => s.accessToken);

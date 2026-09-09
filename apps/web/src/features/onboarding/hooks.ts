@@ -14,6 +14,7 @@ import type { NormalizedApiError } from '@/lib/apiClient';
 import { authKeys } from '@/features/auth/hooks';
 import { employeeKeys } from '@/features/employees/hooks';
 import { orgKeys } from '@/features/organization/hooks';
+import { productContextKeys } from '@/features/product-context/hooks';
 import { tenantKeys } from '@/features/tenant/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import {
@@ -50,7 +51,12 @@ export function useSaveOnboardingCompany() {
     { name: string; industry: string; size: string; website?: string }
   >({
     mutationFn: saveOnboardingCompanyRequest,
-    onSuccess: (s) => qc.setQueryData(onboardingKeys.status, s),
+    onSuccess: (s) => {
+      qc.setQueryData(onboardingKeys.status, s);
+      // industry and size are two of the six inputs the server resolves the
+      // product context from (INDUSTRY_CAPABILITIES branching).
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
+    },
   });
 }
 
@@ -74,6 +80,7 @@ export function useSaveOnboardingDepartments() {
     onSuccess: (s) => {
       qc.setQueryData(onboardingKeys.status, s);
       void qc.invalidateQueries({ queryKey: orgKeys.departments });
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -82,7 +89,11 @@ export function useSaveOnboardingGoals() {
   const qc = useQueryClient();
   return useMutation<OnboardingStatusDto, NormalizedApiError, string[]>({
     mutationFn: saveOnboardingGoalsRequest,
-    onSuccess: (s) => qc.setQueryData(onboardingKeys.status, s),
+    onSuccess: (s) => {
+      qc.setQueryData(onboardingKeys.status, s);
+      // businessGoals drives GOAL_CAPABILITIES branching.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
+    },
   });
 }
 
@@ -159,6 +170,10 @@ export function useCompleteOnboarding() {
       void qc.invalidateQueries({ queryKey: authKeys.me });
       void qc.invalidateQueries({ queryKey: employeeKeys.list });
       void qc.invalidateQueries({ queryKey: orgKeys.departments });
+      // Completing onboarding hires employees, stamps onboardedAt and creates
+      // Department rows in one call — it changes four of the six inputs at once,
+      // and it is the moment the sidebar and dashboard first get composed.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }

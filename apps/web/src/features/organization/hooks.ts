@@ -14,6 +14,7 @@ import type {
   UpdateTeamDto,
 } from '@vaep/types';
 import type { NormalizedApiError } from '@/lib/apiClient';
+import { productContextKeys } from '@/features/product-context/hooks';
 import { useCurrentRole, userKeys } from '@/features/users/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import {
@@ -100,6 +101,10 @@ export function useCreateDepartment() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: orgKeys.departments });
+      // Departments drive DEPARTMENT_EMPLOYEE_ROLES branching, and `scopes`
+      // (written through this same hook by DepartmentScopeEditor) drives the
+      // authorization layer's authorizedAreas / relevantEmployeeIds.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -134,6 +139,10 @@ export function useUpdateDepartment() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: orgKeys.departments });
+      // Departments drive DEPARTMENT_EMPLOYEE_ROLES branching, and `scopes`
+      // (written through this same hook by DepartmentScopeEditor) drives the
+      // authorization layer's authorizedAreas / relevantEmployeeIds.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -172,6 +181,7 @@ export function useDeleteDepartment() {
       void qc.invalidateQueries({ queryKey: orgKeys.teams });
       // Members' departmentId changed, which changes what they can see.
       void qc.invalidateQueries({ queryKey: userKeys.list });
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -219,6 +229,8 @@ export function useCreateTeam() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: orgKeys.teams });
+      // A team's departmentId feeds the authz actor's team scope.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -248,6 +260,8 @@ export function useUpdateTeam() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: orgKeys.teams });
+      // A team's departmentId feeds the authz actor's team scope.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -272,6 +286,8 @@ export function useDeleteTeam() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: orgKeys.teams });
+      // A team's departmentId feeds the authz actor's team scope.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }

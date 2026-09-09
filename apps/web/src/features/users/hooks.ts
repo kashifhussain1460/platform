@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CreateUserDto, Role, UpdateUserDto, UserDto } from '@vaep/types';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { useCurrentUser } from '@/features/auth/hooks';
+import { productContextKeys } from '@/features/product-context/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import { createUser, deleteUser, listUsers, updateUser } from './api';
 
@@ -80,6 +81,9 @@ export function useCreateUser() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: userKeys.list });
+      // A user's role/departmentId/teamId resolves the authz actor the product
+      // context is built for — it matters when you edit yourself.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -109,6 +113,9 @@ export function useUpdateUser() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: userKeys.list });
+      // A user's role/departmentId/teamId resolves the authz actor the product
+      // context is built for — it matters when you edit yourself.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -133,6 +140,9 @@ export function useDeleteUser() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: userKeys.list });
+      // A user's role/departmentId/teamId resolves the authz actor the product
+      // context is built for — it matters when you edit yourself.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }

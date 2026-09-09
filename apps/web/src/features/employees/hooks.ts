@@ -14,6 +14,7 @@ import type {
   RunResultDto,
   UpdateEmployeeDto,
 } from '@vaep/types';
+import { productContextKeys } from '@/features/product-context/hooks';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { useSessionStore } from '@/stores/session.store';
 import {
@@ -124,6 +125,11 @@ export function useCreateEmployee() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: employeeKeys.list });
+      // Hiring changes the roster the server resolves seats, area unlocks and
+      // relevantEmployeeIds from, so the product context is now stale. Without
+      // this the seat counter keeps showing the old count for up to 60s — a
+      // browser test caught exactly that.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -159,6 +165,9 @@ export function useUpdateEmployee() {
     onSettled: (_data, _err, { id }) => {
       void qc.invalidateQueries({ queryKey: employeeKeys.list });
       void qc.invalidateQueries({ queryKey: employeeKeys.detail(id) });
+      // A status change moves a seat: DISABLED frees one, PAUSED keeps it
+      // (billing.plans.ts checkSeatFor), so entitlements.seats changes here.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -183,6 +192,9 @@ export function useDeleteEmployee() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: employeeKeys.list });
+      // Archiving stamps archivedAt, which drops the row out of the resolver's
+      // `archivedAt: null` filter — the seat it held is released.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }

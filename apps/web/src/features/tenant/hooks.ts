@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CompanyDto, MeDto, UpdateCompanyDto } from '@vaep/types';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { authKeys } from '@/features/auth/hooks';
+import { productContextKeys } from '@/features/product-context/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import { currentCompanyRequest, updateCompanyRequest } from './api';
 
@@ -60,6 +61,8 @@ export function useUpdateCompany() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: tenantKeys.current });
       void qc.invalidateQueries({ queryKey: authKeys.me });
+      // industry / size / businessGoals all feed the capability resolver.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }

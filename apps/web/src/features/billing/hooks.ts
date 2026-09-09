@@ -12,6 +12,7 @@ import type {
   SubscriptionDto,
   UsageDto,
 } from '@vaep/types';
+import { productContextKeys } from '@/features/product-context/hooks';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { useSessionStore } from '@/stores/session.store';
 import {
@@ -107,6 +108,9 @@ export function useChangePlan() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: billingKeys.subscription });
       void qc.invalidateQueries({ queryKey: billingKeys.usage });
+      // The plan decides seats (maxRoles x maxPerRole), locked areas and the
+      // ASSIST gate, all resolved server-side into the product context.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }

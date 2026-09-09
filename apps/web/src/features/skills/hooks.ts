@@ -11,6 +11,7 @@ import type {
   SkillDefinitionDto,
   UpdateInstalledSkillDto,
 } from '@vaep/types';
+import { productContextKeys } from '@/features/product-context/hooks';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { useSessionStore } from '@/stores/session.store';
 import {
@@ -104,6 +105,10 @@ export function useInstallSkill() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // InstalledSkill (skillKey + connectionStatus, filtered on enabled) is one
+      // of the six inputs the server resolves product context from, so every
+      // install/enable/connect changes which capabilities and areas unlock.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -140,6 +145,10 @@ export function useUpdateInstalledSkill() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // InstalledSkill (skillKey + connectionStatus, filtered on enabled) is one
+      // of the six inputs the server resolves product context from, so every
+      // install/enable/connect changes which capabilities and areas unlock.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -166,6 +175,10 @@ export function useUninstallSkill() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // InstalledSkill (skillKey + connectionStatus, filtered on enabled) is one
+      // of the six inputs the server resolves product context from, so every
+      // install/enable/connect changes which capabilities and areas unlock.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -206,6 +219,10 @@ export function useConfigureSkill() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // InstalledSkill (skillKey + connectionStatus, filtered on enabled) is one
+      // of the six inputs the server resolves product context from, so every
+      // install/enable/connect changes which capabilities and areas unlock.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -246,6 +263,10 @@ export function useConnectSkill() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // InstalledSkill (skillKey + connectionStatus, filtered on enabled) is one
+      // of the six inputs the server resolves product context from, so every
+      // install/enable/connect changes which capabilities and areas unlock.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -281,6 +302,10 @@ export function useDisconnectSkill() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // InstalledSkill (skillKey + connectionStatus, filtered on enabled) is one
+      // of the six inputs the server resolves product context from, so every
+      // install/enable/connect changes which capabilities and areas unlock.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -296,6 +321,10 @@ export function useCheckConnectorHealth() {
     mutationFn: checkConnectorHealth,
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // InstalledSkill (skillKey + connectionStatus, filtered on enabled) is one
+      // of the six inputs the server resolves product context from, so every
+      // install/enable/connect changes which capabilities and areas unlock.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }
@@ -318,6 +347,7 @@ export function useVerifyConnection() {
       // The AI Assist skill card reads a different key; a verified connection
       // must clear its "not connected" state too.
       void qc.invalidateQueries({ queryKey: ['skill-requirements'] });
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }

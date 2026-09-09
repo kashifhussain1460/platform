@@ -8,6 +8,7 @@ import type {
 } from '@vaep/types';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { employeeKeys } from '@/features/employees/hooks';
+import { productContextKeys } from '@/features/product-context/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import {
   getMarketplace,
@@ -94,6 +95,9 @@ export function useInstallEmployeeTemplate() {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: employeeKeys.list });
+      // A marketplace install hires a real AiEmployee — same effect on seats and
+      // area unlocks as the hire form, so it must invalidate the same context.
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
   });
 }

@@ -7,6 +7,7 @@ import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
 import { InstalledSkillList } from '@/features/skills/components/InstalledSkillList';
 import { SkillCatalog } from '@/features/skills/components/SkillCatalog';
+import { productContextKeys } from '@/features/product-context/hooks';
 import { skillKeys } from '@/features/skills/hooks';
 import { useSessionStore } from '@/stores/session.store';
 
@@ -36,6 +37,9 @@ export default function SkillsPage() {
     if (connected) {
       setBanner({ kind: 'ok', text: `Connected ${connected}.` });
       void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      // The OAuth callback already wrote connectionStatus: CONNECTED, which
+      // changes the resolved product context (skill statuses, area unlocks).
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
       router.replace('/skills');
     } else if (oauthError) {
       setBanner({ kind: 'error', text: `Connection failed: ${oauthError}` });
