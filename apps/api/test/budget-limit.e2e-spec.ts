@@ -43,7 +43,10 @@ describeIfDb('Budget limit enforcement e2e (chat)', () => {
       .send({ name: 'Budget Bot', role: 'SUPPORT' })
       .expect(201);
     employeeId = emp.body.id;
-    expect(emp.body.budgetLimit).toBeNull();
+    // Role-based hiring (2026-09-04): every new employee starts at the plan's
+    // per-employee ceiling — Free is 500 credits = $5 — instead of unlimited.
+    expect(emp.body.budgetLimit).toBe(5);
+    // The create response does not compute month-to-date cost.
     expect(emp.body.monthToDateCostUsd).toBeNull();
 
     const conv = await request(app.getHttpServer())
@@ -58,7 +61,7 @@ describeIfDb('Budget limit enforcement e2e (chat)', () => {
     await app?.close();
   });
 
-  it('a message succeeds with no budget limit set, and records real cost', async () => {
+  it('a message succeeds under the plan default ceiling, and records real cost', async () => {
     await request(app.getHttpServer())
       .post(`/conversations/${conversationId}/messages`)
       .set(auth())
@@ -69,9 +72,10 @@ describeIfDb('Budget limit enforcement e2e (chat)', () => {
       .get(`/employees/${employeeId}`)
       .set(auth())
       .expect(200);
-    // monthToDateCostUsd is only computed when budgetLimit is set (avoids an
-    // unnecessary aggregate query for every employee that never uses one).
-    expect(emp.body.monthToDateCostUsd).toBeNull();
+    // monthToDateCostUsd is computed whenever budgetLimit is set — and since
+    // every employee now starts at the plan ceiling, that is always, so the
+    // real cost of the message above shows up here.
+    expect(emp.body.monthToDateCostUsd).toBeGreaterThan(0);
   });
 
   it('blocks a message once a budget limit set below the already-spent amount', async () => {
@@ -81,8 +85,13 @@ describeIfDb('Budget limit enforcement e2e (chat)', () => {
     await request(app.getHttpServer())
       .patch(`/employees/${employeeId}`)
       .set(auth())
-      .send({ budgetLimit: 999999 })
+      .send({ budgetLimit: 5 }) // the plan's ceiling; anything above is refused
       .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/employees/${employeeId}`)
+      .set(auth())
+      .send({ budgetLimit: 999999 })
+      .expect(400);
     const before = await request(app.getHttpServer())
       .get(`/employees/${employeeId}`)
       .set(auth())
@@ -112,12 +121,13 @@ describeIfDb('Budget limit enforcement e2e (chat)', () => {
     const emp = await request(app.getHttpServer())
       .post('/employees')
       .set(auth())
-      .send({ name: 'Fresh Budget Bot', role: 'SUPPORT' })
+      // A DIFFERENT role: Free is 1 per role, and SUPPORT is already taken above.
+      .send({ name: 'Fresh Budget Bot', role: 'SALES' })
       .expect(201);
     await request(app.getHttpServer())
       .patch(`/employees/${emp.body.id}`)
       .set(auth())
-      .send({ budgetLimit: 50 })
+      .send({ budgetLimit: 5 }) // plan maximum
       .expect(200);
     const conv = await request(app.getHttpServer())
       .post(`/employees/${emp.body.id}/conversations`)

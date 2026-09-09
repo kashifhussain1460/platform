@@ -1,21 +1,49 @@
-import type { Plan, PlanDto } from '@vaep/types';
+import type { EmployeeRole, Plan, PlanDto } from '@vaep/types';
 
 /**
- * Code-defined plan catalog — the source of truth for plan names, ILLUSTRATIVE
- * prices, SOFT employee limits and feature lists (from the proposal pricing).
- * Prices are illustrative only (0/49/199/custom); ENTERPRISE is custom (null).
- * `maxEmployees: null` means unlimited. Limits are informational — never
- * enforced (see BillingService / UsageDto.overEmployeeLimit).
+ * Code-defined plan catalog — the source of truth for plan names, prices,
+ * seat rules, per-employee credit ceilings and feature lists.
+ *
+ * ## Role-based hiring (2026-09-04, founder-approved)
+ *
+ * A plan buys `maxRoles` DISTINCT roles with `maxPerRole` employees in each.
+ * The customer picks which roles. `maxEmployees` is derived and only kept so
+ * existing consumers (usage bar, product-context) keep working:
+ *
+ *   Free    (STARTER)  $0   2 roles × 1  = 2 seats   one-time 1,000 grant, no monthly
+ *   Starter (PRO)      $20  2 roles × 1  = 2 seats   1,000 credits / month
+ *   Growth  (BUSINESS) $40  2 roles × 2  = 4 seats   2,000 credits / month
+ *   Enterprise         custom, unlimited, EnterpriseCreditAgreement
+ *
+ * The enum values are unchanged on purpose: renaming them is a migration plus
+ * every `PLAN_RANK` consumer, for nothing a customer can see. Display names and
+ * prices are what changed.
+ *
+ * `creditsPerEmployeePerMonth` (500 on every tier) is stamped onto each new
+ * employee's `budgetLimit` at hire and is the MAXIMUM a customer may set it to.
+ * At the $0.01/credit peg (provider cost + 10 % margin), a fully-used Starter
+ * costs ≈ $9 to serve against $20 revenue; Growth ≈ $18 against $40 — the
+ * ~55 % margin the plan doc records. Extra usage goes through PAYG packs.
+ *
+ * Every number here is enforced: seats and roles atomically in
+ * `EmployeesService.create()` (all three hire entry points), ceilings in
+ * `CreditLimitsService` once the credit flags are on. `billing.plans.spec.ts`
+ * asserts `maxEmployees === maxRoles × maxPerRole` for every plan so the
+ * derived value can never disagree with the rule.
  */
 export const PLAN_CATALOG: Readonly<Record<Plan, PlanDto>> = {
   STARTER: {
     plan: 'STARTER',
-    name: 'Starter',
+    name: 'Free',
     priceMonthlyUsd: 0,
+    maxRoles: 2,
+    maxPerRole: 1,
     maxEmployees: 2,
+    creditsPerEmployeePerMonth: 500,
     features: [
-      'Up to 2 AI employees',
-      'Limited tasks per month',
+      '2 AI employees — any 2 roles, 1 each',
+      '1,000 credits to start (one-time)',
+      'Workflow templates',
       'Community support',
     ],
     // §35.4/Master List #15 Option C: a $0 tier does not get a recurring
@@ -24,41 +52,49 @@ export const PLAN_CATALOG: Readonly<Record<Plan, PlanDto>> = {
   },
   PRO: {
     plan: 'PRO',
-    name: 'Pro',
-    priceMonthlyUsd: 49,
-    maxEmployees: 10,
+    name: 'Starter',
+    priceMonthlyUsd: 20,
+    maxRoles: 2,
+    maxPerRole: 1,
+    maxEmployees: 2,
+    creditsPerEmployeePerMonth: 500,
     features: [
-      'Up to 10 AI employees',
-      'Shared knowledge base',
-      'Basic automations',
+      '2 AI employees — any 2 roles, 1 each',
+      '1,000 credits every month',
+      'Up to 500 credits per employee per month',
+      'Workflow templates',
       'Email support',
     ],
-    // FOUNDER-PENDING: illustrative — roughly the plan's own $/credit peg
-    // applied to the plan price, pending founder approval (§18/§40).
-    includedCreditsPerMonth: 4_000,
+    includedCreditsPerMonth: 1_000,
   },
   BUSINESS: {
     plan: 'BUSINESS',
-    name: 'Business',
-    priceMonthlyUsd: 199,
-    maxEmployees: null,
+    name: 'Growth',
+    priceMonthlyUsd: 40,
+    maxRoles: 2,
+    maxPerRole: 2,
+    maxEmployees: 4,
+    creditsPerEmployeePerMonth: 500,
     features: [
-      'Unlimited AI employees',
-      'Workflow builder',
-      'Integrations',
+      '4 AI employees — any 2 roles, 2 each',
+      '2,000 credits every month',
+      'Up to 500 credits per employee per month',
+      'AI Assist (conversational builder)',
       'Analytics dashboard',
       'Priority support',
     ],
-    // FOUNDER-PENDING: illustrative.
-    includedCreditsPerMonth: 18_000,
+    includedCreditsPerMonth: 2_000,
   },
   ENTERPRISE: {
     plan: 'ENTERPRISE',
     name: 'Enterprise',
     priceMonthlyUsd: null,
+    maxRoles: null,
+    maxPerRole: null,
     maxEmployees: null,
+    creditsPerEmployeePerMonth: null,
     features: [
-      'Unlimited AI employees',
+      'Unlimited AI employees and roles',
       'Private deployment',
       'Custom AI employees',
       'SLA',
@@ -83,9 +119,65 @@ export const PLAN_LIST: readonly PlanDto[] = [
   PLAN_CATALOG.ENTERPRISE,
 ];
 
-/** Soft employee cap for a plan (null = unlimited). */
+/** Total seat cap for a plan (null = unlimited). Derived: roles × per-role. */
 export function maxEmployeesFor(plan: Plan): number | null {
   return PLAN_CATALOG[plan].maxEmployees;
+}
+
+/** Distinct roles a plan allows (null = unlimited). */
+export function maxRolesFor(plan: Plan): number | null {
+  return PLAN_CATALOG[plan].maxRoles;
+}
+
+/** Employees allowed per role (null = unlimited). */
+export function maxPerRoleFor(plan: Plan): number | null {
+  return PLAN_CATALOG[plan].maxPerRole;
+}
+
+/** Default + maximum monthly credit ceiling per employee (null = none). */
+export function creditsPerEmployeeFor(plan: Plan): number | null {
+  return PLAN_CATALOG[plan].creditsPerEmployeePerMonth;
+}
+
+/**
+ * The seat rules, applied to a roster. Pure so `EmployeesService.create()`,
+ * `BillingService.usage()` and the product-context resolver all call the SAME
+ * function — three copies of "count per role and compare" is how the old
+ * total-only cap ended up informational in one place and enforced in another.
+ *
+ * Only ACTIVE and PAUSED employees occupy a seat. A DISABLED (retired) or
+ * archived employee frees both its seat and its role slot, so "retire one to
+ * hire another" is a real path out, not a dead end.
+ */
+export interface SeatCheck {
+  /** Would hiring `role` exceed the plan? Null = allowed. */
+  reason: 'TOTAL' | 'PER_ROLE' | 'NEW_ROLE' | null;
+  total: number;
+  inRole: number;
+  rolesUsed: number;
+}
+
+export function checkSeatFor(
+  plan: Plan,
+  roster: ReadonlyArray<{ role: EmployeeRole; status: string }>,
+  role: EmployeeRole,
+): SeatCheck {
+  const occupying = roster.filter((e) => e.status === 'ACTIVE' || e.status === 'PAUSED');
+  const total = occupying.length;
+  const inRole = occupying.filter((e) => e.role === role).length;
+  const rolesInUse = new Set(occupying.map((e) => e.role));
+  const rolesUsed = rolesInUse.size;
+
+  const maxTotal = maxEmployeesFor(plan);
+  const maxPerRole = maxPerRoleFor(plan);
+  const maxRoles = maxRolesFor(plan);
+
+  let reason: SeatCheck['reason'] = null;
+  if (maxTotal !== null && total >= maxTotal) reason = 'TOTAL';
+  else if (maxPerRole !== null && inRole >= maxPerRole) reason = 'PER_ROLE';
+  else if (maxRoles !== null && !rolesInUse.has(role) && rolesUsed >= maxRoles) reason = 'NEW_ROLE';
+
+  return { reason, total, inRole, rolesUsed };
 }
 
 const PLAN_RANK: Record<Plan, number> = {

@@ -37,7 +37,7 @@ function context(over: Partial<ProductContextDto> = {}): ProductContextDto {
       hiredEmployeeRoles: [],
       isMinimallyConfigured: true,
     },
-    entitlements: { plan: 'STARTER', features: [], maxEmployees: 2, lockedAreas: [] },
+    entitlements: { plan: 'STARTER', features: [], maxEmployees: 2, seats: { used: 0, max: 2, rolesUsed: 0, maxRoles: 2, maxPerRole: 1, perRole: [] }, creditsPerEmployeePerMonth: 500, lockedAreas: [] },
     productAreas: ['DASHBOARD', 'EMPLOYEES'],
     areaReasons: {},
     navigation: [],
@@ -103,6 +103,7 @@ describe('useEntitlements', () => {
         plan: 'STARTER',
         features: [],
         maxEmployees: 2,
+        seats: { used: 0, max: 2, rolesUsed: 0, maxRoles: 2, maxPerRole: 1, perRole: [] }, creditsPerEmployeePerMonth: 500,
         lockedAreas: [{ area: 'ASSIST', requiresPlan: 'BUSINESS' }],
       },
     });
@@ -117,7 +118,7 @@ describe('useEntitlements', () => {
         plan: 'BUSINESS',
         features: [],
         maxEmployees: null,
-        lockedAreas: [],
+        seats: { used: 0, max: null, rolesUsed: 0, maxRoles: null, maxPerRole: null, perRole: [] }, creditsPerEmployeePerMonth: null, lockedAreas: [],
       },
     });
     const { result } = renderHook(() => useEntitlements(), { wrapper: wrapper() });

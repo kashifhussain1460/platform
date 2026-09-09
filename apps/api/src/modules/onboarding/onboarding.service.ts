@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma, type Department as DepartmentRow } from '@prisma/client';
 import type {
   AiEmployeeDto,
@@ -6,10 +6,19 @@ import type {
   DepartmentDto,
   EmployeeRoleTemplate,
   OnboardingStatusDto,
+  EmployeeRole,
 } from '@vaep/types';
 import { DEPARTMENTS, allowedGoalsForRoles } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmployeesService } from '../employees/employees.service';
+import { BillingService } from '../billing/billing.service';
+import {
+  checkSeatFor,
+  maxEmployeesFor,
+  maxPerRoleFor,
+  maxRolesFor,
+  PLAN_CATALOG,
+} from '../billing/billing.plans';
 import { AuditLogService } from '../audit/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { toCompanyDto } from '../tenant/tenant.service';
@@ -110,6 +119,8 @@ export class OnboardingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly employees: EmployeesService,
+    // Role-based hiring pre-flight reads the plan the seat rules apply to.
+    private readonly billing: BillingService,
     private readonly audit: AuditLogService,
     private readonly notifications: NotificationsService,
     private readonly creditLedger: CreditLedgerService,
@@ -329,6 +340,45 @@ export class OnboardingService {
         })
       ).map((e) => e.role),
     );
+    // Role-based hiring (2026-09-04): check the WHOLE selection against the
+    // plan before hiring anyone, so a wizard that picked one role too many gets
+    // a single 422 naming the problem instead of two employees hired and a
+    // third refused half-way — a partial onboarding is worse than a refused one.
+    // The per-hire check inside EmployeesService.create still runs (it is the
+    // race-safe one); this is the friendly pre-flight in front of it.
+    const subscription = await this.billing.getSubscription(companyId);
+    const plan = subscription.plan;
+    const simulated: Array<{ role: EmployeeRole; status: string }> = (
+      await this.prisma.aiEmployee.findMany({
+        where: { companyId, archivedAt: null },
+        select: { role: true, status: true },
+      })
+    ).map((e) => ({ role: e.role, status: e.status }));
+    const problems: string[] = [];
+    for (const entry of dto.employees) {
+      if (alreadyHired.has(entry.role)) continue;
+      const seat = checkSeatFor(plan, simulated, entry.role);
+      if (seat.reason) {
+        problems.push(
+          seat.reason === 'NEW_ROLE'
+            ? `${entry.role} would be role ${seat.rolesUsed + 1} — your plan includes ${maxRolesFor(plan)}`
+            : seat.reason === 'PER_ROLE'
+              ? `${entry.role}: your plan includes ${maxPerRoleFor(plan)} per role`
+              : `${entry.role}: all ${maxEmployeesFor(plan)} seats would be taken`,
+        );
+        continue;
+      }
+      simulated.push({ role: entry.role, status: 'ACTIVE' });
+    }
+    if (problems.length > 0) {
+      throw new UnprocessableEntityException({
+        message:
+          `Your ${PLAN_CATALOG[plan].name} plan cannot hire this selection: ${problems.join('; ')}. ` +
+          'Remove a role, or upgrade your plan.',
+        problems,
+      });
+    }
+
     const created: AiEmployeeDto[] = [];
     for (const entry of dto.employees) {
       if (alreadyHired.has(entry.role)) {

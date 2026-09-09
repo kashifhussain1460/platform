@@ -47,7 +47,6 @@ export function requireMailEnabledInProduction(): void {
   // boot — a wall of identical text that trained people to scroll past the
   // suite's real output. A test process cannot be "exposed to the internet".
   if (process.env.MAIL_ENABLED !== 'true' && process.env.NODE_ENV !== 'test') {
-    // eslint-disable-next-line no-console -- runs before the Nest logger exists
     console.warn(
       '[auth] MAIL_ENABLED is not "true": every verification AND password-reset ' +
         `OTP is the fixed value ${process.env.DEV_OTP_CODE || '123456'}. This is safe ` +

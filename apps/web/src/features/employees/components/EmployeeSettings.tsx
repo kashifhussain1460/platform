@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { AiEmployeeDto } from '@vaep/types';
 import { Button } from '@/components/ui/Button';
+import { useSeatAvailability } from '@/features/product-context/hooks';
 import { useUpdateEmployee } from '../hooks';
 import { APPROVAL_RULE_OPTIONS, PERMISSION_OPTIONS } from '../labels';
 import {
@@ -101,6 +102,11 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
       },
     },
   });
+
+  // Role-based hiring (2026-09-04): the plan's per-employee ceiling is the
+  // maximum a customer may set. Credits → USD at the ledger's peg (100 / $).
+  const { creditsPerEmployeePerMonth: planMaxCredits } = useSeatAvailability();
+  const planMaxUsd = planMaxCredits === null ? null : Math.ceil(planMaxCredits / 100);
 
   const goals = watch('goals') ?? [];
 
@@ -270,18 +276,29 @@ export function EmployeeSettings({ employee }: { employee: AiEmployeeDto }) {
           </div>
           <div>
             <label htmlFor="s-budget" className="mb-1.5 block text-sm font-medium text-app-ink-2">
-              Monthly budget limit (USD) <span className="text-app-ink-3">(optional)</span>
+              Monthly budget limit (USD){' '}
+              <span className="text-app-ink-3">
+                {planMaxUsd !== null ? `(up to $${planMaxUsd} on your plan)` : '(optional)'}
+              </span>
             </label>
             <input
               id="s-budget"
               type="number"
               min={0}
+              max={planMaxUsd ?? undefined}
               className={inputClass}
               {...register('budgetLimit', {
                 setValueAs: (v) =>
                   v === '' || v === null || v === undefined ? null : Number(v),
               })}
             />
+            {planMaxUsd !== null && planMaxCredits !== null && (
+              <p className="mt-1 text-xs text-app-ink-3">
+                Your plan includes {planMaxCredits.toLocaleString()} credits per employee per
+                month (about ${planMaxUsd}). You can set a lower limit here; a higher one needs a
+                plan upgrade.
+              </p>
+            )}
             {employee.budgetLimit != null && (
               <p className="mt-1 text-xs text-app-ink-3">
                 ${(employee.monthToDateCostUsd ?? 0).toFixed(2)} spent so far this month

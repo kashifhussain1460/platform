@@ -49,10 +49,13 @@ describeIfDb('Phase 2 — organization + department foundation', () => {
         password,
       })
       .expect(201);
-    // BUSINESS: the fixture needs more than STARTER's 2 AI-employee seats.
+    // ENTERPRISE (unlimited): this fixture hires ~11 employees across every
+    // role. Since role-based plans (2026-09-04) BUSINESS is 4 seats / 2 roles,
+    // so only the unlimited tier can host it. The seat rules themselves are
+    // under test in employees-seats.e2e-spec.ts, not here.
     await prisma.subscription.updateMany({
       where: { companyId: res.body.user.companyId },
-      data: { plan: 'BUSINESS' },
+      data: { plan: 'ENTERPRISE' },
     });
     return {
       token: res.body.tokens.accessToken as string,

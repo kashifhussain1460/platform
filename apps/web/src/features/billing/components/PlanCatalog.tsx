@@ -4,7 +4,7 @@ import { Check } from 'lucide-react';
 import type { Plan } from '@vaep/types';
 import { Button } from '@/components/ui/Button';
 import { useChangePlan, usePlans, useSubscription } from '../hooks';
-import { changeLabel, formatLimit, formatPrice } from '../labels';
+import { changeLabel, formatPrice } from '../labels';
 
 /** Plan catalog cards with a per-plan Upgrade/Change action (optimistic). */
 export function PlanCatalog() {
@@ -48,9 +48,19 @@ export function PlanCatalog() {
                 <span className="text-sm font-normal text-app-ink-2"> /mo</span>
               )}
             </p>
+            {/* Role-based hiring: a plan buys N roles x M each, and a per-employee
+                monthly credit ceiling. Say all three, because "2 AI employees" alone
+                hides the rule the hire form will enforce. */}
             <p className="mt-1 text-xs text-app-ink-2">
-              {formatLimit(plan.maxEmployees)} AI employees
+              {plan.maxRoles === null || plan.maxPerRole === null
+                ? 'Unlimited AI employees and roles'
+                : `${plan.maxEmployees} AI employees - any ${plan.maxRoles} roles, ${plan.maxPerRole} each`}
             </p>
+            {plan.creditsPerEmployeePerMonth !== null && (
+              <p className="mt-0.5 text-xs text-app-ink-3">
+                Up to {plan.creditsPerEmployeePerMonth.toLocaleString()} credits per employee / month
+              </p>
+            )}
 
             <ul className="mt-4 flex-1 space-y-2 text-sm text-app-ink-2">
               {plan.features.map((f) => (

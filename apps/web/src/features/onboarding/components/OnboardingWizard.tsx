@@ -7,7 +7,7 @@ import { ArrowRight, Building2, Globe, LayoutGrid, ShieldCheck, Users } from 'lu
 import { DEPARTMENT_PRESETS } from '@vaep/types';
 import { OnboardingShell } from '@/components/onboarding/OnboardingShell';
 import { IconField, ToggleCard } from '@/components/onboarding/fields';
-import { useEntitlements } from '@/features/product-context/hooks';
+import { useEntitlements, useSeatAvailability } from '@/features/product-context/hooks';
 import { COMPANY_SIZES, INDUSTRIES } from '../labels';
 import {
   useCompleteOnboarding,
@@ -62,6 +62,7 @@ export function OnboardingWizard() {
   // Read the resolved entitlement so the final step routes somewhere the user
   // can actually use.
   const entitlements = useEntitlements();
+  const { seats } = useSeatAvailability();
   const { data: status } = useOnboardingStatus();
   const saveCompany = useSaveOnboardingCompany();
   const saveRoles = useSaveOnboardingAiEmployees();
@@ -247,17 +248,44 @@ export function OnboardingWizard() {
       <OnboardingShell
         step={2}
         heading="Choose your AI Employee"
-        subtitle="Pick one or both — you can add more later."
+        subtitle={
+          seats && seats.max !== null
+            ? `Your plan includes ${seats.max} AI employees — any ${seats.maxRoles ?? seats.max} roles, ${seats.maxPerRole ?? 1} each. You can upgrade later.`
+            : 'Pick one or both — you can add more later.'
+        }
       >
         <div className="space-y-3">
-          {ROLES.map((role) => (
-            <ToggleCard key={role} checked={roles.includes(role)} onChange={() => toggle(roles, setRoles, role)}>
-              <span>
-                <span className="block text-sm font-semibold text-white">{ROLE_META[role].title}</span>
-                <span className="mt-0.5 block text-xs text-zinc-400">{ROLE_META[role].blurb}</span>
-              </span>
-            </ToggleCard>
-          ))}
+          {ROLES.map((role) => {
+            // Role-based hiring (2026-09-04): a role the plan cannot take is shown
+            // but not selectable, with the reason — the server would 422 the
+            // whole selection otherwise, after the customer has filled in
+            // three steps.
+            const alreadyPicked = roles.includes(role);
+            const wouldExceed =
+              !alreadyPicked &&
+              seats !== null &&
+              ((seats.max !== null && seats.used + roles.length >= seats.max) ||
+                (seats.maxRoles !== null &&
+                  seats.rolesUsed + roles.length >= seats.maxRoles &&
+                  !seats.perRole.some((p) => p.role === role)));
+            return (
+              <ToggleCard
+                key={role}
+                checked={alreadyPicked}
+                disabled={wouldExceed}
+                onChange={() => toggle(roles, setRoles, role)}
+              >
+                <span>
+                  <span className="block text-sm font-semibold text-white">{ROLE_META[role].title}</span>
+                  <span className="mt-0.5 block text-xs text-zinc-400">
+                    {wouldExceed
+                      ? 'Not included in your plan alongside your other picks — upgrade to add it.'
+                      : ROLE_META[role].blurb}
+                  </span>
+                </span>
+              </ToggleCard>
+            );
+          })}
           <div className="flex items-center justify-between pt-3">
             <button type="button" className={backBtn} onClick={() => setStep(1)}>Back</button>
             <button type="button" className={primaryBtn} disabled={roles.length === 0 || saveRoles.isPending} onClick={submitRoles}>

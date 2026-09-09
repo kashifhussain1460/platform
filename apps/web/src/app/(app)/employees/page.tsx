@@ -7,6 +7,7 @@ import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
 import { buttonClasses } from '@/components/ui/Button';
 import { EmployeeForm } from '@/features/employees/components/EmployeeForm';
+import { SeatSummary } from '@/features/employees/components/SeatSummary';
 import { EmployeeList } from '@/features/employees/components/EmployeeList';
 import { useSessionStore } from '@/stores/session.store';
 
@@ -32,6 +33,7 @@ export default function EmployeesPage() {
         <div>
           <p className="text-sm text-app-ink-3">AI workforce</p>
           <h1 className="text-2xl font-bold text-app-ink">AI Employees</h1>
+          <SeatSummary />
         </div>
         <a href="#hire-employee" className={buttonClasses('violet')}>
           <UserPlus className="h-4 w-4" />

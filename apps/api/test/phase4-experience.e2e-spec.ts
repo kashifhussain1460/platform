@@ -82,7 +82,10 @@ describeIfDb('Phase 4 — configuration-driven experience', () => {
     fixtures.support = await registerCompany('sup');
     await hire(fixtures.support.token, 'Support Bot', 'SUPPORT');
 
-    fixtures.multi = await registerCompany('multi');
+    // ENTERPRISE (unlimited roles): this fixture deliberately hires THREE distinct
+    // roles, and since role-based plans (2026-09-04) BUSINESS is 2 roles x 2. The
+    // seat rules are under test in employees-seats.e2e-spec.ts, not here.
+    fixtures.multi = await registerCompany('multi', 'ENTERPRISE');
     await hire(fixtures.multi.token, 'HR Bot', 'HR');
     await hire(fixtures.multi.token, 'Marketing Bot', 'MARKETING');
     await hire(fixtures.multi.token, 'Support Bot', 'SUPPORT');

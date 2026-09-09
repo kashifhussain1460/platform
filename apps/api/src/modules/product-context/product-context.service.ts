@@ -10,7 +10,13 @@ import { PRODUCT_AREAS } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuthorizationService } from '../authorization/authorization.service';
 import type { AuthzAction, AuthzActor } from '../authorization/authorization.types';
-import { maxEmployeesFor, PLAN_CATALOG } from '../billing/billing.plans';
+import {
+  creditsPerEmployeeFor,
+  maxEmployeesFor,
+  maxPerRoleFor,
+  maxRolesFor,
+  PLAN_CATALOG,
+} from '../billing/billing.plans';
 import { SkillCapabilities } from '../skills/capabilities';
 import { SkillCatalog } from '../skills/catalog';
 import {
@@ -160,6 +166,9 @@ export class ProductContextService {
         plan,
         maxEmployees: maxEmployeesFor(plan),
         features: [...PLAN_CATALOG[plan].features],
+        maxRoles: maxRolesFor(plan),
+        maxPerRole: maxPerRoleFor(plan),
+        creditsPerEmployeePerMonth: creditsPerEmployeeFor(plan),
       },
       departments: departments.map((d) => d.name),
       hiredEmployees: employees.map((e) => ({

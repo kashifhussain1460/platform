@@ -9,6 +9,7 @@ const mockUsage = {
   plan: 'STARTER',
   maxEmployees: 5,
   employees: 2,
+  seats: { used: 2, max: 5, rolesUsed: 1, maxRoles: 2, maxPerRole: 3, perRole: [{ role: 'HR', used: 2, max: 3 }] },
   installedSkills: 3,
   tasks: 10,
   tokens: 5000,

@@ -69,7 +69,25 @@ export function UsageSummary() {
       <h2 className="text-base font-bold text-app-ink">Usage This Month</h2>
 
       <div className="mt-5 space-y-5">
-        <UsageBar label="AI Employees" used={usage.employees} max={usage.maxEmployees} />
+        <UsageBar label="AI Employees" used={usage.seats.used} max={usage.seats.max} />
+        {/* One bar per role in use. Seats are sold per ROLE now, so "2 of 4"
+            alone cannot tell a customer they are blocked on Marketing but not
+            on HR. */}
+        {usage.seats.perRole.map((r) => (
+          <UsageBar
+            key={r.role}
+            label={`  ${formatRoleName(r.role)}`}
+            used={r.used}
+            max={r.max}
+          />
+        ))}
+        {usage.seats.maxRoles !== null && (
+          <UsageCount
+            label="Roles in use"
+            value={usage.seats.rolesUsed}
+            helper={`of ${usage.seats.maxRoles} on your plan`}
+          />
+        )}
         <UsageCount label="Installed Skills" value={usage.installedSkills} />
         <UsageCount label="Tasks" value={usage.tasks} helper="tools + messages + workflows" />
         <UsageCount
@@ -101,10 +119,11 @@ export function UsageSummary() {
         <div className="mt-5 flex items-center justify-between gap-3 rounded-xl bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
           <span>
             You&rsquo;re over your plan&rsquo;s AI employee limit
-            {usage.maxEmployees !== null
-              ? ` (${formatNumber(usage.employees)} of ${formatNumber(usage.maxEmployees)})`
+            {usage.seats.max !== null
+              ? ` (${formatNumber(usage.seats.used)} of ${formatNumber(usage.seats.max)})`
               : ''}
-            . Upgrade for more capacity.
+            . Nothing has been paused — but you can&rsquo;t hire again until you&rsquo;re back
+            under it. Upgrade for more capacity, or retire an employee.
           </span>
           <Link
             href="#plans"
@@ -120,4 +139,13 @@ export function UsageSummary() {
       </p>
     </div>
   );
+}
+
+/** "PROJECT_MANAGER" -> "Project Manager" for the per-role bars. */
+function formatRoleName(role: string): string {
+  return role
+    .toLowerCase()
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }

@@ -2482,13 +2482,55 @@ export const SUBSCRIPTION_STATUSES: readonly SubscriptionStatus[] = [
 ] as const;
 
 /** One entry in the (code-defined) plan catalog. */
+/**
+ * Seat usage for one role — "HR 1 of 1".
+ * Role-based hiring plans (docs/product/2026-09-04-role-based-hiring-plans.md).
+ */
+export interface RoleSeatUsageDto {
+  role: EmployeeRole;
+  used: number;
+  /** The plan's per-role cap; null = unlimited. */
+  max: number | null;
+}
+
+/**
+ * The whole seat picture for a company against its plan. Shared by
+ * `UsageDto` (billing) and `EntitlementsDto` (product context) so the billing
+ * page, the hire form and the onboarding wizard all read ONE computation.
+ */
+export interface SeatUsageDto {
+  /** ACTIVE + PAUSED employees. Disabled/archived free their seat. */
+  used: number;
+  /** `maxRoles × maxPerRole`; null = unlimited. */
+  max: number | null;
+  /** Distinct roles currently in use. */
+  rolesUsed: number;
+  maxRoles: number | null;
+  maxPerRole: number | null;
+  /** One entry per role in use (and per role the caller asks about). */
+  perRole: RoleSeatUsageDto[];
+}
+
 export interface PlanDto {
   plan: Plan;
   name: string;
-  /** Illustrative monthly price in USD; null = custom (ENTERPRISE). */
+  /** Monthly price in USD; null = custom (ENTERPRISE). */
   priceMonthlyUsd: number | null;
-  /** Soft cap on AI employees; null = unlimited. */
+  /**
+   * Role-based hiring (2026-09-04): a plan buys `maxRoles` distinct roles with
+   * `maxPerRole` employees in each. `maxEmployees` is DERIVED
+   * (`maxRoles × maxPerRole`) and kept for every existing consumer. null =
+   * unlimited on all three.
+   */
+  maxRoles: number | null;
+  maxPerRole: number | null;
   maxEmployees: number | null;
+  /**
+   * Default monthly credit ceiling stamped onto each new employee's
+   * `budgetLimit` at hire, and the maximum a customer may set it to on this
+   * plan. null = no default and no ceiling on the ceiling.
+   */
+  creditsPerEmployeePerMonth: number | null;
   features: string[];
   /**
    * Credit system Phase 7 (Subscription Credits), Task 7.1 (§35.4/Master
@@ -2524,9 +2566,12 @@ export interface SubscriptionDto {
  */
 export interface UsageDto {
   plan: Plan;
-  /** Soft cap for the current plan; null = unlimited. */
+  /** Derived plan cap (roles × per-role); null = unlimited. */
   maxEmployees: number | null;
+  /** All non-archived employees (kept for back-compat; `seats.used` excludes DISABLED). */
   employees: number;
+  /** The per-role seat picture the plan is enforced against. */
+  seats: SeatUsageDto;
   installedSkills: number;
   /** SkillExecution SUCCESS + assistant Messages + WorkflowRun COMPLETED. */
   tasks: number;
@@ -3895,8 +3940,16 @@ export interface EntitlementsDto {
   plan: Plan;
   /** Marketing feature bullets from PLAN_CATALOG. */
   features: string[];
-  /** null = unlimited. */
+  /** null = unlimited. Derived: `seats.max`. */
   maxEmployees: number | null;
+  /**
+   * Role-based hiring: what this company may still hire, per role, on its
+   * plan. The wizard and the hire form grey out a role from THIS, so the
+   * server's 403 is the backstop rather than the first thing a customer sees.
+   */
+  seats: SeatUsageDto;
+  /** The plan's default + maximum monthly credit ceiling per employee. */
+  creditsPerEmployeePerMonth: number | null;
   /** Areas this plan does NOT include, with the tier that would unlock them. */
   lockedAreas: Array<{ area: ProductArea; requiresPlan: Plan }>;
 }

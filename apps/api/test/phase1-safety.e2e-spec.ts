@@ -62,11 +62,13 @@ describeIfDb('Phase 1 — critical production safety fixes', () => {
     companyId = reg.body.user.companyId;
 
     // STARTER caps the roster at 2 AI employees and this suite needs more than
-    // that. Lifting the plan directly keeps the seat-limit rule under test
-    // where it belongs (billing.e2e) instead of accidentally here.
+    // that. ENTERPRISE (unlimited) rather than BUSINESS, which is 4 seats over
+    // 2 roles since role-based plans (2026-09-04). Lifting the plan directly
+    // keeps the seat rules under test where they belong
+    // (employees-seats.e2e-spec.ts) instead of accidentally here.
     await prisma.subscription.updateMany({
       where: { companyId },
-      data: { plan: 'BUSINESS' },
+      data: { plan: 'ENTERPRISE' },
     });
 
     // One HR employee with a granted Slack skill — enough to exercise the

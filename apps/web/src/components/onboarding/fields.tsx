@@ -6,15 +6,25 @@ export function ToggleCard({
   onChange,
   children,
   className = '',
+  disabled = false,
 }: {
   checked: boolean;
   onChange: () => void;
   children: ReactNode;
   className?: string;
+  /**
+   * A card the plan does not allow (role-based hiring, 2026-09-04). Still
+   * rendered — hiding it would make the customer think the role does not exist
+   * — but not toggleable, and visibly so.
+   */
+  disabled?: boolean;
 }) {
   return (
     <label
-      className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3.5 transition-colors ${
+      aria-disabled={disabled || undefined}
+      className={`flex items-start gap-3 rounded-xl border px-4 py-3.5 transition-colors ${
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+      } ${
         checked
           ? 'border-violet-secondary/60 bg-violet/[0.08]'
           : 'border-white/[0.08] bg-white/[0.02] hover:border-white/[0.16]'
@@ -23,6 +33,7 @@ export function ToggleCard({
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={onChange}
         className="mt-0.5 h-5 w-5 shrink-0 rounded-md border-white/20 bg-white/5 accent-[#6a30ec]"
       />

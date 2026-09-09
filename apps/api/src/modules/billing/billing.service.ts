@@ -5,6 +5,9 @@ import type {
   PlanDto,
   SubscriptionDto,
   UsageDto,
+  EmployeeRole,
+  Plan,
+  SeatUsageDto,
 } from '@vaep/types';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { UsageService } from '../usage/usage.service';
@@ -16,7 +19,16 @@ import {
   type BillingWebhookEvent,
 } from './billing.provider';
 import { toSubscriptionDto } from './billing.mapper';
-import { PLAN_CATALOG, PLAN_LIST, maxEmployeesFor } from './billing.plans';
+import {
+  PLAN_CATALOG,
+  PLAN_LIST,
+  creditsPerEmployeeFor,
+  maxEmployeesFor,
+  maxPerRoleFor,
+  maxRolesFor,
+  planMeetsMinimum,
+} from './billing.plans';
+import { DEFAULT_CREDITS_PER_USD } from '../credits/credit-rates.defaults';
 import { CREDIT_PACK_IDS } from './credit-packs';
 import { creditPaygEnabled } from '../../common/config/credit-config';
 import { CreditLedgerService } from '../credits/credit-ledger.service';
@@ -118,6 +130,12 @@ export class BillingService {
       where: { companyId },
     });
     const result = await this.provider.changePlan(current, dto.plan);
+    // Mock switches now; Stripe switches when its webhook confirms (handled in
+    // applyWebhookEvent). Either way the ceilings follow the plan that is
+    // actually in force, never the one that was merely requested.
+    if (result.plan !== current.plan) {
+      await this.applyDowngradeCeilings(companyId, current.plan, result.plan);
+    }
     const updated = await this.prisma.subscription.update({
       where: { companyId },
       data: {
@@ -461,6 +479,14 @@ export class BillingService {
       return;
     }
 
+    if (event.plan && event.plan !== subscription.plan) {
+      await this.applyDowngradeCeilings(
+        subscription.companyId,
+        subscription.plan,
+        event.plan,
+        tx,
+      );
+    }
     await tx.subscription.update({
       where: { id: subscription.id },
       data: {
@@ -503,14 +529,20 @@ export class BillingService {
     const plan = subscription.plan;
 
     const [
-      employees,
+      roster,
       installedSkills,
       toolSuccess,
       assistantMessages,
       workflowCompleted,
       llmUsage,
     ] = await Promise.all([
-      this.prisma.aiEmployee.count({ where: { companyId } }),
+      // The roster, not a count: seats are now per ROLE, and only ACTIVE +
+      // PAUSED occupy one (a retired employee frees its slot — the way out of
+      // a full plan is real).
+      this.prisma.aiEmployee.findMany({
+        where: { companyId, archivedAt: null },
+        select: { role: true, status: true },
+      }),
       this.prisma.installedSkill.count({ where: { companyId } }),
       this.prisma.skillExecution.count({
         where: { companyId, status: 'SUCCESS' },
@@ -523,18 +555,90 @@ export class BillingService {
     ]);
 
     const maxEmployees = maxEmployeesFor(plan);
+    const employees = roster.length;
+    const seats = seatUsageFor(plan, roster);
     return {
       plan,
       maxEmployees,
       employees,
+      seats,
       installedSkills,
       tasks: toolSuccess + assistantMessages + workflowCompleted,
       tokens: llmUsage.promptTokens + llmUsage.completionTokens,
       estimatedCostUsd: llmUsage.estimatedCostUsd,
       voiceMinutes: 0,
-      overEmployeeLimit: maxEmployees !== null && employees > maxEmployees,
+      // Over-limit is judged on OCCUPIED seats, so a company that retired
+      // employees to get back under its plan actually gets back under it.
+      overEmployeeLimit: maxEmployees !== null && seats.used > maxEmployees,
     };
   }
+
+  /**
+   * Downgrade policy — "grandfather" (docs/product/2026-09-04 §3, and the
+   * recommendation already recorded in the 2026-07-11 hiring spec, Part F c).
+   *
+   * Nothing is paused or deleted: an over-limit roster simply cannot hire until
+   * it is back under the new plan (EmployeesService.create refuses). What DOES
+   * change immediately is the per-employee credit ceiling — a Growth customer
+   * who drops to Starter must not keep Growth's spending limits. One guarded
+   * `updateMany` caps every employee above the new plan's default; employees
+   * already at or below it are untouched, and so is anyone on an upgrade.
+   */
+  private async applyDowngradeCeilings(
+    companyId: string,
+    fromPlan: Plan,
+    toPlan: Plan,
+    tx: PrismaTx = this.prisma,
+  ): Promise<void> {
+    if (planMeetsMinimum(toPlan, fromPlan)) return; // same tier or an upgrade
+    const maxCredits = creditsPerEmployeeFor(toPlan);
+    if (maxCredits === null) return; // new plan imposes no ceiling
+    const maxUsd = Math.ceil(maxCredits / DEFAULT_CREDITS_PER_USD);
+    const capped = await tx.aiEmployee.updateMany({
+      where: {
+        companyId,
+        archivedAt: null,
+        OR: [{ budgetLimit: null }, { budgetLimit: { gt: maxUsd } }],
+      },
+      data: { budgetLimit: maxUsd },
+    });
+    if (capped.count > 0) {
+      await this.auditLog.record({
+        companyId,
+        action: 'billing.downgrade_ceilings_applied',
+        entityType: 'Subscription',
+        entityId: companyId,
+        metadata: { fromPlan, toPlan, employeesCapped: capped.count, budgetLimitUsd: maxUsd },
+      });
+    }
+  }
+}
+
+/** Prisma client or an open transaction — both expose the same delegates. */
+type PrismaTx = Pick<PrismaService, 'aiEmployee'>;
+
+/**
+ * The per-role seat picture for a roster on a plan. Pure; shared with the
+ * product-context resolver so the billing page and the hire form agree.
+ */
+export function seatUsageFor(
+  plan: Plan,
+  roster: ReadonlyArray<{ role: EmployeeRole; status: string }>,
+): SeatUsageDto {
+  const occupying = roster.filter((e) => e.status === 'ACTIVE' || e.status === 'PAUSED');
+  const perRoleMax = maxPerRoleFor(plan);
+  const byRole = new Map<EmployeeRole, number>();
+  for (const e of occupying) byRole.set(e.role, (byRole.get(e.role) ?? 0) + 1);
+  return {
+    used: occupying.length,
+    max: maxEmployeesFor(plan),
+    rolesUsed: byRole.size,
+    maxRoles: maxRolesFor(plan),
+    maxPerRole: perRoleMax,
+    perRole: [...byRole.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([role, used]) => ({ role, used, max: perRoleMax })),
+  };
 }
 
 /** One calendar month out, matching a monthly billing cycle (Task 6.2). */

@@ -2,6 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import type {
+  EmployeeRole,
+  EntitlementsDto,
   DashboardCompositionDto,
   Plan,
   ProductArea,
@@ -99,4 +101,45 @@ export function useDashboardComposition() {
     enabled: Boolean(accessToken),
     staleTime: 15_000,
   });
+}
+
+/**
+ * Role-based hiring (docs/product/2026-09-04-role-based-hiring-plans.md).
+ *
+ * Answers, from the server-resolved entitlements, whether THIS role can still
+ * be hired and why not. The hire form and the onboarding wizard grey a role
+ * from this; `EmployeesService.create()` is the real control and applies the
+ * identical rule, so what is greyed out is exactly what would be refused.
+ *
+ * Unknown (context not loaded) → allowed, for the same reason as the other
+ * hooks here: fail toward the product working and let the server say no.
+ */
+export function useSeatAvailability(): {
+  isLoading: boolean;
+  seats: EntitlementsDto['seats'] | null;
+  creditsPerEmployeePerMonth: number | null;
+  /** null = hireable; otherwise the plain-language reason it is not. */
+  reasonBlocked: (role: EmployeeRole) => string | null;
+} {
+  const { data, isLoading } = useProductContext();
+  const seats = data?.entitlements.seats ?? null;
+  return {
+    isLoading,
+    seats,
+    creditsPerEmployeePerMonth: data?.entitlements.creditsPerEmployeePerMonth ?? null,
+    reasonBlocked: (role) => {
+      if (!seats) return null;
+      if (seats.max !== null && seats.used >= seats.max) {
+        return `All ${seats.max} seats on your plan are taken.`;
+      }
+      const inRole = seats.perRole.find((r) => r.role === role);
+      if (seats.maxPerRole !== null && inRole && inRole.used >= seats.maxPerRole) {
+        return `Your plan includes ${seats.maxPerRole} per role and you already have ${inRole.used}.`;
+      }
+      if (seats.maxRoles !== null && !inRole && seats.rolesUsed >= seats.maxRoles) {
+        return `Your plan includes ${seats.maxRoles} roles and you already use ${seats.rolesUsed}.`;
+      }
+      return null;
+    },
+  };
 }

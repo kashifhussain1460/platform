@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from '../billing/billing.module';
 import { EmployeesModule } from '../employees/employees.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CreditsModule } from '../credits/credits.module';
@@ -14,7 +15,7 @@ import { OnboardingService } from './onboarding.service';
  * EmployeesModule does not re-export it.
  */
 @Module({
-  imports: [EmployeesModule, NotificationsModule, CreditsModule],
+  imports: [EmployeesModule, NotificationsModule, CreditsModule, BillingModule],
   controllers: [OnboardingController],
   providers: [OnboardingService],
 })

@@ -405,7 +405,7 @@ describeIfDb('Skills e2e (catalog -> install -> assign -> tool-calling run)', ()
     // null) rather than restructure every test to spin up its own company.
     await prisma.subscription.update({
       where: { companyId },
-      data: { plan: 'BUSINESS' },
+      data: { plan: 'ENTERPRISE' },
     });
 
     const emp = await request(app.getHttpServer())

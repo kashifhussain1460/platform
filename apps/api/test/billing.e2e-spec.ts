@@ -120,8 +120,10 @@ describeIfDb('Billing e2e (default subscription + plans + change + usage)', () =
       .expect(200);
     const u = res.body;
     expect(u.plan).toBe('PRO');
-    // PRO cap is 10 employees.
-    expect(u.maxEmployees).toBe(10);
+    // PRO ("Starter", $20) is 2 roles × 1 = 2 seats since role-based plans.
+    expect(u.maxEmployees).toBe(2);
+    expect(u.seats.maxRoles).toBe(2);
+    expect(u.seats.maxPerRole).toBe(1);
     expect(typeof u.employees).toBe('number');
     expect(typeof u.installedSkills).toBe('number');
     expect(typeof u.tasks).toBe('number');

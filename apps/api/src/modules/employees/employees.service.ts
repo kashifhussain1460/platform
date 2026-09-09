@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -12,6 +13,8 @@ import type {
   EmployeeDependenciesDto,
   MessageDto,
   RunResultDto,
+  EmployeeRole,
+  Plan,
 } from '@vaep/types';
 import { AuditLogService } from '../audit/audit-log.service';
 import { AuthorizationService } from '../authorization/authorization.service';
@@ -19,7 +22,14 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/pagination';
 import { UsageService, startOfCurrentMonthUtc } from '../usage/usage.service';
 import { BillingService } from '../billing/billing.service';
-import { maxEmployeesFor } from '../billing/billing.plans';
+import {
+  checkSeatFor,
+  creditsPerEmployeeFor,
+  maxEmployeesFor,
+  maxPerRoleFor,
+  maxRolesFor,
+} from '../billing/billing.plans';
+import { DEFAULT_CREDITS_PER_USD } from '../credits/credit-rates.defaults';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import {
@@ -80,23 +90,34 @@ export class EmployeesService {
         `Your subscription is ${statusReason(subscription.status)} — resolve billing before hiring another AI employee.`,
       );
     }
-    const maxEmployees = maxEmployeesFor(subscription.plan);
+    const plan = subscription.plan;
 
     const employee = await this.prisma.$transaction(async (tx) => {
       // Advisory lock scoped to this transaction (auto-released on commit/
       // rollback) — serializes concurrent hires for THIS company only.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}))`;
 
-      if (maxEmployees !== null) {
-        const seatCount = await tx.aiEmployee.count({
-          where: { companyId, status: { in: ['ACTIVE', 'PAUSED'] } },
-        });
-        if (seatCount >= maxEmployees) {
-          throw new ForbiddenException(
-            `Your ${subscription.plan} plan allows up to ${maxEmployees} AI employees. Upgrade your plan or disable an existing employee to hire another.`,
-          );
-        }
+      // Role-based hiring (docs/product/2026-09-04-role-based-hiring-plans.md).
+      // The roster is read INSIDE the lock so two simultaneous hires of the
+      // same role cannot both see "0 of 1". `checkSeatFor` is the one pure
+      // rule shared with billing usage and the product-context resolver, so
+      // what the hire form greys out and what this refuses are the same thing.
+      const roster = await tx.aiEmployee.findMany({
+        where: { companyId, archivedAt: null },
+        select: { role: true, status: true },
+      });
+      const seat = checkSeatFor(plan, roster, dto.role);
+      if (seat.reason) {
+        throw new ForbiddenException(seatRefusal(plan, dto.role, seat.reason, seat));
       }
+
+      // R5: every new employee starts at the plan's per-employee monthly
+      // ceiling. `budgetLimit` is stored in USD (an int); the plan speaks in
+      // credits, so convert at the one peg the ledger prices against. A plan
+      // with no default (Enterprise) leaves it unlimited, as before.
+      const defaultCredits = creditsPerEmployeeFor(plan);
+      const budgetLimit =
+        defaultCredits === null ? null : Math.ceil(defaultCredits / DEFAULT_CREDITS_PER_USD);
 
       return tx.aiEmployee.create({
         data: {
@@ -105,6 +126,7 @@ export class EmployeesService {
           role: dto.role,
           persona: dto.persona ?? null,
           model: dto.model ?? null,
+          budgetLimit,
         },
       });
     });
@@ -170,6 +192,7 @@ export class EmployeesService {
     dto: UpdateEmployeeDto,
   ): Promise<AiEmployeeDto> {
     await this.findOwnedEmployee(companyId, id);
+    await this.assertBudgetWithinPlan(companyId, dto.budgetLimit);
     const employee = await this.prisma.aiEmployee.update({
       where: { id },
       data: {
@@ -521,4 +544,69 @@ export class EmployeesService {
     }
     return conversation;
   }
+
+  /**
+   * R5 (2026-09-04): the plan's `creditsPerEmployeePerMonth` is the MAXIMUM a
+   * customer may set an employee's monthly ceiling to. Lowering is always
+   * allowed; raising past the plan is refused with the number, not a bare 400.
+   * `null` (unlimited) is only accepted on a plan with no ceiling of its own.
+   * Compared in the same USD unit `budgetLimit` is stored in.
+   */
+  private async assertBudgetWithinPlan(
+    companyId: string,
+    budgetLimit: number | null | undefined,
+  ): Promise<void> {
+    if (budgetLimit === undefined) return; // not being edited
+    const subscription = await this.billing.getSubscription(companyId);
+    const maxCredits = creditsPerEmployeeFor(subscription.plan);
+    if (maxCredits === null) return; // plan imposes no ceiling
+    const maxUsd = Math.ceil(maxCredits / DEFAULT_CREDITS_PER_USD);
+    if (budgetLimit === null || budgetLimit > maxUsd) {
+      throw new BadRequestException(
+        `Your plan allows up to ${maxCredits.toLocaleString()} credits (about $${maxUsd}) per employee per month. ` +
+          'You can set a lower limit, or upgrade your plan for a higher one.',
+      );
+    }
+  }
+}
+
+/**
+ * The refusal a customer reads. Says which rule, what they have, and the two
+ * ways out (upgrade, or retire someone) — never just "limit reached".
+ */
+function seatRefusal(
+  plan: Plan,
+  role: EmployeeRole,
+  reason: NonNullable<ReturnType<typeof checkSeatFor>['reason']>,
+  seat: ReturnType<typeof checkSeatFor>,
+): string {
+  const label = formatRoleLabel(role);
+  const total = maxEmployeesFor(plan);
+  const perRole = maxPerRoleFor(plan);
+  const roles = maxRolesFor(plan);
+  switch (reason) {
+    case 'TOTAL':
+      return (
+        `Your plan includes ${total} AI employee${total === 1 ? '' : 's'} and all ${seat.total} seats are taken. ` +
+        'Upgrade your plan, or retire an employee to hire another.'
+      );
+    case 'PER_ROLE':
+      return (
+        `Your plan includes ${perRole} ${label} employee${perRole === 1 ? '' : 's'} and you already have ${seat.inRole}. ` +
+        'Upgrade for more per role, or retire one to hire another.'
+      );
+    case 'NEW_ROLE':
+      return (
+        `Your plan includes ${roles} role${roles === 1 ? '' : 's'} and you already use ${seat.rolesUsed}. ` +
+        `Adding ${label} would be a new role — upgrade your plan, or retire every employee in a role you no longer need.`
+      );
+  }
+}
+
+function formatRoleLabel(role: EmployeeRole): string {
+  return role
+    .toLowerCase()
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }

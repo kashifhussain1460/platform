@@ -147,7 +147,10 @@ describeIfDb('Onboarding e2e (register profile -> wizard -> employee config)', (
         timezone: 'Europe/London',
         language: 'English',
         knowledgeAccess: 'NONE',
-        budgetLimit: 5000,
+        // Within the Free plan's per-employee ceiling (500 credits = $5).
+        // Role-based hiring (2026-09-04) makes the plan ceiling the MAXIMUM a
+        // customer may set; anything above it is a 400, pinned below.
+        budgetLimit: 5,
         permissions: { sendEmail: true, makePayments: false },
         // Phase 1: `approveOverBudget` is deliberately NOT accepted any more
         // (budgetLimit is a hard block, not an approval trigger — there was
@@ -170,7 +173,16 @@ describeIfDb('Onboarding e2e (register profile -> wizard -> employee config)', (
     expect(get.body.timezone).toBe('Europe/London');
     expect(get.body.language).toBe('English');
     expect(get.body.knowledgeAccess).toBe('NONE');
-    expect(get.body.budgetLimit).toBe(5000);
+    expect(get.body.budgetLimit).toBe(5);
+
+    // R5: raising the ceiling past the plan's 500 credits is refused, with the
+    // number in the message — the whole point of a per-plan ceiling.
+    const tooHigh = await request(app.getHttpServer())
+      .patch(`/employees/${employeeId}`)
+      .set(auth())
+      .send({ budgetLimit: 5000 })
+      .expect(400);
+    expect(tooHigh.body.message).toMatch(/500 credits/);
     expect(get.body.permissions).toEqual({ sendEmail: true, makePayments: false });
     // Only the enforced flag survives; the unenforceable one is gone.
     expect(get.body.approvalRules).toEqual({ approveExternalMessages: true });

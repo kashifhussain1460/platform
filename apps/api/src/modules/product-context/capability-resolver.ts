@@ -11,6 +11,7 @@ import type {
   SkillCapability,
   SkillStatusDto,
   SkillExecutionSupport,
+  SeatUsageDto,
 } from '@vaep/types';
 import { PRODUCT_AREAS } from '@vaep/types';
 import {
@@ -60,7 +61,15 @@ export interface CompanyContext {
     size: string | null;
     businessGoals: string[];
   };
-  subscription: { plan: Plan; maxEmployees: number | null; features: string[] };
+  subscription: {
+    plan: Plan;
+    maxEmployees: number | null;
+    features: string[];
+    /** Role-based hiring (2026-09-04): the seat rules and the default ceiling. */
+    maxRoles: number | null;
+    maxPerRole: number | null;
+    creditsPerEmployeePerMonth: number | null;
+  };
   /** Department NAMES for this tenant (Phase 2 made these real). */
   departments: string[];
   /** Non-archived AI Employees the tenant has hired. */
@@ -215,7 +224,34 @@ function resolveEntitlements(
     plan: ctx.subscription.plan,
     features: ctx.subscription.features,
     maxEmployees: ctx.subscription.maxEmployees,
+    seats: resolveSeats(ctx),
+    creditsPerEmployeePerMonth: ctx.subscription.creditsPerEmployeePerMonth,
     lockedAreas,
+  };
+}
+
+/**
+ * What the company may still hire, per role. Computed from the SAME roster the
+ * rest of the resolver reads, with the same occupancy rule the hire endpoint
+ * enforces (ACTIVE + PAUSED occupy; DISABLED/archived do not), so the wizard
+ * and the hire form grey out exactly what the server would refuse.
+ */
+function resolveSeats(ctx: CompanyContext): SeatUsageDto {
+  const occupying = ctx.hiredEmployees.filter(
+    (e) => e.status === 'ACTIVE' || e.status === 'PAUSED',
+  );
+  const byRole = new Map<EmployeeRole, number>();
+  for (const e of occupying) byRole.set(e.role, (byRole.get(e.role) ?? 0) + 1);
+  const { maxRoles, maxPerRole, maxEmployees } = ctx.subscription;
+  return {
+    used: occupying.length,
+    max: maxEmployees,
+    rolesUsed: byRole.size,
+    maxRoles,
+    maxPerRole,
+    perRole: [...byRole.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([role, used]) => ({ role, used, max: maxPerRole })),
   };
 }
 

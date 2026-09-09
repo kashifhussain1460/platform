@@ -32,7 +32,7 @@ function ctx(over: Partial<CompanyContext> = {}): CompanyContext {
   return {
     companyId: 'co-1',
     company: { industry: null, size: null, businessGoals: [] },
-    subscription: { plan: 'BUSINESS', maxEmployees: null, features: [] },
+    subscription: { plan: 'BUSINESS', maxEmployees: null, features: [], maxRoles: null, maxPerRole: null, creditsPerEmployeePerMonth: null },
     departments: [],
     hiredEmployees: [],
     installedSkills: [],
@@ -288,7 +288,7 @@ describe('capability resolver', () => {
   describe('F. Subscription plans', () => {
     const onPlan = (plan: 'STARTER' | 'PRO' | 'BUSINESS' | 'ENTERPRISE') =>
       resolve({
-        subscription: { plan, maxEmployees: null, features: [] },
+        subscription: { plan, maxEmployees: null, features: [], maxRoles: null, maxPerRole: null, creditsPerEmployeePerMonth: null },
         hiredEmployees: [employee('HR')],
       });
 
@@ -318,7 +318,7 @@ describe('capability resolver', () => {
 
     it('marks a template the plan cannot install', () => {
       const result = resolve({
-        subscription: { plan: 'STARTER', maxEmployees: 2, features: [] },
+        subscription: { plan: 'STARTER', maxEmployees: 2, features: [], maxRoles: null, maxPerRole: null, creditsPerEmployeePerMonth: null },
         hiredEmployees: [employee('HR')],
         templates: [
           {
@@ -392,7 +392,7 @@ describe('capability resolver', () => {
       // STARTER still has not paid for Assist.
       const result = resolve({
         user: { userId: 'u-1', role: 'OWNER' },
-        subscription: { plan: 'STARTER', maxEmployees: 2, features: [] },
+        subscription: { plan: 'STARTER', maxEmployees: 2, features: [], maxRoles: null, maxPerRole: null, creditsPerEmployeePerMonth: null },
         hiredEmployees: [employee('HR')],
       });
       expect(result.productAreas).not.toContain('ASSIST');
