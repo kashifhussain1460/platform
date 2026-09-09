@@ -42,6 +42,10 @@ describe('RetrieveNodeHandler (§44 scoping)', () => {
 
   it("scopes to the acting employee's role when the node names one", async () => {
     employeeFindFirst.mockResolvedValue({
+      id: 'emp_1',
+      name: 'Mira',
+      status: 'ACTIVE',
+      archivedAt: null,
       role: 'MARKETING',
       knowledgeAccess: 'ALL',
     });
@@ -58,6 +62,10 @@ describe('RetrieveNodeHandler (§44 scoping)', () => {
     // Same answer chat gives. A workflow must not be the way around a setting
     // the customer made deliberately.
     employeeFindFirst.mockResolvedValue({
+      id: 'emp_1',
+      name: 'Emma',
+      status: 'ACTIVE',
+      archivedAt: null,
       role: 'HR',
       knowledgeAccess: 'NONE',
     });
@@ -71,17 +79,56 @@ describe('RetrieveNodeHandler (§44 scoping)', () => {
     expect(result.output).toMatchObject({ count: 0, denied: true });
   });
 
-  it('DENIES rather than widening when the employeeId resolves to nobody', async () => {
+  it('FAILS rather than widening when the employeeId resolves to nobody', async () => {
     // The sharp one: falling through to company-wide would make a typo — or a
     // cross-tenant id — the WIDEST possible scope.
+    //
+    // The §44 hardening originally returned `denied: true` here. It now THROWS,
+    // which is a strictly stronger guarantee of the same invariant: `retrieve`
+    // is still never called (no widening), and the run now stops with a reason
+    // instead of continuing on empty context. That mattered because "retrieved
+    // nothing, carried on" is the silent-success shape — a downstream
+    // AI_EMPLOYEE_STEP would still answer, just ungrounded and confidently, and
+    // the run would go green. A misconfigured or switched-off employee is an
+    // operator problem, and the operator has to be told.
+    //
+    // The deliberate `denied` path is preserved for the case above this one:
+    // an employee that EXISTS but whose "Access knowledge base" permission is
+    // off is a real setting being honoured, not a misconfiguration.
     employeeFindFirst.mockResolvedValue(null);
 
-    const result = await handler.execute(
-      ctx({ query: 'anything', employeeId: 'emp_from_another_tenant' }),
-    );
+    await expect(
+      handler.execute(ctx({ query: 'anything', employeeId: 'emp_from_another_tenant' })),
+    ).rejects.toMatchObject({
+      name: 'EmployeeNotWorkableError',
+      reason: 'MISSING',
+    });
+
+    // The original invariant, unchanged and still the point of this test.
+    expect(retrieve).not.toHaveBeenCalled();
+  });
+
+  it('FAILS when the scoped employee is paused, rather than scoping as it', async () => {
+    // Lifecycle enforcement: retrieving knowledge "as" a paused employee is
+    // still acting as it. Previously a PAUSED/DISABLED/ARCHIVED employee scoped
+    // retrieval completely normally — only a MISSING one was handled.
+    employeeFindFirst.mockResolvedValue({
+      id: 'emp_1',
+      name: 'Emma',
+      status: 'PAUSED',
+      archivedAt: null,
+      role: 'HR',
+      knowledgeAccess: 'ALL',
+    });
+
+    await expect(
+      handler.execute(ctx({ query: 'salaries', employeeId: 'emp_1' })),
+    ).rejects.toMatchObject({
+      name: 'EmployeeNotWorkableError',
+      reason: 'PAUSED',
+    });
 
     expect(retrieve).not.toHaveBeenCalled();
-    expect(result.output).toMatchObject({ denied: true });
   });
 
   it("falls back to the WORKFLOW's category, so an unattributed node is still scoped", async () => {

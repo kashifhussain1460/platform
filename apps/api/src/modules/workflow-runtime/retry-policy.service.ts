@@ -4,6 +4,7 @@ import {
   RETRY_CAP_MS,
   RETRY_MAX_ATTEMPTS,
 } from './workflow-runtime.constants';
+import { EmployeeNotWorkableError } from '../workflows/engine/employee-lifecycle';
 import { InsufficientCreditsError } from '../credits/credit-ledger.service';
 import {
   EmployeeBudgetExceededError,
@@ -155,6 +156,16 @@ export class RetryPolicyService {
     // text (§35.5's "must not be replaced" rule), so a message-substring
     // classifier alone could never tell the two apart. `instanceof` has no
     // such ambiguity.
+    // Employee lifecycle: a paused/disabled/archived/missing employee is a
+    // decision, not a hiccup — retrying cannot change it. Before the typed
+    // class existed, `AI_EMPLOYEE_STEP` failed via a transitive
+    // ConflictException from the CHAT runtime ("...cannot accept messages"),
+    // which matched none of the substrings below and fell through to
+    // NODE_ERROR — i.e. **retryable**. A paused employee's step was therefore
+    // retried with exponential backoff before finally failing, with a message
+    // written for a chat client.
+    if (error instanceof EmployeeNotWorkableError) return 'AUTHORIZATION_DENIED';
+
     if (error instanceof InsufficientCreditsError) return 'INSUFFICIENT_CREDITS';
     if (error instanceof EmployeeBudgetExceededError) return 'EMPLOYEE_BUDGET_EXCEEDED';
     if (error instanceof WorkflowLimitExceededError) return 'WORKFLOW_LIMIT_EXCEEDED';

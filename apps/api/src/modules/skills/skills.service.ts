@@ -16,6 +16,11 @@ import type {
   ToolCallDto,
   ToolDefinitionDto,
 } from '@vaep/types';
+import {
+  EMPLOYEE_LIFECYCLE_SELECT,
+  employeeNotWorkableMessage,
+  employeeWorkableReason,
+} from '../workflows/engine/employee-lifecycle';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { clampLimit } from '../../common/pagination';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -607,9 +612,28 @@ export class SkillsService {
     if (!ctx.employeeId) return null;
     const employee = await this.prisma.aiEmployee.findFirst({
       where: { id: ctx.employeeId, companyId: ctx.companyId },
-      select: { permissions: true },
+      select: { ...EMPLOYEE_LIFECYCLE_SELECT, permissions: true },
     });
-    if (!employee) return null;
+    // FAIL CLOSED. This used to be `if (!employee) return null`, and null here
+    // means "no permission denial found" - i.e. the tool was ALLOWED. An
+    // employeeId naming a hard-deleted employee, another tenant's employee or
+    // a typo therefore bypassed per-employee permission checks entirely.
+    // A non-workable employee is refused for the same reason: its permissions
+    // are no longer a live grant.
+    const notWorkable = employeeWorkableReason(employee);
+    // `|| employee === null` is redundant at runtime (a null row always yields
+    // 'MISSING') but it is what narrows `employee` for the rest of the method.
+    if (notWorkable !== null || employee === null) {
+      this.logger.warn(
+        `permission DENY company=${ctx.companyId} employee=${ctx.employeeId} ` +
+          `tool=${skillKey}.${tool} reason=EMPLOYEE_${notWorkable}`,
+      );
+      return employeeNotWorkableMessage(
+        notWorkable ?? 'MISSING',
+        employee?.name ?? null,
+        null,
+      );
+    }
     const denial = permissionDenialFor(employee.permissions, skillKey, tool);
     if (!denial) return null;
     this.logger.warn(

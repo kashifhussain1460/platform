@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { ApprovalNodeConfig, WorkflowNode } from '@vaep/types';
+import {
+  EMPLOYEE_LIFECYCLE_SELECT,
+  assertEmployeeWorkable,
+} from './employee-lifecycle';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { ApprovalRoutingService } from '../../approval-routing/approval-routing.service';
 import { NotificationsService } from '../../notifications/notifications.service';
@@ -185,9 +189,17 @@ export class ApprovalGateService {
     const employee = employeeId
       ? await this.prisma.aiEmployee.findFirst({
           where: { id: employeeId, companyId },
-          select: { approvalRules: true },
+          select: { ...EMPLOYEE_LIFECYCLE_SELECT, approvalRules: true },
         })
       : null;
+    // Lifecycle gate. This runs BEFORE the approval decision on purpose: the
+    // question "does this need a human?" is meaningless if the employee it
+    // would run as cannot work at all. Without it, a paused employee's
+    // high-risk tool call still opened a real ApprovalRequest, and a manager
+    // could approve work for an employee that had been switched off.
+    if (employeeId) {
+      assertEmployeeWorkable(employee, { employeeId, nodeId: node.id });
+    }
 
     // S-01: an earlier node's unresolved validation concern (low confidence /
     // ungrounded AI draft) forces the same gate as a catalog highRisk flag —

@@ -7,6 +7,10 @@ import {
   resolveArgs,
   type MissingArg,
 } from '../template';
+import {
+  EMPLOYEE_LIFECYCLE_SELECT,
+  assertEmployeeWorkable,
+} from '../employee-lifecycle';
 import { SecretResolverService } from '../secret-resolver.service';
 import type {
   NodeExecContext,
@@ -102,6 +106,28 @@ export class ToolActionNodeHandler implements NodeHandler {
     const toolDef = SkillCatalog.getTool(skillKey, tool);
     if (!toolDef) {
       throw new Error(`Unknown skill/tool: ${skillKey}/${tool}`);
+    }
+
+    // Employee lifecycle gate — the highest-severity instance of this fix.
+    //
+    // This handler previously NEVER loaded the employee row at all: it read
+    // `cfg.employeeId` only to pick a connector and to pass through to
+    // `runTool`. So on the ONE node type with `hasSideEffects` — the node that
+    // sends email, posts publicly and charges cards — there was literally
+    // nothing between "employee paused" and "irreversible side effect executed
+    // as that employee". Pausing an employee did not stop it; archiving it did
+    // not stop it; hard-deleting it did not stop it (the id just stopped
+    // resolving, and the step ran on the company-wide connector instead).
+    //
+    // Deliberately placed BEFORE the dry-run short-circuit below, for the same
+    // reason as the `toolDef` check above: a dry run must catch every failure a
+    // real run would hit, or the preview is not a preview.
+    if (employeeId) {
+      const employee = await this.prisma.aiEmployee.findFirst({
+        where: { id: employeeId, companyId },
+        select: EMPLOYEE_LIFECYCLE_SELECT,
+      });
+      assertEmployeeWorkable(employee, { employeeId, nodeId: node.id });
     }
 
     // A required argument that templated down to nothing must stop the step

@@ -3,6 +3,10 @@ import type { EmployeeRole } from '@vaep/types';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import { KnowledgeService } from '../../../knowledge/knowledge.service';
 import { knowledgeRetrievalAllowed } from '../../../skills/employee-permission-policy';
+import {
+  EMPLOYEE_LIFECYCLE_SELECT,
+  assertEmployeeWorkable,
+} from '../employee-lifecycle';
 import { resolveTemplate } from '../template';
 import type {
   NodeExecContext,
@@ -84,7 +88,13 @@ export class RetrieveNodeHandler implements NodeHandler {
     const rawK = Number(cfg.k);
     const k = Number.isFinite(rawK) && rawK > 0 ? Math.min(rawK, 50) : 5;
 
-    const scope = await this.resolveScope(companyId, workflowId, cfg, context);
+    const scope = await this.resolveScope(
+      companyId,
+      workflowId,
+      cfg,
+      context,
+      node.id,
+    );
     if (scope.denied) {
       // knowledgeAccess NONE. Returning [] rather than throwing matches chat:
       // an employee with no knowledge access is a configuration, not an error.
@@ -122,6 +132,8 @@ export class RetrieveNodeHandler implements NodeHandler {
     workflowId: string,
     cfg: Record<string, unknown>,
     context: Record<string, unknown>,
+    /** Only for the failure message when the scoped employee cannot work. */
+    nodeId?: string,
   ): Promise<{
     category?: EmployeeRole;
     /** The workflow's category has no role equivalent → shared documents only. */
@@ -131,21 +143,30 @@ export class RetrieveNodeHandler implements NodeHandler {
     const employeeId = resolveTemplate(cfg.employeeId, context).trim();
     if (employeeId) {
       // Author-supplied id — tenant-checked, like every other node that takes one.
-      const employee = await this.prisma.aiEmployee.findFirst({
+      const row = await this.prisma.aiEmployee.findFirst({
         where: { id: employeeId, companyId },
-        select: { role: true, knowledgeAccess: true, permissions: true },
+        select: {
+          ...EMPLOYEE_LIFECYCLE_SELECT,
+          role: true,
+          knowledgeAccess: true,
+          permissions: true,
+        },
       });
-      if (employee) {
-        // Phase 1 — the same two-control gate the chat path applies. A
-        // workflow RETRIEVE scoped to an employee whose "Access knowledge
-        // base" permission is off must return nothing, or the workflow becomes
-        // the way around the setting.
-        if (!knowledgeRetrievalAllowed(employee)) return { denied: true };
-        return { category: employee.role };
-      }
-      // An employee id that resolves to nothing must NOT fall through to
-      // company-wide: that would make a typo the widest possible scope.
-      return { denied: true };
+      // Lifecycle gate. Previously a missing employee returned `denied` (the
+      // right shape) but a PAUSED/DISABLED/ARCHIVED one scoped retrieval
+      // normally. Throwing rather than denying, so the run says WHY instead of
+      // silently retrieving nothing and letting later steps run on empty
+      // context.
+      const employee = assertEmployeeWorkable(row, {
+        employeeId,
+        nodeId: nodeId ?? null,
+      });
+      // Phase 1 — the same two-control gate the chat path applies. A
+      // workflow RETRIEVE scoped to an employee whose "Access knowledge
+      // base" permission is off must return nothing, or the workflow becomes
+      // the way around the setting.
+      if (!knowledgeRetrievalAllowed(employee)) return { denied: true };
+      return { category: employee.role };
     }
 
     const workflow = await this.prisma.workflow.findFirst({

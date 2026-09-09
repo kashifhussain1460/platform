@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { MemoryKind } from '@prisma/client';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
+import {
+  EMPLOYEE_LIFECYCLE_SELECT,
+  assertEmployeeWorkable,
+} from '../employee-lifecycle';
 import { resolveTemplate } from '../template';
 import type {
   NodeExecContext,
@@ -50,16 +54,14 @@ export class MemoryReadNodeHandler implements NodeHandler {
         : DEFAULT_MEMORY_LIMIT;
 
     // Verify the employee belongs to THIS company before reading its memory —
-    // an id from node config is author-supplied input, not a trusted value.
+    // an id from node config is author-supplied input, not a trusted value —
+    // and that it is workable: recalling memory as a paused, disabled or
+    // archived employee is still acting as it.
     const employee = await this.prisma.aiEmployee.findFirst({
       where: { id: employeeId, companyId },
-      select: { id: true },
+      select: EMPLOYEE_LIFECYCLE_SELECT,
     });
-    if (!employee) {
-      throw new Error(
-        `MEMORY_READ node "${node.id}": employee "${employeeId}" not found in this company`,
-      );
-    }
+    assertEmployeeWorkable(employee, { employeeId, nodeId: node.id });
 
     const rows = await this.prisma.employeeMemory.findMany({
       where: { companyId, employeeId, ...(kind ? { kind } : {}) },
@@ -111,15 +113,13 @@ export class MemoryWriteNodeHandler implements NodeHandler {
       );
     }
 
+    // Lifecycle-gated: MEMORY_WRITE mutates durable employee state, so it must
+    // not write onto a paused, disabled or archived employee.
     const employee = await this.prisma.aiEmployee.findFirst({
       where: { id: employeeId, companyId },
-      select: { id: true },
+      select: EMPLOYEE_LIFECYCLE_SELECT,
     });
-    if (!employee) {
-      throw new Error(
-        `MEMORY_WRITE node "${node.id}": employee "${employeeId}" not found in this company`,
-      );
-    }
+    assertEmployeeWorkable(employee, { employeeId, nodeId: node.id });
 
     // MEMORY_WRITE mutates durable employee state, so a dry run must not.
     if (dryRun) {

@@ -21,6 +21,7 @@ import {
 } from '../../../credits/credit-limits.service';
 import { CreditReservationService } from '../../../credits/credit-reservation.service';
 import { CompanyConcurrencyGuardService } from '../../../credits/company-concurrency-guard.service';
+import { assertEmployeeWorkable } from '../employee-lifecycle';
 import { resolveTemplate } from '../template';
 import type {
   NodeExecContext,
@@ -95,25 +96,38 @@ export class AiStepNodeHandler implements NodeHandler {
     // shown in the UI — and never reached a request or a price (audit P1-F).
     let employeeModel: string | undefined;
     if (employeeId) {
-      const employee = await this.prisma.aiEmployee.findFirst({
+      const row = await this.prisma.aiEmployee.findFirst({
         where: { id: employeeId, companyId },
       });
-      if (employee) {
-        persona = employee.persona ?? '';
-        name = employee.name;
-        employeeModel = employee.model ?? undefined;
-        // Same monthly budget enforcement as chat (agent-runtime.service.ts).
-        if (employee.budgetLimit != null) {
-          const spent = await this.usage.totalCostForEmployee(
-            companyId,
-            employeeId,
-            startOfCurrentMonthUtc(),
+      // Lifecycle gate + the end of a silent-success path.
+      //
+      // This `if (employee)` used to have NO `else`. An employeeId that named a
+      // hard-deleted employee, another tenant's employee, or a typo fell
+      // through with `name = 'the workflow assistant'`, an empty persona, NO
+      // employeeModel (so the wrong model AND the wrong price), and — because
+      // the budget check lived inside the same block — **no budget check at
+      // all**, while still attributing credits and usage to the nonexistent
+      // employee id. The step then recorded COMPLETED and the run went green.
+      //
+      // A paused/disabled/archived employee was worse: it was used verbatim.
+      const employee = assertEmployeeWorkable(row, {
+        employeeId,
+        nodeId: node.id,
+      });
+      persona = employee.persona ?? '';
+      name = employee.name;
+      employeeModel = employee.model ?? undefined;
+      // Same monthly budget enforcement as chat (agent-runtime.service.ts).
+      if (employee.budgetLimit != null) {
+        const spent = await this.usage.totalCostForEmployee(
+          companyId,
+          employeeId,
+          startOfCurrentMonthUtc(),
+        );
+        if (spent >= employee.budgetLimit) {
+          throw new Error(
+            `${employee.name} has reached its monthly budget limit`,
           );
-          if (spent >= employee.budgetLimit) {
-            throw new Error(
-              `${employee.name} has reached its monthly budget limit`,
-            );
-          }
         }
       }
     }

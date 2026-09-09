@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { NodeRegistry } from '../../workflows/engine/node-registry.service';
+import { assertEmployeeWorkable } from '../../workflows/engine/employee-lifecycle';
 import { resolveTemplate } from '../../workflows/engine/template';
 import type {
   NodeExecContext,
@@ -79,14 +80,23 @@ export class AiEmployeeStepNodeHandler implements NodeHandler, OnModuleInit {
     }
 
     // Author-supplied id — verify tenancy before doing anything with it.
-    const employee = await this.prisma.aiEmployee.findFirst({
+    const row = await this.prisma.aiEmployee.findFirst({
       where: { id: employeeId, companyId },
     });
-    if (!employee) {
-      throw new Error(
-        `AI_EMPLOYEE_STEP node "${node.id}": employee "${employeeId}" not found in this company`,
-      );
-    }
+    // Lifecycle gate, replacing a bare not-found throw.
+    //
+    // This node WAS blocked for a paused employee, but only accidentally and
+    // badly: it passed the row to AgentRuntimeService.run, whose first
+    // statement is the CHAT status guard, throwing ConflictException
+    // ("...cannot accept messages"). RetryPolicyService matched none of its
+    // substrings, so that fell through to NODE_ERROR - which is RETRYABLE - so
+    // the step was retried with exponential backoff before failing, with
+    // chat-flavoured wording landing in WorkflowRun.error. A typed,
+    // non-retryable, workflow-worded failure replaces it.
+    const employee = assertEmployeeWorkable(row, {
+      employeeId,
+      nodeId: node.id,
+    });
 
     // A full turn can call real tools and spend real money, so a dry run stops
     // here — before the runtime, not inside it.

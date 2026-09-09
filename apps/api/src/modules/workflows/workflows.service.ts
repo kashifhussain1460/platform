@@ -37,8 +37,14 @@ import { WorkflowEngine } from './engine/workflow-engine.service';
 import { evaluateConditions } from './engine/conditions';
 import {
   actingEmployeeIdForGraph,
+  employeeIdsInGraph,
   nodesOf,
 } from './engine/employee-references';
+import {
+  EMPLOYEE_LIFECYCLE_SELECT,
+  employeeNotWorkableMessage,
+  employeeWorkableReason,
+} from './engine/employee-lifecycle';
 import {
   validateDefinitionStructure,
   validateStorableDefinition,
@@ -602,14 +608,26 @@ export class WorkflowsService {
       if (!evaluateConditions(conditions, safePayload)) {
         continue;
       }
-      const run = await this.enqueueRun(wf.companyId, wf.id, 'EVENT', payload, {
-        triggerEventId: eventId,
-        // undefined → enqueueRun generates one (manual fire with no eventId).
-        correlationId: eventId ?? undefined,
-        // Same canonical event must not fire the same workflow twice (P0-2).
-        idempotencyKey: eventId ? `event:${wf.id}:${eventId}` : null,
-      });
-      runIds.push(run.id);
+      // One workflow's refusal must not stop the others. `enqueueRun` can now
+      // throw a 409 for a paused/disabled/archived employee, and a single
+      // tenant's switched-off employee must not silently stop every OTHER
+      // workflow listening to the same event — or 500 the public webhook that
+      // delivered it. Same rationale as the cron sweep's per-tenant try/catch.
+      try {
+        const run = await this.enqueueRun(wf.companyId, wf.id, 'EVENT', payload, {
+          triggerEventId: eventId,
+          // undefined → enqueueRun generates one (manual fire with no eventId).
+          correlationId: eventId ?? undefined,
+          // Same canonical event must not fire the same workflow twice (P0-2).
+          idempotencyKey: eventId ? `event:${wf.id}:${eventId}` : null,
+        });
+        runIds.push(run.id);
+      } catch (err) {
+        this.logger.warn(
+          `fireEvent: workflow ${wf.id} (company ${wf.companyId}) did not start for ` +
+            `event ${eventType}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
     return { eventType, count: runIds.length, runIds };
   }
@@ -1007,6 +1025,28 @@ export class WorkflowsService {
         : pinned?.activeVersion?.publishedById ?? null;
     await this.permissions.assertCanRun(companyId, workflowId, subjectUserId);
 
+    // The EMPLOYEE kill switch, deliberately the mirror image of the User one
+    // immediately above.
+    //
+    // `enqueueRun` is the single chokepoint every run in the system passes
+    // through - MANUAL, SCHEDULE, WEBHOOK and EVENT all funnel here - and it
+    // has already loaded the pinned graph, so this costs one query and no extra
+    // graph walk. Before this, pausing/disabling/archiving an AI Employee
+    // stopped its CHAT only: its scheduled and event-triggered workflows kept
+    // creating runs and kept executing with its persona, model, budget and
+    // skill connections. The EmployeeCard "Remove" button's own copy - "It will
+    // stop working immediately" - was simply false.
+    //
+    // Node-level enforcement (see engine/employee-lifecycle.ts) is NOT
+    // redundant with this: a templated `{{...}}` employeeId is invisible to
+    // `employeeIdsInGraph` and only resolvable at execution time, a run can sit
+    // WAITING on an approval for days between creation and the node running,
+    // and `resumeRun` re-enters a node without passing through here.
+    await this.assertGraphEmployeesWorkable(
+      companyId,
+      nodesOf(pinned?.activeVersion?.definition ?? pinned?.definition),
+    );
+
     let run: WorkflowRun;
     try {
       run = await this.prisma.workflowRun.create({
@@ -1336,4 +1376,52 @@ export class WorkflowsService {
     }
     return workflow;
   }
+
+  /**
+   * Refuse to create a run for a graph that names an AI Employee which cannot
+   * work: paused, disabled, archived, or gone.
+   *
+   * Author-disabled nodes are filtered out first: the engine will SKIP them
+   * anyway, so blocking a run because of a step nobody will execute would be a
+   * false positive. Same reason `skill-requirements.service.ts` skips disabled
+   * nodes when deciding publishability.
+   *
+   * Templated employee ids are deliberately invisible here
+   * (`employee-references.ts` skips `{{...}}` values) and are caught at node
+   * execution instead.
+   *
+   * Throws ConflictException (409), not Forbidden: this is a STATE problem, not
+   * a permission problem - matching what chat does for the same condition and
+   * what archive does when a run is still in flight.
+   */
+  private async assertGraphEmployeesWorkable(
+    companyId: string,
+    nodes: readonly { type?: unknown; config?: unknown; disabled?: unknown }[],
+  ): Promise<void> {
+    const live = nodes.filter((n) => n.disabled !== true);
+    const ids = employeeIdsInGraph(live);
+    if (ids.length === 0) return;
+
+    const rows = await this.prisma.aiEmployee.findMany({
+      where: { companyId, id: { in: ids } },
+      select: EMPLOYEE_LIFECYCLE_SELECT,
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    const blockers: string[] = [];
+    for (const id of ids) {
+      const reason = employeeWorkableReason(byId.get(id) ?? null);
+      if (reason) {
+        blockers.push(
+          employeeNotWorkableMessage(reason, byId.get(id)?.name ?? null, null),
+        );
+      }
+    }
+    if (blockers.length > 0) {
+      throw new ConflictException(
+        `This workflow cannot start. ${blockers.join(' ')}`,
+      );
+    }
+  }
+
 }

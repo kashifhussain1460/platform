@@ -9,6 +9,10 @@ import type {
   WorkflowEdge,
   WorkflowNode,
 } from '@vaep/types';
+import {
+  EMPLOYEE_LIFECYCLE_SELECT,
+  assertEmployeeWorkable,
+} from './employee-lifecycle';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { BillingService } from '../../billing/billing.service';
 import { ApprovalRoutingService } from '../../approval-routing/approval-routing.service';
@@ -635,9 +639,18 @@ export class WorkflowEngine {
     const employee = employeeId
       ? await this.prisma.aiEmployee.findFirst({
           where: { id: employeeId, companyId },
-          select: { approvalRules: true },
+          select: { ...EMPLOYEE_LIFECYCLE_SELECT, approvalRules: true },
         })
       : null;
+    // Lifecycle gate, kept byte-compatible with the durable engine's copy in
+    // approval-gate.service.ts. Runs BEFORE the approval decision on purpose:
+    // "does this need a human?" is meaningless if the employee it would run as
+    // cannot work at all. Without it, a paused employee's high-risk tool call
+    // still opened a real ApprovalRequest and a manager could approve work for
+    // an employee that had been switched off.
+    if (employeeId) {
+      assertEmployeeWorkable(employee, { employeeId, nodeId: node.id });
+    }
 
     // S-01: an earlier node's unresolved validation concern (low confidence /
     // ungrounded AI draft) forces the same gate as a catalog highRisk flag —
