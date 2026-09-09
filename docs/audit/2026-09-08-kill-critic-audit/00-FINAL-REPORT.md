@@ -1,17 +1,45 @@
 # Orlixa (V-AEP) — Final CTO / Kill-Critic / Production Ground-Truth Audit
 
-**Date:** 2026-09-09. **Scope:** full monorepo at `d:/Vertical AI/platform` (apps/api NestJS, apps/web Next.js,
-packages/types, infra). **Method:** 12 independent evidence passes (2 from 2026-09-08, 10 from this session),
-each reading actual code/schema/tests rather than trusting docs, cross-checked against each other. Two clusters
-(A.2, A.3) actually **ran** the test suites and a real browser against the live stack rather than quoting
-numbers. Full backing evidence with exact file:line citations lives in the 12 cluster files in this folder
-(`01`–`12`); this document is the synthesis.
+**Version 2 — 2026-09-09.** This is the canonical Ground Truth Baseline and supersedes v1 (same file, see
+`git log`). It is deliberately updated **in place** rather than forked into a second "final" report, because a
+duplicate source of truth is one of the defect classes this audit exists to name.
 
-**How to read this:** every claim below is graded the same way the clusters graded it — FULLY IMPLEMENTED,
-PARTIALLY IMPLEMENTED, BROKEN, UNREACHABLE, MOCK/FAKE, UNUSED, LEGACY, DUPLICATE, PLANNED ONLY, or PRODUCTION
-READY. Nothing here is inferred from a table existing, an API existing, or a comment claiming something works —
-`platform/CLAUDE.md` itself was treated as a hypothesis throughout and is shown to be wrong or stale in at
-least 9 separate places below.
+**Scope:** full monorepo at `d:/Vertical AI/platform` (apps/api NestJS, apps/web Next.js, packages/types, infra).
+
+**Method — 19 independent evidence passes, not one:**
+- **12 discovery clusters** (`01`–`12`), each reading actual code/schema/tests rather than trusting docs.
+  Two of them **ran** the suites and a real browser against the live stack instead of quoting numbers.
+- **7 adversarial verification passes** (`verify-01`…`verify-07`), which re-checked every P0/P1 the clusters
+  raised **against current code**, with instructions to correct rather than confirm. 5 have landed; 2 are still
+  running (see "Still open" below).
+
+**What v2 changes.** Verification did not merely confirm v1 — it materially corrected it:
+
+| # | v1 said | Truth (v2) |
+|---|---|---|
+| 1 | "No ceiling at all on sequential AI spend" | **Wrong.** A flag-independent per-employee monthly USD cap (~$5, stamped at hire) already bounds chat, `AI_STEP` and `AI_EMPLOYEE_STEP`. The real holes are narrower and now named precisely. |
+| 2 | "11 of 17 skills REAL, 45 tools, 30 real" | **Wrong arithmetic.** 43 tools, 31 real, **12 REAL skills** (`leads` is real and was unscored; `postiz` is real on all 6). |
+| 3 | `TOOL_ACTION` "does a bare `findFirst` with no status filter" | **Worse.** It never queries `AiEmployee` **at all** — there is no lookup to add a filter to, on the one node type with `hasSideEffects`. |
+| 4 | WhatsApp: "generic connect page writes a green CONNECTED badge" | **Different mechanism.** That page reaches `configureSkill`, not `connectSkill`, and leaves the badge at *Not connected* — the lie is the wizard's sentence *"ready to use"*. The badge lie is real but **API-only**. Plus a **new** defect: under `SKILL_EXECUTOR=auto` a correctly-connected account is **refused** while a junk one is accepted. |
+| 5 | AI Assist trigger gap = "wire the trigger" | **Insufficient.** The inbound drivers fire `NEW_EMAIL_REPLY`, which is **not** in `CANONICAL_EVENT_TYPES`, while `EMAIL_REPLIED` (which is) has **no producer**. Wiring triggers naively rebuilds the same silent-failure bug one layer up. |
+| 6 | `WorkflowRun.creditLimit` "flag-gated" | **Permanently dead** — no writer anywhere in the application, so that enforcement layer is a no-op regardless of flags. |
+
+**What has been FIXED since v1** (3 commits, `2a995b8`/`0f4e695`/`c3355c6`):
+- **Product-context cache invalidation — CLOSED.** 22 mutation hooks + the OAuth return path now invalidate it;
+  32-case drift guard added and verified to fail when broken. Web suite 215/215. ⚠️ *Not yet browser-verified —
+  the Playwright case that originally failed has not been re-run, so this is "fixed and unit-guarded", not
+  "proven in a browser".*
+- **CLAUDE.md corrected** in 3 load-bearing places (RETRIEVE-node scope described a closed knowledge leak;
+  24 templates not 22; the "both engine modes 465/465" claim now flagged red).
+
+**Still open (2 verification passes running):** the `legacy_walk` retirement inventory (`verify-01`) and the
+catalog/dead-code sweep (`verify-07`). `verify-01` gates the single biggest architectural decision in this
+report — **whether the durable engine can run inline** — so §20 and §37-P0-2 below are marked accordingly.
+
+**How to read this:** every claim is graded FULLY IMPLEMENTED, PARTIALLY IMPLEMENTED, BROKEN, UNREACHABLE,
+MOCK/FAKE, UNUSED, LEGACY, DUPLICATE, PLANNED ONLY, or PRODUCTION READY. Nothing is inferred from a table, API,
+UI, interface, test, or comment existing. `platform/CLAUDE.md` was treated as a hypothesis and was found wrong
+or stale in **9** places. **This report was also treated as a hypothesis, and was found wrong in 6.**
 
 ---
 
@@ -439,8 +467,14 @@ Full detail: clusters `01`, `12` primarily, cross-referenced throughout.
 | Unit (`apps/api`) | **110/110 suites, 1139/1139 tests, PASS** (higher than CLAUDE.md's stale 105/1058) |
 | E2E, durable engine (default) | **103/103 suites, 767/767 tests, PASS** |
 | E2E, `legacy_walk` engine | **99/103 suites, 763/767 tests — 4 REAL FAILURES**, all the same symptom: a WORKFLOW-kind approval is correctly approved but the run never leaves `WAITING`. This directly contradicts CLAUDE.md's "both modes 465/465" claim and is a live, currently-unfixed regression |
-| Playwright browser (real stack, real browser) | **13/14 passing.** The one failure is a live reproduction of the product-context cache bug (§26) |
+| Unit (`apps/web`, vitest) | **34/34 files, 215/215 tests, PASS** — includes 32 new drift-guard cases added by the v2 product-context fix |
+| Playwright browser (real stack, real browser) | **13/14 passing** at the time of measurement. The one failure was a live reproduction of the product-context cache bug (§26). ⚠️ **That bug has since been fixed, but the Playwright case has NOT been re-run** — so 14/14 is expected, not proven. |
 | Any real external provider (OpenAI/Anthropic/Stripe/Twilio/Postiz/Chatwoot/Plane) | **Zero automated coverage anywhere, by explicit design** — every CI workflow and local test setup forcibly blanks every real credential. "All green" proves the mock code paths and DB/state-machine logic are correct; it proves nothing about whether a real LLM call, a real charge, or a real WhatsApp send actually works. This is deliberate and documented, not hidden — but worth stating plainly since it doesn't get re-stated every time "all green" is quoted. |
+
+**The honest summary of what "green" means here:** every number above except the Playwright row was produced
+with all real providers disabled. The suites prove internal correctness — DB writes, state machines, guards,
+graph validation — to a genuinely high standard. They prove **nothing** about the four integrations a customer
+actually touches. That is a coverage shape, not a coverage failure, but it must not be read as more than it is.
 
 Full detail: cluster `11`.
 
@@ -460,10 +494,11 @@ Full detail: cluster `11`.
 | Employee → Knowledge | REAL | Low risk, semantic quality depends on embedding provider config |
 | Employee → Permission | REAL | Low risk |
 | Employee → Approval | REAL (routing/SLA), **BROKEN under legacy_walk** | High while that engine mode is in use |
-| Employee → Budget | REAL, flag-gated off by default | **High — this is the shipped default** |
+| Employee → Budget | PARTIAL — a flag-independent ~$5/employee/month cap covers chat + both AI-step paths; `TOOL_ACTION`, AI Assist, the legacy generator and Enterprise tenants are uncovered; `WorkflowRun.creditLimit` has no writer | High on the uncovered paths |
 | Employee → Usage | REAL for chat/workflow, **MISSING for AI Assist** | Medium |
-| Employee → Audit | REAL, complete | Low risk |
-| Employee status → Workflow execution | **BROKEN — pause/disable/archive doesn't stop scheduled/event runs** | **High — the most severe single finding in this audit** |
+| Employee → Audit | REAL, complete — but note employee **status changes write no audit row**, so "who paused Emma, and when" is unanswerable | Low risk / medium for forensics |
+| Employee status → Workflow execution | **BROKEN — pause/disable/archive doesn't stop scheduled/event runs; `TOOL_ACTION` never loads the employee at all** | **High — the most severe single finding in this audit** |
+| Configuration → Frontend freshness | ✅ **FIXED since v1** (was BROKEN — cache never invalidated) | Closed, unit-guarded |
 | AI Assist → Employee | REAL (binds existing, never creates) | Low risk |
 | AI Assist → Workflow | REAL, validated identically to manual | Low risk except trigger wiring (above) |
 | Template → Workflow | REAL | Low risk |
@@ -480,36 +515,85 @@ live in a browser. The conditions that matter, in order:
 
 **P0 — must fix or explicitly accept before any customer whose workflows include pausing/disabling employees,
 or before enabling `legacy_walk`/`inline` mode, or before selling metered usage:**
-1. **Employee pause/disable/archive does not stop workflow execution.** (cluster `08`)
-2. **`legacy_walk` engine: a WORKFLOW-kind approval never lets its run complete** — a live, reproduced
-   regression, and `inline`/serverless deployment always forces this engine. (cluster `11`, `04`)
-3. **Shipped default = unmetered AI spend**, named as a risk by the codebase's own preflight script; the one
-   flag-independent net (~$5/employee/month) already bounds chat and both AI-step paths, but `TOOL_ACTION`,
-   AI Assist and the legacy generator have no such check, there is no per-run wall-clock deadline, and
-   `WorkflowRun.creditLimit` has no writer at all. (cluster `10`, corrected by `verify-05`)
-4. **AI Assist spend is completely invisible to the credit system**, even with every flag on. (cluster `10`)
-5. **AI-Assist-generated workflows silently default to `MANUAL` trigger** regardless of what the user described
-   — "ready" and "published" but never actually automated until a human notices and fixes it by hand. (cluster `07`)
-6. **Chatwoot and Plane pass workflow-readiness checks but can never actually run** — a customer building a
-   Support/PM workflow around either gets no warning until the first real failure. (cluster `03`)
-7. **The public marketing site advertises workflows that don't exist**, and the flagship `RECRUITER` role has
-   zero usable recruiting automation. (cluster `02`)
+
+1. 🔴 **Employee pause/disable/archive does not stop workflow execution.** The single most severe finding.
+   Only the chat surface checks employee status. **Sharpened by `verify-02`:** `TOOL_ACTION` — the one node
+   type with `hasSideEffects`, i.e. the one that sends email, posts publicly and charges cards — **never
+   queries `AiEmployee` at all**, so there is no filter to add. `AI_EMPLOYEE_STEP` is blocked only
+   *accidentally*, via a chat-worded error that the retry classifier files as **retryable**, so a paused
+   employee's step is retried with backoff before failing. Also: `ai-step.handler.ts` **silently degrades** a
+   missing employee to a generic "the workflow assistant" persona with **no budget check**, and
+   `skills.service.ts`'s `if (!employee) return null` means *"allowed"*. (cluster `08`, `verify-02`)
+2. 🔴 **`legacy_walk`: an approved WORKFLOW approval never lets its run complete** — 4 reproduced e2e
+   failures, and `WORKFLOW_EXECUTION_MODE=inline` (the serverless shape) **unconditionally forces this
+   engine**. ⏳ *Root cause and the retirement inventory are still being verified (`verify-01`). It gates the
+   biggest open architectural question: whether the durable engine can run inline at all — if it cannot,
+   retiring `legacy_walk` also drops serverless support.* (cluster `11`, `04`)
+3. **Unmetered spend on the paths the per-employee dollar cap does not cover.** Corrected from v1: chat and
+   both AI-step paths **are** bounded (~$5/employee/month, flag-independent). The genuine holes:
+   `TOOL_ACTION`, **AI Assist** and the **legacy workflow generator** have no flag-independent check at all;
+   **Enterprise tenants** get no stamped cap and are bounded by nothing; there is **no per-run wall-clock
+   deadline**; and **`WorkflowRun.creditLimit` has no writer anywhere**, so that layer is permanently dead
+   rather than flag-gated. (`verify-05`)
+4. **AI Assist spend is invisible to the credit system**, even with every flag on — metered only in a
+   non-customer-facing usage log, never reserved, debited or enforced, and absent from `/billing/usage`.
+   **Trap found by `verify-03`:** the naive fix collides — with no conversation and no step-run, the
+   idempotency key degrades to `"<companyId>:null:null"` for *every* assist turn, so the first turn would
+   reserve and every later one would silently settle as a duplicate, forever. (cluster `10`, `verify-03`)
+5. **AI-Assist-generated workflows silently default to `MANUAL`** regardless of what the user described —
+   validated, dry-run-tested, reported "ready", and never fires. **Deepened by `verify-03`:** wiring the
+   trigger is *not sufficient*, because the inbound drivers fire `NEW_EMAIL_REPLY`, which is **not in
+   `CANONICAL_EVENT_TYPES`**, while `EMAIL_REPLIED` (which is) has **no producer** — and only a subset of the
+   19 canonical types has a live producer at all. Emitting a producer-less event type rebuilds the identical
+   silent-failure defect one layer up. Readiness also **cannot detect** the fallback, because a silent
+   `MANUAL` row is byte-identical to a deliberate one. (cluster `07`, `verify-03`)
+6. **Chatwoot and Plane pass workflow-readiness but can never run.** No code path anywhere creates the row
+   their real executors need (`provisionAccount()`/`provisionWorkspace()` both throw). **Widened by
+   `verify-04`:** it silences **four** independent surfaces, and the AI Assist card filters these skills off
+   entirely, so the author is never even told the skill exists. (cluster `03`, `verify-04`)
+7. **WhatsApp: two surfaces wired to opposite halves of one decision** (new, `verify-04` F3-N1). Under
+   `SKILL_EXECUTOR=auto`, a company that connected WhatsApp **correctly** via the dedicated page gets a hard
+   refusal telling them to "reconnect in Settings → Skills" — a page that writes a table the executor ignores
+   — while a **junk** generic connect makes it *eligible*. Separately the setup wizard tells users in plain
+   words *"your settings are saved and this skill is ready to use"* when nothing was verified.
+8. 🧑 **The public site makes a false compliance claim.** `SecuritySection.tsx` asserts **"SOC 2 Compliant"**
+   and **"GDPR Ready"** while `/security` simultaneously publishes *"certification, not yet held"* as indexed
+   schema.org markup. Legal rather than technical risk, and the highest-ranked marketing item. Alongside it: a
+   **second plan catalog** selling 50 seats where the server hard-refuses past 4, at prices that don't match;
+   `/integrations` claiming all 14 are shipped when 4 are simulated; three `exampleWorkflow` blocks naming
+   templates the API documents as **retired**; and the flagship `RECRUITER` role having **zero** usable
+   recruiting automation (all 11 candidate-facing templates require role `HR`). (cluster `02`, `verify-06`)
 
 **P1 — real gaps, lower urgency:**
 - No plan below Enterprise can reach all 3 roles (HR/Marketing/Sales) that now have real automation.
-- WhatsApp's generic connect surface writes a meaningless "Connected" badge.
-- `actingEmployeeId` is display-only; no employee↔workflow ownership view exists anywhere.
-- Frontend product-context cache goes stale after hire/plan-change mutations (confirmed live).
-- Default knowledge-search embedding is lexical, not semantic; memory silently caps at ~5 items.
-- Two safety-check endpoints (`employees`, `workflows` dependencies) are built and orphaned on the frontend.
+- `actingEmployeeId` is display-only; no employee↔workflow ownership view exists anywhere, and the index built
+  for it has zero queries using it.
+- Default knowledge-search embedding is lexical, not semantic; memory silently caps at ~5 items while the
+  Learning UI shows every fact ever taught, with no cap and no warning.
+- Two safety-check endpoints (`employees`/`departments` dependencies) are built and orphaned; there is **no
+  employee hard-delete UI at all**, and no workflow dependency endpoint exists.
 - Postiz requires an admin-only prerequisite with no self-service path.
-- `MarketingConsent`'s write path is unreachable — `check_consent` can never report success.
-- Frozen-node-type enforcement has a real (currently dormant) side door via the tenant-template/legacy-generator paths.
+- `MarketingConsent`'s write path is unreachable — `check_consent` can never report "consented", in any
+  environment.
+- Frozen-node-type enforcement has a real (currently dormant) side door: the shared validator does **not**
+  reject the banned legacy node types, and the older `POST /workflows/generate` still emits them, one env-var
+  flip from being live.
+- `AssistService.accept()` has no server-side idempotency guard — two tabs create two real workflows.
+- 🧑 `workingHoursStart`/`workingHoursEnd`, `timezone` and `language` are collected in the UI and (pending
+  `verify-07` confirmation) appear not to affect the runtime — misleading settings either way.
+
+**✅ CLOSED since v1:**
+- **Product-context cache invalidation** — 22 hooks + OAuth return path, 32-case drift guard verified to fail
+  when broken. *Unit-guarded, not yet browser-re-verified.*
+- **CLAUDE.md doc truth** — 3 load-bearing stale claims corrected, incl. one that described a knowledge leak
+  which had already been closed, and the stale-green "465/465" testing claim.
 
 **P2 — cosmetic / cleanup:**
-- Six stale "not yet enforced" comments across schema/DTO/catalog files.
+- Six stale "not yet enforced" comments across schema/DTO/catalog files — all six describe enforcement that
+  has **already shipped**. This is the report's headline meta-finding and is systemic, not incidental.
 - One fully dead table (`BrandAsset`), 3 dead frontend components, 2 unwired reserved queues.
-- `EMBEDDINGS_PROVIDER`/`STORAGE_PROVIDER` lack the same production boot-guard the other 3 provider seams have.
+- `EMBEDDINGS_PROVIDER`/`STORAGE_PROVIDER` lack the production boot-guard the other 3 provider seams have —
+  and `STORAGE_PROVIDER=local` on serverless silently writes knowledge blobs to an ephemeral disk.
 
 ---
 
@@ -603,25 +687,43 @@ WAIT — none of these are blocking today's real usage.
 
 ### Next 10 implementation priorities, strictly ordered
 
-1. **Make workflow-engine node handlers respect employee status/archivedAt** — the single highest-impact, most
-   surprising gap found (cluster `08`).
-2. **Fix (or retire) the `legacy_walk` WORKFLOW-approval-resume regression** — a live, reproduced failure
-   (cluster `11`), and the deployment shape that forces this engine (`inline`) is a documented, intended path.
-3. **Wire AI-Assist-generated triggers into `Workflow.triggerType`/`triggerConfig`** — currently silent
-   no-op automation (cluster `07`).
-4. **Decide and communicate the credit-enforcement rollout plan** — the shipped default is named a P0 risk by
-   the codebase's own preflight script; either flip the flags for new signups or put a hard concurrency+time
-   ceiling in place until billing enforcement is turned on (cluster `10`).
-5. **Wire AI Assist into the credit ledger** — the one LLM entry point currently invisible to billing
-   (cluster `10`).
-6. **Fix the RECRUITER→HR template-role mismatch and correct the marketing site's example-workflow claims** —
-   a customer-facing promise gap, cheap to fix (cluster `02`).
-7. **Make `SkillRequirementsService` distinguish "no connection needed" from "cannot ever be connected"** for
-   Chatwoot/Plane, so workflow readiness stops lying about them (cluster `03`).
-8. **Fix the frontend product-context cache invalidation** — confirmed live in a real browser test
-   (cluster `11`).
-9. **Wire the two orphaned safety-check endpoints** (`employees`/`workflows` dependencies) into their delete
-   confirmation dialogs — small, prevents real data-loss surprises (clusters `06`, `08`).
+> **Re-ordered in v2.** Two items moved up because verification showed they are worse than v1 thought
+> (#1's `TOOL_ACTION` hole, #2's serverless coupling); one moved to the top of the "already done" list; and the
+> false SOC 2 claim was promoted into the top 5 because it is the only item carrying **legal** rather than
+> technical exposure. Detailed, placeholder-free task breakdowns for #1–#7 already exist in
+> `verify-02`…`verify-06` and in `docs/superpowers/plans/2026-09-09-production-cleanup-gap-closure.md`.
+
+1. **Make the workflow engine respect employee status/`archivedAt`** — the highest-impact, most surprising gap
+   found. Must include *adding* a lookup to `TOOL_ACTION` (which has none), deleting the `AI_STEP` silent
+   degrade, fixing `skills.service.ts`'s fail-open `return null`, and classifying the failure by **type** so it
+   stops being retried. Enforce at `enqueueRun` (the single chokepoint all four triggers funnel through) plus
+   at node execution, because a templated `employeeId` is invisible at creation time. 11 e2e cases specified in
+   `verify-02`.
+2. **Root-cause and resolve the two-engine split.** Fix the `legacy_walk` approval-resume regression
+   regardless — it is live today. Then answer the gating question (`verify-01`, in flight): **can the durable
+   engine run inline?** If yes, retire `legacy_walk` and delete the duplicated approval gate. If no, retiring
+   it drops serverless support — a business decision to surface, and the fallback is to keep both engines but
+   force them to *share* one gate, since duplication has now produced two real bugs from one root cause.
+3. 🧑 **Remove the false "SOC 2 Compliant" / "GDPR Ready" claim** and reconcile the second plan catalog
+   (50 seats advertised vs 4 enforced). Cheapest item on this list, and the only one with legal exposure.
+   Needs your sign-off on wording, not engineering time.
+4. **Wire AI-Assist triggers — with a producer-backed event allow-list.** Not just the translation: publish
+   `ASSIST_ALLOWED_EVENT_TYPES` containing only event types something actually fires, spec-guarded, or the fix
+   recreates the same silent failure. Include the `accept()` idempotency guard while in there.
+5. **Put a flag-independent ceiling on the uncovered spend paths** — `TOOL_ACTION`, AI Assist, the legacy
+   generator, and Enterprise tenants; plus a per-run wall-clock deadline that **excludes `WAITING`/`RETRYING`**
+   (or approval-parked runs get killed). Do **not** flip the credit flags: with grants off, that causes an
+   instant total AI outage on the first message.
+6. **Wire AI Assist into the credit ledger** — anchoring the idempotency key per turn, or the first turn bills
+   and every subsequent one silently settles as a duplicate forever.
+7. **Make skill readiness honest** — distinguish "no connection needed" from "cannot ever be connected"
+   (Chatwoot/Plane), fix the WhatsApp auto-executor contradiction in both directions, and stop the setup
+   wizard claiming "ready to use" for anything it cannot verify.
+8. **Fix the RECRUITER→HR template-role mismatch** — the flagship recruiting persona can install none of the
+   11 recruiting templates. Same bug class the codebase's own comments say was already fixed once for
+   MarketingAI, recurring unnoticed.
+9. **Wire the orphaned dependency endpoints into the delete dialogs**, and correct the `EmployeeCard` copy that
+   currently promises "It will stop working immediately" — which priority #1 is what makes true.
 10. **Delete the 6 stale "not enforced" comments and add the missing production boot guards for
     `EMBEDDINGS_PROVIDER`/`STORAGE_PROVIDER`** — cheap, closes a systemic documentation-trust risk before the
     next person (or audit) is misled by it (cluster `12`).
@@ -631,7 +733,16 @@ WAIT — none of these are blocking today's real usage.
 ## 44. Final one-sentence architecture decision
 
 > **"If Orlixa continues from the current codebase, the correct architectural direction is: keep the AiEmployee
-> + Workflow + Skill model exactly as it is, retire the duplicated `legacy_walk` engine in favor of the durable
-> state machine as the only execution path, and close the handful of specific wiring gaps (employee-lifecycle
-> enforcement, AI-Assist trigger translation, credit-flag rollout) that sit between an already-well-built
-> platform and one that is fully honest about what it can do today."**
+> + Workflow + Skill model exactly as it is, collapse the two execution engines down to one shared approval and
+> retry path, and close the handful of specific wiring gaps — employee-lifecycle enforcement, AI-Assist trigger
+> translation, the uncovered spend paths, and integration-readiness honesty — that sit between an
+> already-well-built platform and one that is fully honest about what it can do today."**
+
+**Why "collapse to one path" rather than v1's "retire `legacy_walk`":** retirement is the preferred shape, but
+it is conditional on a fact still being verified (`verify-01`) — whether the durable state machine can be
+driven inline, without BullMQ workers. If it can, delete the legacy engine. If it cannot, deleting it also
+deletes serverless support, and the correct move is instead to make both engines share **one** approval gate
+and **one** retry policy. Either way the architectural goal is identical and is the thing that matters: **one
+implementation of the rules, not two kept in sync by comment discipline** — because that duplication has now
+produced two real production-safety bugs from the same root cause (the G25 approval bypass, and the
+approval-resume regression found by this audit).
