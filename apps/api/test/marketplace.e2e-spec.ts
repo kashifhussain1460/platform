@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { PrismaService } from '../src/common/prisma/prisma.service';
 
 // Marketplace e2e: needs a live Postgres + Redis. Skipped when DATABASE_URL is
 // unset so it never blocks the build. Run it with:
@@ -15,6 +16,8 @@ const describeIfDb = hasDb ? describe : describe.skip;
 
 describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', () => {
   let app: INestApplication;
+  let prisma: PrismaService;
+  let companyId = '';
   const email = `marketplace_e2e_${Date.now()}@example.com`;
   const password = 'password123';
   let accessToken = '';
@@ -30,8 +33,9 @@ describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', ()
     app.use(cookieParser());
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.init();
+    prisma = app.get(PrismaService);
 
-    await request(app.getHttpServer())
+    const reg = await request(app.getHttpServer())
       .post('/auth/register')
       .send({
         companyName: 'Marketplace E2E Co',
@@ -40,6 +44,7 @@ describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', ()
         password,
       })
       .expect(201);
+    companyId = reg.body.company.id;
     const login = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email, password })
@@ -135,5 +140,74 @@ describeIfDb('Marketplace e2e (unified catalog + install employee/workflow)', ()
       .send({})
       .expect(401);
     // The workflow-install route is gone, so there is nothing left to guard.
+  });
+
+  it('a MEMBER may browse the catalog but NOT hire from it', async () => {
+    // Regression test for a real privilege gap: this controller carried
+    // `@UseGuards(JwtAuthGuard)` alone with no permission decorator on the
+    // install route, so any authenticated MEMBER could hire an AI Employee —
+    // consuming a plan seat and stamping a monthly credit budget — while the
+    // canonical POST /employees required `employee:manage` (floor ADMIN).
+    // No test on any hire route checked a MEMBER, which is how it survived.
+    // 🔴 Lift to ENTERPRISE (unlimited seats) FIRST. Without this the test is a
+    // false positive: earlier cases in this suite already hired sales-ai and
+    // marketing-ai, exhausting STARTER's 2-role cap, so `checkSeatFor` throws
+    // its own ForbiddenException and the assertion passes even with the
+    // authorization guard removed — verified by mutation. Removing seats from
+    // the picture makes authorization the only thing that can produce a 403.
+    /** TEST SCAFFOLDING ONLY — a precondition, not the thing under test. */
+    await prisma.subscription.updateMany({
+      where: { companyId },
+      data: { plan: 'ENTERPRISE' },
+    });
+
+    const memberEmail = `marketplace_member_${Date.now()}@example.com`;
+    const memberPassword = 'password123';
+    await request(app.getHttpServer())
+      .post('/users')
+      .set(auth())
+      .send({
+        email: memberEmail,
+        name: 'Marketplace Member',
+        role: 'MEMBER',
+        password: memberPassword,
+      })
+      .expect(201);
+    const memberLogin = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: memberEmail, password: memberPassword })
+      .expect(201);
+    const memberAuth = {
+      Authorization: `Bearer ${memberLogin.body.tokens.accessToken}`,
+    };
+
+    // Browsing stays open — discovery is not a privileged action.
+    await request(app.getHttpServer())
+      .get('/marketplace')
+      .set(memberAuth)
+      .expect(200);
+
+    // Hiring is.
+    const refused = await request(app.getHttpServer())
+      .post('/marketplace/employees/sales-ai/install')
+      .set(memberAuth)
+      .send({ name: 'Should Not Exist' })
+      .expect(403);
+
+    // Prove it is the AUTHORIZATION refusal, not a seat refusal wearing the
+    // same status code — the distinction this test exists to make.
+    expect(String(refused.body.message).toLowerCase()).not.toContain('seat');
+    expect(String(refused.body.message).toLowerCase()).not.toContain('plan');
+
+    // And nothing was created.
+    const roster = await request(app.getHttpServer())
+      .get('/employees')
+      .set(auth())
+      .expect(200);
+    expect(
+      (roster.body as { name: string }[]).some(
+        (e) => e.name === 'Should Not Exist',
+      ),
+    ).toBe(false);
   });
 });

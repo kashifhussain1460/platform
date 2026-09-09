@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import type { AiEmployeeDto, MarketplaceCatalogDto } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthorizationGuard } from '../authorization/authorization.guard';
+import { RequirePermission } from '../authorization/require-permission.decorator';
 import { InstallEmployeeDto } from './dto/install-employee.dto';
 import { MarketplaceService } from './marketplace.service';
 
@@ -26,9 +28,22 @@ import { MarketplaceService } from './marketplace.service';
  * exactly what was dropped.
  *
  * EMPLOYEE templates stay: they are not duplicated anywhere.
+ *
+ * ## Authorization: hiring here is the SAME privilege as hiring anywhere else
+ *
+ * This controller used to carry `@UseGuards(JwtAuthGuard)` alone, with no
+ * permission decorator on the install route — so any authenticated MEMBER could
+ * hire an AI Employee from a template, while the canonical `POST /employees`
+ * required the `employee:manage` capability (floor ADMIN). Hiring consumes a
+ * plan seat and stamps a monthly credit budget, so that was a privilege gap on
+ * a surface that spends the company's money.
+ *
+ * Browsing the catalog stays open to any member; installing does not. Pinned by
+ * `marketplace.e2e-spec.ts` — a MEMBER must get 403 from install and 200 from
+ * the catalog.
  */
 @Controller('marketplace')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, AuthorizationGuard)
 export class MarketplaceController {
   constructor(private readonly marketplace: MarketplaceService) {}
 
@@ -40,6 +55,7 @@ export class MarketplaceController {
 
   /** Hire an AI employee from a template (optional name override). */
   @Post('employees/:key/install')
+  @RequirePermission('employee:manage')
   installEmployee(
     @CurrentTenant() companyId: string,
     @Param('key') key: string,
