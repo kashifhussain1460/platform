@@ -42,6 +42,13 @@ drift from the executor's actual `switch` without failing `real-execution-suppor
 | `whatsapp` | communication | api_key | `send_message`/`send_template`/`get_conversation`/`update_lead_status` (all real, Twilio) | REAL | TOOL_ACTION, chat (leads workflows) | `whatsapp-lead-pipeline.e2e-spec.ts` | **PARTIALLY IMPLEMENTED / MISLEADING UI** — see §E4 (real executor, but the *generic* Skills-page connect flow for this `api_key` skill writes a CONNECTED badge that the real executor never reads) |
 | `leads` | crm | none | `record_site_visit` (real, merges `Lead.qualificationData`) | REAL | TOOL_ACTION | `whatsapp-lead-pipeline.e2e-spec.ts` | **PRODUCTION READY** |
 
+> **⚠ CORRECTION (2026-09-09 verification pass):** the tally in this section is wrong. The real figures are
+> **43 tools, 31 in `REAL_EXECUTION_TOOLS`, 12 REAL skills** (not 45/30/11) — `leads` IS scored and is REAL,
+> and `postiz` is REAL on all 6 tools. Separately, §E4's mechanism is wrong: the generic `/skills` page reaches
+> `configureSkill` + `verifyConnection`, NOT `connectSkill`, so the badge there stays `Not connected`. The real
+> defect on that page is the wizard's sentence *"your settings are saved and this skill is ready to use"*; the
+> `CONNECTED`-badge lie is reachable only via the raw API endpoint. See `verify-04-skill-readiness.md`.
+
 **Catalog-wide tally:** 17 skills, 45 tools. `REAL_EXECUTION_TOOLS` names 30 of them as real
 (`real-execution-support.ts:30-62`); `executionSupportFor` (same file, :96-104) rolls that up per skill:
 **11 skills REAL, 1 PARTIAL (gmail), 4 SIMULATED (stripe/github/hubspot/jira), 1 not scored** (`leads` is

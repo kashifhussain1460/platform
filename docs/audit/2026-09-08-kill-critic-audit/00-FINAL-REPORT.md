@@ -51,13 +51,13 @@ caught since the "465/465" claim was made. This is a live regression, not a stal
 | Agent Architecture | High | Ready | No separate "Agent" concept needed or missing; AiEmployee+Workflow+Skill already cover it cleanly |
 | AI Assist | High | Ready with one serious gap | Real, validated, safe — except it never wires the trigger it was asked for |
 | Workflow Engine | Medium-High | Ready in default mode only | Two engines exist; the non-default one has a live broken approval-resume bug and no retry story |
-| Skills | High | Ready, with named exceptions | 11/17 skills fully real; 4 honestly mocked; 2 (Chatwoot/Plane) are real code with no way to ever connect |
+| Skills | High | Ready, with named exceptions | 12/17 skills fully real; 1 partial (Gmail); 4 honestly mocked; 2 (Chatwoot/Plane) are real code with no way to ever connect |
 | Connections | High | Mostly ready | OAuth/PKCE is solid; one skill (WhatsApp) has a misleading "Connected" badge on the generic connect page |
 | Knowledge | Medium-High | Ready only if reconfigured | Real RAG pipeline end to end, but the *default* embedding is lexical, not semantic |
 | Memory | Medium | Partially ready | Real and used, but silently caps at ~5 recent items with no ranking; UI doesn't reflect this |
 | Permissions | High | Mostly ready | RBAC + department scoping + workflow RUN-gating are real; RUN-gating is enqueue-time only |
 | Approvals | High | Ready (default engine) | Routing, SLA, chains all real and race-safe; broken specifically under `legacy_walk` (see above) |
-| Credits/Billing | Medium | Off by default | Fully built and correctly attributed once enabled — but shipped default is unmetered AI spend |
+| Credits/Billing | Medium | Off by default | Fully built and correctly attributed once enabled; credit metering is off by default, though a flag-independent ~$5/employee/month cap already bounds chat and both AI-step paths — see the correction in §29 |
 | Integrations | Low-Medium | Not production-usable (3 of 4) | Only Twilio WhatsApp is usable by a real customer today; Postiz/Chatwoot/Plane all have deployment or provisioning gaps |
 | Security | High | Ready | Every historically-flagged critical regression was re-verified closed; nothing currently exploitable found |
 | E2E | High, with one exception | Mostly ready | Verified by actually running it; one real regression found in the non-default engine mode |
@@ -77,7 +77,7 @@ Users/Roles/Departments — REAL RBAC + department scoping (opt-in, ships inert 
 AI Employees (AiEmployee) — REAL, single identity primitive, no separate "Agent" table exists or is needed
  ↓
 Skills(+Connections) / Knowledge / Memory / Policy(budget/approvalRules)
-   Skills:      11/17 REAL, 4 honestly MOCK, 2 (Chatwoot/Plane) REAL-BUT-UNREACHABLE
+   Skills:      12/17 REAL, 1 PARTIAL (Gmail), 4 honestly MOCK, 2 (Chatwoot/Plane) REAL-BUT-UNREACHABLE
    Knowledge:   REAL pipeline, default embedding is LEXICAL not semantic
    Memory:      REAL but silently caps at ~5 most-recent items, no ranking
    Policy:      budgetLimit REAL; maxCreditsPerExecution REAL (contradicts a stale schema comment)
@@ -177,7 +177,7 @@ Full detail: cluster `02`.
 
 **The most self-auditing part of the codebase** — the catalog cannot claim a skill is real without a matching
 case in the executor (a spec fails the build otherwise), and a real OAuth gate refuses to connect a skill with
-no real executor at all. 11 of 17 skills are fully REAL with genuine external HTTP calls traced end to end; 4
+no real executor at all. 12 of 17 skills are fully REAL with genuine external HTTP calls traced end to end (43 tools, 31 of them real); 4
 (`stripe`, `github`, `hubspot`, `jira`) are honestly labeled MOCK and blocked from real connection in
 production; the frontend shows an honest "Demo only" state rather than a fake Connect button. That said, three
 concrete gaps survived this discipline:
@@ -382,11 +382,23 @@ Full detail: cluster `09`.
 
 Attribution is real: every credit-ledger row carries employee/workflow/run/step ids, and the historical
 "Credits 0" display bug is genuinely fixed at the data layer. Budget enforcement is real and pre-flight
-(checked before every reservation, re-checked per loop iteration, hard-capped per run). **But every one of
-these checks is gated behind flags that all default `false` — the shipped default is unmetered AI spend,
-exactly as the codebase's own deploy preflight script names it in plain language: "All AI work is free and
-unmetered."** The one always-on safety net caps concurrency (10 simultaneous executions per company), not
-cumulative spend over time. **A new, independently-discovered gap**: AI Assist sessions are completely invisible
+(checked before every reservation, re-checked per loop iteration, hard-capped per run). Every one of these
+*credit-denominated* checks is gated behind flags that all default `false`, so the deploy preflight script's
+own warning — "All AI work is free and unmetered" — is literally true of the credit system.
+
+> **⚠️ CORRECTION (2026-09-09 verification pass).** This section originally claimed the only always-on safety
+> net caps concurrency, not spend. **That was wrong.** A second, completely flag-independent net exists:
+> `assertUnderBudget` (`agent-runtime.service.ts:880-895`, duplicated in `ai-step.handler.ts:106-117`)
+> compares real `UsageEvent` dollar spend against `AiEmployee.budgetLimit`, which every non-Enterprise hire is
+> stamped with at **~$5/month** at hire time (`employees.service.ts:114-131`). Chat, `AI_STEP` and
+> `AI_EMPLOYEE_STEP` are therefore already bounded at roughly $5 × seats/month with every credit flag off.
+> The real holes are narrower and specific: **`TOOL_ACTION`, AI Assist and the legacy workflow generator have
+> no flag-independent check at all**; there is **no per-run wall-clock deadline**; and
+> **`WorkflowRun.creditLimit` has no writer anywhere in the application**, making that layer a *permanent*
+> no-op rather than merely a flag-gated one. Enterprise tenants, whose `budgetLimit` is not stamped, are
+> bounded by nothing.
+
+**A new, independently-discovered gap**: AI Assist sessions are completely invisible
 to the credit system — metered only in a separate, non-customer-facing usage log, never reserved, debited, or
 enforced, even with every credit flag on.
 
@@ -472,7 +484,9 @@ or before enabling `legacy_walk`/`inline` mode, or before selling metered usage:
 2. **`legacy_walk` engine: a WORKFLOW-kind approval never lets its run complete** — a live, reproduced
    regression, and `inline`/serverless deployment always forces this engine. (cluster `11`, `04`)
 3. **Shipped default = unmetered AI spend**, named as a risk by the codebase's own preflight script; the one
-   always-on safety net bounds concurrency, not cumulative cost. (cluster `10`)
+   flag-independent net (~$5/employee/month) already bounds chat and both AI-step paths, but `TOOL_ACTION`,
+   AI Assist and the legacy generator have no such check, there is no per-run wall-clock deadline, and
+   `WorkflowRun.creditLimit` has no writer at all. (cluster `10`, corrected by `verify-05`)
 4. **AI Assist spend is completely invisible to the credit system**, even with every flag on. (cluster `10`)
 5. **AI-Assist-generated workflows silently default to `MANUAL` trigger** regardless of what the user described
    — "ready" and "published" but never actually automated until a human notices and fixes it by hand. (cluster `07`)
@@ -537,7 +551,7 @@ business impact inline rather than being repeated a third time here.
 25. **Are there completely unused DB tables?** One: `BrandAsset`.
 26. **Are there duplicate systems?** Only the two workflow engines' approval gates (deliberate, low-risk today).
 27. **Biggest architectural risk?** The two-engine split — proven today by a live, real regression in the non-default mode.
-28. **Biggest business/product risk?** Unmetered AI spend by default, compounded by AI Assist being invisible to billing entirely.
+28. **Biggest business/product risk?** Unmetered spend on the paths the per-employee dollar cap does not cover — `TOOL_ACTION`, AI Assist (invisible to billing entirely) and Enterprise tenants (no stamped cap) — plus the absence of any per-run wall-clock deadline.
 29. **Biggest security risk?** None currently exploitable; the nearest thing is CORS single-origin and the webhook replay window, both low severity.
 30. **What should NOT be built/rebuilt?** A separate Agent subsystem; a second workflow-template system; a second embeddings/LLM/storage provider-selection mechanism — all already correctly built once.
 
