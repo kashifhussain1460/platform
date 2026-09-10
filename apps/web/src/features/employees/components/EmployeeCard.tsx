@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { Bot, Trash2 } from 'lucide-react';
 import type { AiEmployeeDto, EmployeeStatus } from '@vaep/types';
 import { buttonClasses } from '@/components/ui/Button';
-import { useDeleteEmployee, useUpdateEmployee } from '../hooks';
+import { useDeleteEmployee, useEmployeeReadiness, useUpdateEmployee } from '../hooks';
 import { STATUS_STYLES, formatRole } from '../labels';
+import { ReadinessBadge, topReadinessMessage } from './ReadinessBadge';
 
 const secondaryBtnClass =
   'rounded-lg border border-app-border-strong bg-app-surface px-3 py-1.5 text-xs font-medium text-app-ink-2 transition-colors hover:border-app-border-strong hover:bg-app-raised disabled:cursor-not-allowed disabled:opacity-50';
@@ -15,6 +16,9 @@ export function EmployeeCard({ employee }: { employee: AiEmployeeDto }) {
   const update = useUpdateEmployee();
   const del = useDeleteEmployee();
   const isTemp = employee.id.startsWith('temp_');
+  // Skipped for an optimistic temp row — it has no real id to ask about yet.
+  const { data: readiness } = useEmployeeReadiness(isTemp ? '' : employee.id);
+  const gapMessage = topReadinessMessage(readiness);
 
   const setStatus = (status: EmployeeStatus) =>
     update.mutate({ id: employee.id, data: { status } });
@@ -31,12 +35,27 @@ export function EmployeeCard({ employee }: { employee: AiEmployeeDto }) {
             <p className="truncate text-xs text-app-ink-2">{formatRole(employee.role)}</p>
           </div>
         </div>
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[employee.status]}`}
-        >
-          {employee.status}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[employee.status]}`}
+          >
+            {employee.status}
+          </span>
+          {/*
+            "Active" only ever answered "is this row switched off?", never
+            "can this thing actually do any work?" — a zero-skill employee
+            showed the exact same green pill as a fully configured one. This
+            is the honest second answer, derived on every read (never stored).
+          */}
+          {readiness && readiness.setupState !== 'READY' && (
+            <ReadinessBadge setupState={readiness.setupState} />
+          )}
+        </div>
       </div>
+
+      {gapMessage && (
+        <p className="mt-2 text-xs text-app-ink-3">{gapMessage}</p>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {employee.status === 'ACTIVE' && (

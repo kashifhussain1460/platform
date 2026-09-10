@@ -185,7 +185,11 @@ export function EmployeeSkillPicker({
                 >
                   <span className="text-sm text-app-ink-2">{def.name}</span>
                   {ownRow ? (
-                    <ConnectSkillControl installed={ownRow} def={def} />
+                    <ConnectSkillControl
+                      installed={ownRow}
+                      def={def}
+                      returnTo={`/employees/${employeeId}`}
+                    />
                   ) : (
                     <Button
                       variant="violet"

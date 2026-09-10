@@ -160,4 +160,35 @@ describe('OAuthService — state + PKCE', () => {
     const result = await fresh.handleCallback('code-1', state);
     expect(result).toContain('invalid_state');
   });
+
+  describe('returnTo allowlist (open-redirect guard)', () => {
+    it('honours an allowed prefix — the per-employee "connect just for me" flow', async () => {
+      // `/employees/` was missing from RETURN_TO_PREFIXES, so the per-employee
+      // skill picker's OAuth connect always bounced the user to /skills
+      // regardless of where they started. The exchange still fails here (no
+      // network), which is fine — this is about which BASE PATH the redirect
+      // lands on, not the token exchange.
+      const { oauth } = build();
+      const url = await oauth.buildAuthorizeUrl('co1', 'is1', {
+        returnTo: '/employees/e1',
+      });
+      const state = stateFrom(url);
+      const result = await oauth.handleCallback('code-1', state);
+      expect(result).toContain('http://localhost:3000/employees/e1');
+      // Not /skills — the in-chat/builder error key, since this isn't /skills.
+      expect(result).toContain('skillError=');
+    });
+
+    it('falls back to /skills for a returnTo outside the allowlist', async () => {
+      const { oauth } = build();
+      const url = await oauth.buildAuthorizeUrl('co1', 'is1', {
+        returnTo: '/billing/secret-page',
+      });
+      const state = stateFrom(url);
+      const result = await oauth.handleCallback('code-1', state);
+      expect(result).toContain('http://localhost:3000/skills');
+      expect(result).not.toContain('/billing');
+      expect(result).toContain('error=');
+    });
+  });
 });

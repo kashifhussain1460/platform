@@ -22,9 +22,17 @@ const outlinePill =
 export function ConnectSkillControl({
   installed,
   def,
+  returnTo,
 }: {
   installed: InstalledSkillDto;
   def: SkillDefinitionDto;
+  /**
+   * Where the OAuth callback should send the browser back to, e.g.
+   * `/employees/<id>` from the per-employee "connect just for me" picker.
+   * Defaults to `/skills` (the API's own default) when omitted — the generic
+   * catalog page, which is where this control is normally mounted.
+   */
+  returnTo?: string;
 }) {
   const connect = useConnectSkill();
   const disconnect = useDisconnectSkill();
@@ -37,7 +45,7 @@ export function ConnectSkillControl({
     setOauthError(null);
     setAuthorizing(true);
     try {
-      const { url } = await authorizeOAuth(installed.id);
+      const { url } = await authorizeOAuth(installed.id, returnTo);
       // Full-page redirect to the provider's consent screen.
       window.location.href = url;
     } catch (err) {

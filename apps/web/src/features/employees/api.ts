@@ -7,6 +7,7 @@ import type {
   CreateMemoryDto,
   EmployeeFeedbackDto,
   EmployeeMemoryDto,
+  EmployeeReadinessDto,
   LearningSummaryDto,
   MessageDto,
   RunResultDto,
@@ -43,6 +44,16 @@ export async function updateEmployee(vars: {
 
 export async function deleteEmployee(id: string): Promise<void> {
   await apiClient.delete(`/employees/${id}`);
+}
+
+/** Derived — never stored. See `apps/api/.../readiness/employee-readiness.ts`. */
+export async function getEmployeeReadiness(
+  id: string,
+): Promise<EmployeeReadinessDto> {
+  const { data } = await apiClient.get<EmployeeReadinessDto>(
+    `/employees/${id}/readiness`,
+  );
+  return data;
 }
 
 export async function listConversations(

@@ -11,6 +11,7 @@ import type {
   SkillDefinitionDto,
   UpdateInstalledSkillDto,
 } from '@vaep/types';
+import { employeeKeys } from '@/features/employees/hooks';
 import { productContextKeys } from '@/features/product-context/hooks';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { useSessionStore } from '@/stores/session.store';
@@ -109,6 +110,11 @@ export function useInstallSkill() {
       // of the six inputs the server resolves product context from, so every
       // install/enable/connect changes which capabilities and areas unlock.
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      // A skill's connection state feeds every employee's CONNECTIONS check
+      // (employee-readiness.ts) and this hook has no single employeeId to
+      // scope to, so invalidate the whole employees branch rather than guess
+      // which employee's readiness just changed.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -149,6 +155,11 @@ export function useUpdateInstalledSkill() {
       // of the six inputs the server resolves product context from, so every
       // install/enable/connect changes which capabilities and areas unlock.
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      // A skill's connection state feeds every employee's CONNECTIONS check
+      // (employee-readiness.ts) and this hook has no single employeeId to
+      // scope to, so invalidate the whole employees branch rather than guess
+      // which employee's readiness just changed.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -179,6 +190,11 @@ export function useUninstallSkill() {
       // of the six inputs the server resolves product context from, so every
       // install/enable/connect changes which capabilities and areas unlock.
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      // A skill's connection state feeds every employee's CONNECTIONS check
+      // (employee-readiness.ts) and this hook has no single employeeId to
+      // scope to, so invalidate the whole employees branch rather than guess
+      // which employee's readiness just changed.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -223,6 +239,11 @@ export function useConfigureSkill() {
       // of the six inputs the server resolves product context from, so every
       // install/enable/connect changes which capabilities and areas unlock.
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      // A skill's connection state feeds every employee's CONNECTIONS check
+      // (employee-readiness.ts) and this hook has no single employeeId to
+      // scope to, so invalidate the whole employees branch rather than guess
+      // which employee's readiness just changed.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -267,6 +288,11 @@ export function useConnectSkill() {
       // of the six inputs the server resolves product context from, so every
       // install/enable/connect changes which capabilities and areas unlock.
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      // A skill's connection state feeds every employee's CONNECTIONS check
+      // (employee-readiness.ts) and this hook has no single employeeId to
+      // scope to, so invalidate the whole employees branch rather than guess
+      // which employee's readiness just changed.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -306,6 +332,11 @@ export function useDisconnectSkill() {
       // of the six inputs the server resolves product context from, so every
       // install/enable/connect changes which capabilities and areas unlock.
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      // A skill's connection state feeds every employee's CONNECTIONS check
+      // (employee-readiness.ts) and this hook has no single employeeId to
+      // scope to, so invalidate the whole employees branch rather than guess
+      // which employee's readiness just changed.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -325,6 +356,11 @@ export function useCheckConnectorHealth() {
       // of the six inputs the server resolves product context from, so every
       // install/enable/connect changes which capabilities and areas unlock.
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      // A skill's connection state feeds every employee's CONNECTIONS check
+      // (employee-readiness.ts) and this hook has no single employeeId to
+      // scope to, so invalidate the whole employees branch rather than guess
+      // which employee's readiness just changed.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -348,6 +384,11 @@ export function useVerifyConnection() {
       // must clear its "not connected" state too.
       void qc.invalidateQueries({ queryKey: ['skill-requirements'] });
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      // A skill's connection state feeds every employee's CONNECTIONS check
+      // (employee-readiness.ts) and this hook has no single employeeId to
+      // scope to, so invalidate the whole employees branch rather than guess
+      // which employee's readiness just changed.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -402,6 +443,7 @@ export function useAssignSkill(employeeId: string) {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: employeeKeys.readiness(employeeId) });
     },
   });
 }
@@ -433,6 +475,7 @@ export function useUnassignSkill(employeeId: string) {
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: employeeKeys.readiness(employeeId) });
     },
   });
 }

@@ -75,6 +75,19 @@ function EmployeeTemplateCard({ template }: { template: EmployeeTemplateDto }) {
           </Link>
         </p>
       )}
+
+      {/*
+        This used to be entirely silent: a refused install (a seat limit, a
+        role your plan doesn't allow) reached the browser and was thrown away
+        — the button just stopped spinning with no explanation. The hire form
+        at /employees already renders this exact shape; this card just never
+        did.
+      */}
+      {install.isError && (
+        <p className="mt-3 text-sm text-red-600">
+          {install.error?.message ?? 'Could not hire this employee.'}
+        </p>
+      )}
     </li>
   );
 }

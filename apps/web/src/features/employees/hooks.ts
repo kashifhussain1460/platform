@@ -9,6 +9,7 @@ import type {
   CreateMemoryDto,
   EmployeeFeedbackDto,
   EmployeeMemoryDto,
+  EmployeeReadinessDto,
   LearningSummaryDto,
   MessageDto,
   RunResultDto,
@@ -22,6 +23,7 @@ import {
   deleteEmployee,
   forgetMemory,
   getEmployee,
+  getEmployeeReadiness,
   getLearning,
   listConversations,
   listEmployees,
@@ -38,6 +40,7 @@ export const employeeKeys = {
   all: ['employees'] as const,
   list: ['employees', 'list'] as const,
   detail: (id: string) => ['employees', 'detail', id] as const,
+  readiness: (id: string) => ['employees', id, 'readiness'] as const,
   conversations: (employeeId: string) =>
     ['employees', employeeId, 'conversations'] as const,
   messages: (conversationId: string) =>
@@ -64,6 +67,21 @@ export function useEmployee(id: string) {
   return useQuery<AiEmployeeDto, NormalizedApiError>({
     queryKey: employeeKeys.detail(id),
     queryFn: () => getEmployee(id),
+    enabled: Boolean(accessToken && id),
+  });
+}
+
+/**
+ * Derived setup/readiness for one employee — never stored server-side, so this
+ * is intentionally a plain query with the DEFAULT staleTime, not something
+ * cached alongside the employee row itself. It depends on skills, connections,
+ * knowledge and workflows, none of which invalidate `employeeKeys.detail`.
+ */
+export function useEmployeeReadiness(id: string) {
+  const accessToken = useSessionStore((s) => s.accessToken);
+  return useQuery<EmployeeReadinessDto, NormalizedApiError>({
+    queryKey: employeeKeys.readiness(id),
+    queryFn: () => getEmployeeReadiness(id),
     enabled: Boolean(accessToken && id),
   });
 }

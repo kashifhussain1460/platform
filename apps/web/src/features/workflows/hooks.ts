@@ -17,6 +17,7 @@ import type {
   WorkflowTemplateSummaryDto,
   WorkflowVersionDto,
 } from '@vaep/types';
+import { employeeKeys } from '@/features/employees/hooks';
 import type { NormalizedApiError } from '@/lib/apiClient';
 import { useSessionStore } from '@/stores/session.store';
 import {
@@ -296,6 +297,8 @@ export function usePublishAndActivate(id: string) {
       void qc.invalidateQueries({ queryKey: workflowKeys.versions(id) });
       void qc.invalidateQueries({ queryKey: workflowKeys.readiness(id) });
       void qc.invalidateQueries({ queryKey: workflowKeys.list });
+      // Same reasoning as useSetActive: this can arm the trigger too.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }
@@ -496,6 +499,11 @@ function useSetActive(activate: boolean) {
     onSettled: (_data, _err, id) => {
       void qc.invalidateQueries({ queryKey: workflowKeys.list });
       void qc.invalidateQueries({ queryKey: workflowKeys.detail(id) });
+      // Arming/disarming a trigger changes the WORKFLOWS check for whichever
+      // employee(s) this graph names (employee-readiness.ts counts ACTIVE
+      // referencing workflows). The graph isn't parsed client-side here, so
+      // invalidate the whole employees branch rather than guess which one.
+      void qc.invalidateQueries({ queryKey: employeeKeys.all });
     },
   });
 }

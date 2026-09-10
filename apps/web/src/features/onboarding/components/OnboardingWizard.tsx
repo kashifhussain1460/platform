@@ -148,13 +148,28 @@ export function OnboardingWizard() {
     // Departments are persisted by their own step so they survive a refresh,
     // and sent again here so a company that skipped ahead still gets them.
     // Both paths share the server's normalisation, so this cannot double-create.
-    await saveDepartments.mutateAsync(departments);
-    await complete.mutateAsync({
-      business: { industry, size },
-      departments,
-      employees: roles.map((role) => ({ role: role as never })),
-    });
-    router.replace(canUseAssist ? '/assist' : '/dashboard');
+    //
+    // 🔴 This used to have no try/catch. The seat pre-flight below genuinely
+    // refuses (a single 422 naming every problem role — "SALES: your plan
+    // includes 2 per role... Remove a role, or upgrade your plan"), but with no
+    // catch here that became an unhandled promise rejection: `router.replace`
+    // was simply skipped, the button stopped spinning, and the customer saw
+    // nothing — no error, no upgrade CTA, the wizard just silently did not
+    // finish. TanStack sets `.isError`/`.error` on the mutation regardless of
+    // whether the throw is caught; nothing in this file ever rendered them.
+    try {
+      await saveDepartments.mutateAsync(departments);
+      await complete.mutateAsync({
+        business: { industry, size },
+        departments,
+        employees: roles.map((role) => ({ role: role as never })),
+      });
+      router.replace(canUseAssist ? '/assist' : '/dashboard');
+    } catch {
+      // Swallowed deliberately: `saveDepartments.isError` / `complete.isError`
+      // (rendered below) are the real signal. Rethrowing here would still be
+      // an unhandled rejection from this onClick handler.
+    }
   };
 
   // ── Step 1 — Company ──────────────────────────────────────────────────────
@@ -422,6 +437,14 @@ export function OnboardingWizard() {
           see everything for now — you can limit a department to its own work later
           in Settings → Organization.
         </p>
+
+        {(saveDepartments.isError || complete.isError) && (
+          <p className="text-sm text-red-400">
+            {complete.error?.message ??
+              saveDepartments.error?.message ??
+              'Could not finish onboarding.'}
+          </p>
+        )}
 
         <div className="flex items-center justify-between pt-1">
           <button type="button" className={backBtn} onClick={() => setStep(3)}>Back</button>

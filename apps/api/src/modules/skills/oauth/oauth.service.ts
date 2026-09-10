@@ -30,8 +30,15 @@ interface OAuthState {
   userId?: string;
 }
 
-/** Where an in-chat/builder connect flow may return to (open-redirect guard). */
-const RETURN_TO_PREFIXES = ['/assist/', '/workflows/'] as const;
+/**
+ * Where an in-chat/builder connect flow may return to (open-redirect guard).
+ *
+ * `/employees/` was missing: the per-employee "connect just for me" skill
+ * install (`EmployeeSkillPicker.tsx`) had nowhere safe to send the OAuth
+ * callback back to, so it always landed the user on `/skills` regardless of
+ * where they started the connection.
+ */
+const RETURN_TO_PREFIXES = ['/assist/', '/workflows/', '/employees/'] as const;
 
 /** Signed OAuth state lifetime (defends against stale/replayed authorize links). */
 const STATE_TTL_MS = 10 * 60 * 1000;

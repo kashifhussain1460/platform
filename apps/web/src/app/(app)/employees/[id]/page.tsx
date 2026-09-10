@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, MessageSquare, Pause, Play, Settings } from 'lucide-react';
 import { AppShell } from '@/components/app-shell/AppShell';
 import { useAppShellProps } from '@/components/app-shell/useAppShellProps';
@@ -11,9 +12,13 @@ import { ChatPanel } from '@/features/employees/components/ChatPanel';
 import { EmployeeAbout } from '@/features/employees/components/EmployeeAbout';
 import { EmployeeSettings } from '@/features/employees/components/EmployeeSettings';
 import { LearningPanel } from '@/features/employees/components/LearningPanel';
+import { ReadinessBadge } from '@/features/employees/components/ReadinessBadge';
+import { ReadinessPanel } from '@/features/employees/components/ReadinessPanel';
 import {
+  employeeKeys,
   useConversations,
   useEmployee,
+  useEmployeeReadiness,
   useStartConversation,
   useUpdateEmployee,
 } from '@/features/employees/hooks';
@@ -22,7 +27,9 @@ import { DocumentList } from '@/features/knowledge/components/DocumentList';
 import { KnowledgeDropzone } from '@/features/knowledge/components/KnowledgeDropzone';
 import { useDocuments } from '@/features/knowledge/hooks';
 import type { EmployeeRole } from '@/features/knowledge/schemas';
+import { productContextKeys } from '@/features/product-context/hooks';
 import { EmployeeSkillPicker } from '@/features/skills/components/EmployeeSkillPicker';
+import { skillKeys } from '@/features/skills/hooks';
 import { useSessionStore } from '@/stores/session.store';
 
 type TabId = 'overview' | 'chat' | 'memory' | 'tools' | 'knowledge' | 'settings';
@@ -45,16 +52,22 @@ export default function EmployeeDetailPage({
   params: { id: string };
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const qc = useQueryClient();
   const accessToken = useSessionStore((s) => s.accessToken);
   const shellProps = useAppShellProps();
   const employeeId = params.id;
 
   const { data: employee } = useEmployee(employeeId);
+  const { data: readiness } = useEmployeeReadiness(employeeId);
   const { data: conversations } = useConversations(employeeId);
   const startConversation = useStartConversation(employeeId);
   const updateEmployee = useUpdateEmployee();
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [oauthBanner, setOauthBanner] = useState<
+    { kind: 'ok' | 'error'; text: string } | null
+  >(null);
 
   // Client-side route guard.
   useEffect(() => {
@@ -62,6 +75,34 @@ export default function EmployeeDetailPage({
       router.replace('/login');
     }
   }, [accessToken, router]);
+
+  /**
+   * The "connect just for me" per-employee skill picker starts a REAL OAuth
+   * redirect (`ConnectSkillControl` via `EmployeeSkillPicker`, `returnTo=
+   * /employees/<id>`). Before this, `/employees/` was not in the API's
+   * `RETURN_TO_PREFIXES` allowlist, so that connect always bounced the user to
+   * `/skills` regardless of where they started it — same class of bug as the
+   * `/skills` page's own OAuth-return handling, just never built here. Mirrors
+   * that page's pattern: success → `?connected=<skillKey>`, failure →
+   * `?skillError=<message>` (this page is not `/skills`, so the API uses the
+   * `skillError` key, not `error`).
+   */
+  const connected = searchParams.get('connected');
+  const skillError = searchParams.get('skillError');
+  useEffect(() => {
+    if (connected) {
+      setOauthBanner({ kind: 'ok', text: `Connected ${connected}.` });
+      setActiveTab('tools');
+      void qc.invalidateQueries({ queryKey: skillKeys.installed });
+      void qc.invalidateQueries({ queryKey: employeeKeys.readiness(employeeId) });
+      void qc.invalidateQueries({ queryKey: productContextKeys.all });
+      router.replace(`/employees/${employeeId}`);
+    } else if (skillError) {
+      setOauthBanner({ kind: 'error', text: `Connection failed: ${skillError}` });
+      setActiveTab('tools');
+      router.replace(`/employees/${employeeId}`);
+    }
+  }, [connected, skillError, employeeId, qc, router]);
 
   // Default to the most recent conversation once loaded.
   useEffect(() => {
@@ -99,6 +140,18 @@ export default function EmployeeDetailPage({
         <span className="text-app-ink-2">{employee?.name ?? 'Loading…'}</span>
       </nav>
 
+      {oauthBanner && (
+        <div
+          className={`mb-4 rounded-xl border px-4 py-2.5 text-sm ${
+            oauthBanner.kind === 'ok'
+              ? 'border-status-active/30 bg-status-active/10 text-sl-active'
+              : 'border-status-failed/30 bg-status-failed/10 text-sl-failed'
+          }`}
+        >
+          {oauthBanner.text}
+        </div>
+      )}
+
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-app-ink sm:text-3xl">
@@ -114,6 +167,9 @@ export default function EmployeeDetailPage({
               >
                 {employee.status}
               </span>
+            )}
+            {readiness && readiness.setupState !== 'READY' && (
+              <ReadinessBadge setupState={readiness.setupState} />
             )}
           </div>
         </div>
@@ -177,7 +233,12 @@ export default function EmployeeDetailPage({
 
       {activeTab === 'overview' &&
         (employee ? (
-          <EmployeeAbout employee={employee} />
+          <div className="space-y-4">
+            {readiness && (
+              <ReadinessPanel readiness={readiness} onOpenTab={setActiveTab} />
+            )}
+            <EmployeeAbout employee={employee} />
+          </div>
         ) : (
           <p className="text-sm text-app-ink-3">Loading…</p>
         ))}
