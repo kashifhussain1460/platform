@@ -425,6 +425,70 @@ describeIfDb('Phase 1 — critical production safety fixes', () => {
       });
       await http().delete(`/employees/${victimId}`).set(bearer(ownerToken)).expect(409);
     });
+
+    it('blocks any delete while a workflow that references the employee has an in-flight run', async () => {
+      // 🔴 Regression test for a real bug found while building employee
+      // readiness (2026-09-10): `workflowsReferencing` filtered with Prisma's
+      // `definition: { string_contains: employeeId }`, which is a silent no-op
+      // against a JSON *object* column (it only matches a JSON string scalar,
+      // or you must give it a `path` to one — `Workflow.definition` is neither).
+      // `dependencies()` derives `inFlightRuns` FROM that list, and THIS is the
+      // check that refuses the delete below — so with the bug in place,
+      // referencing was always `[]`, inFlightRuns was always 0, and an employee
+      // could be archived or hard-deleted while a workflow that genuinely names
+      // it still had a run PENDING/RUNNING/WAITING, silently orphaning it. No
+      // existing test created a run for a REFERENCING workflow to catch this —
+      // the case above only proves an unrelated PENDING approval blocks it.
+      const wf = await http()
+        .post('/workflows')
+        .set(bearer(ownerToken))
+        .send({
+          name: 'References the victim',
+          definition: {
+            nodes: [
+              { id: 'n1', type: 'TRIGGER', config: {} },
+              {
+                id: 'n2',
+                type: 'AI_EMPLOYEE_STEP',
+                config: {
+                  employeeId: victimId,
+                  instruction: 'Say hi',
+                  outputKey: 'out',
+                },
+              },
+            ],
+            edges: [{ from: 'n1', to: 'n2' }],
+          },
+        })
+        .expect(201);
+
+      // A real run, not just a row shape: proves `dependencies()` reads the
+      // SAME workflow/run state a real execution would leave behind.
+      const run = await prisma.workflowRun.create({
+        data: {
+          companyId,
+          workflowId: wf.body.id,
+          status: 'WAITING',
+        },
+      });
+
+      const deps = await http()
+        .get(`/employees/${victimId}/dependencies`)
+        .set(bearer(ownerToken))
+        .expect(200);
+      expect(deps.body.inFlightRuns).toBe(1);
+
+      await http().delete(`/employees/${victimId}`).set(bearer(ownerToken)).expect(409);
+
+      // Untouched — the block worked, not merely reported.
+      const row = await prisma.aiEmployee.findUnique({ where: { id: victimId } });
+      expect(row?.archivedAt).toBeNull();
+
+      // Clean up so this run doesn't count toward a LATER test in this same
+      // describe block, which reuses `victimId` fresh each `beforeEach` but
+      // shares the workflow-run table across the whole suite.
+      await prisma.workflowRun.delete({ where: { id: run.id } });
+    });
   });
 
   // ── §6 Analytics authorization ──────────────────────────────────────────

@@ -38,6 +38,7 @@ import {
   toMessageDto,
 } from './employees.mapper';
 import { AgentRuntimeService } from './runtime/agent-runtime.service';
+import { workflowsReferencingEmployee } from './workflow-references';
 
 /** Human-readable subscription-status reason shown when a hire is blocked. */
 function statusReason(status: string): string {
@@ -268,7 +269,7 @@ export class EmployeesService {
       this.prisma.approvalRequest.count({
         where: { companyId, employeeId: id, status: 'PENDING' },
       }),
-      this.workflowsReferencing(companyId, id),
+      workflowsReferencingEmployee(this.prisma, companyId, id),
     ]);
 
     const inFlightRuns =
@@ -306,22 +307,6 @@ export class EmployeesService {
    * substring match on a cuid is precise enough to be useful and is only ever
    * used to WARN or BLOCK, never to widen anything.
    */
-  private async workflowsReferencing(
-    companyId: string,
-    employeeId: string,
-  ): Promise<string[]> {
-    const rows = await this.prisma.workflow.findMany({
-      where: {
-        companyId,
-        // Archived workflows can't run, so they can't be broken by this.
-        archivedAt: null,
-        definition: { string_contains: employeeId },
-      },
-      select: { id: true },
-    });
-    return rows.map((r) => r.id);
-  }
-
   /**
    * Delete an AI employee.
    *
