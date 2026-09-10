@@ -9,6 +9,7 @@ import { EmployeesService } from './employees.service';
 import { LearningController } from './learning.controller';
 import { LearningService } from './learning.service';
 import { LlmModule } from './llm/llm.module';
+import { EmployeeReadinessService } from './readiness/employee-readiness.service';
 import { AgentRuntimeService } from './runtime/agent-runtime.service';
 import { AiEmployeeStepNodeHandler } from './runtime/ai-employee-step.handler';
 import { WorkflowsModule } from '../workflows/workflows.module';
@@ -48,6 +49,7 @@ import { CreditsModule } from '../credits/credits.module';
   controllers: [EmployeesController, ConversationsController, LearningController],
   providers: [
     EmployeesService,
+    EmployeeReadinessService,
     LearningService,
     AgentRuntimeService,
     AiEmployeeStepNodeHandler,

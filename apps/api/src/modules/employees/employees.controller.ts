@@ -15,6 +15,7 @@ import type {
   AiEmployeeDto,
   ConversationDto,
   EmployeeDependenciesDto,
+  EmployeeReadinessDto,
 } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -25,6 +26,7 @@ import { RequirePermission } from '../authorization/require-permission.decorator
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { EmployeesService } from './employees.service';
+import { EmployeeReadinessService } from './readiness/employee-readiness.service';
 
 /**
  * All routes are tenant-scoped by companyId from the JWT and JWT-guarded.
@@ -36,7 +38,10 @@ import { EmployeesService } from './employees.service';
 @Controller('employees')
 @UseGuards(JwtAuthGuard, AuthorizationGuard)
 export class EmployeesController {
-  constructor(private readonly employees: EmployeesService) {}
+  constructor(
+    private readonly employees: EmployeesService,
+    private readonly readiness: EmployeeReadinessService,
+  ) {}
 
   @Post()
   @RequirePermission('employee:manage')
@@ -87,6 +92,21 @@ export class EmployeesController {
     @Param('id') id: string,
   ): Promise<EmployeeDependenciesDto> {
     return this.employees.dependencies(companyId, id);
+  }
+
+  /**
+   * Is this AI Employee actually ready to do real work — not just "not
+   * switched off"? DERIVED on every read from its real dependencies (skills,
+   * connections, knowledge, workflows), never stored — see
+   * `readiness/employee-readiness.ts` for why. Any member who may read the
+   * employee may read this.
+   */
+  @Get(':id/readiness')
+  readinessFor(
+    @CurrentTenant() companyId: string,
+    @Param('id') id: string,
+  ): Promise<EmployeeReadinessDto> {
+    return this.readiness.forEmployee(companyId, id);
   }
 
   /**

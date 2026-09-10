@@ -428,6 +428,68 @@ export type UpdateEmployeeDto = z.infer<typeof updateEmployeeSchema>;
 export type EmployeeConfigDto = z.infer<typeof employeeConfigSchema>;
 export type SendMessageDto = z.infer<typeof sendMessageSchema>;
 
+// --- Employee readiness (derived, never stored) -----------------------------
+
+/**
+ * How ready an AI Employee is to do real work.
+ *
+ * DERIVED on every read from the employee's actual dependencies — deliberately
+ * NOT a stored status. `AiEmployee.status` stays the three-value operational
+ * enum (ACTIVE/PAUSED/DISABLED) it has always been; adding DRAFT/PENDING_SETUP/
+ * READY to it would couple setup progress to seat accounting (PAUSED occupies a
+ * seat, DISABLED frees one) and to the execution kill switch, and a stored
+ * readiness column goes stale the moment a connection drops — which is exactly
+ * the "a column is not a feature" defect class this codebase keeps hitting.
+ *
+ * Mirrors `WorkflowReadinessDto`, which solved the same problem for workflows.
+ */
+export type EmployeeSetupState =
+  /** Every dependency it needs is in place; it can do the work it is configured for. */
+  | 'READY'
+  /** Usable, but something real is missing (no skills, a disconnected connector). */
+  | 'NEEDS_SETUP'
+  /** Cannot work at all right now — paused, disabled or archived. */
+  | 'BLOCKED';
+
+export type EmployeeReadinessSeverity = 'BLOCKER' | 'WARNING';
+
+export interface EmployeeReadinessIssueDto {
+  /** Stable machine code (e.g. SKILL_NOT_CONNECTED); the UI keys behaviour off this. */
+  code: string;
+  severity: EmployeeReadinessSeverity;
+  /** Plain-language and actionable. Shown verbatim to a non-technical operator. */
+  message: string;
+  /** The skill this is about, when it is about one. */
+  skillKey: string | null;
+}
+
+export interface EmployeeReadinessCheckDto {
+  key: 'STATUS' | 'SKILLS' | 'CONNECTIONS' | 'KNOWLEDGE' | 'WORKFLOWS';
+  label: string;
+  status: 'PASS' | 'FAIL' | 'WARN';
+}
+
+export interface EmployeeReadinessDto {
+  employeeId: string;
+  /** False when any issue is a BLOCKER. */
+  ready: boolean;
+  setupState: EmployeeSetupState;
+  checks: EmployeeReadinessCheckDto[];
+  issues: EmployeeReadinessIssueDto[];
+  summary: {
+    name: string;
+    /** Skills assigned to this employee. */
+    skillKeys: string[];
+    /** Of those, the ones whose connection is not usable right now. */
+    unreadySkillKeys: string[];
+    /** Workflows whose graph names this employee. */
+    workflowCount: number;
+    activeWorkflowCount: number;
+    /** Knowledge documents readable in this employee's scope. */
+    knowledgeDocumentCount: number;
+  };
+}
+
 // --- DTOs / API contract types ---------------------------------------------
 
 /** Public shape of an AI employee. */
