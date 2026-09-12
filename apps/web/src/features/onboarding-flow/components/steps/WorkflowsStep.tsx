@@ -49,7 +49,13 @@ const INERT_BUILD_MODES = [
 
 export function WorkflowsStep() {
   const goToStep = useOnboardingWizardStore((s) => s.goToStep);
-  const { employee } = useActiveEmployee();
+  const {
+    employee,
+    isLoading: employeeLoading,
+    isError: employeeIsError,
+    error: employeeError,
+    refetch: refetchEmployee,
+  } = useActiveEmployee();
 
   // There is no field on `WorkflowDto` linking an installed workflow back to
   // the template that created it (provenance is recorded server-side per the
@@ -82,6 +88,31 @@ export function WorkflowsStep() {
   const installTemplate = useInstallWorkflowTemplate();
 
   const backToHub = () => goToStep('configureEmployees');
+
+  // Same load-gate style as the templatesQuery gate below, mirrored for
+  // `useActiveEmployee()`: distinguish "still resolving the active employee"
+  // (routine on a cold sessionStorage-resumed sub-step, e.g. a page refresh
+  // mid-wizard) and "the employees query genuinely failed" from a real,
+  // resolved absence — the three used to collapse into the same "No AI
+  // Employee selected yet." message, which is a harmless flash in the first
+  // case but a permanent, wrong, dead-end claim with no retry in the second.
+  if (employeeLoading || employeeIsError) {
+    if (employeeIsError) {
+      return (
+        <FlowShell heading="Workflows">
+          <p className="text-sm text-red-400">
+            Couldn't load your AI Employees. {employeeError?.message ?? 'Please try again.'}
+          </p>
+          <StepFooter onBack={backToHub} onContinue={() => void refetchEmployee()} continueLabel="Retry" />
+        </FlowShell>
+      );
+    }
+    return (
+      <FlowShell heading="Workflows">
+        <p className="text-sm text-fg-muted">Loading your AI Employee…</p>
+      </FlowShell>
+    );
+  }
 
   if (!employee) {
     return (

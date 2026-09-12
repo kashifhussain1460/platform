@@ -102,6 +102,12 @@ export function ConfigureEmployeesStep() {
    * automatically. */
   const [createError, setCreateError] = useState<{ role: EmployeeTemplateKey; message: string } | null>(null);
 
+  // Visible failure feedback (Tasks 10-13's recurring lesson): the "Next
+  // Employee" save has no global mutation error handler, so a failed PATCH
+  // here would otherwise look identical to a dead button — the worst
+  // instance of this bug since it's the main hub navigation.
+  const [actionError, setActionError] = useState<string | null>(null);
+
   // Materialize the next selected-but-not-yet-created role as a real employee.
   useEffect(() => {
     // Gate on the employees list having actually loaded at least once. This
@@ -225,6 +231,7 @@ export function ConfigureEmployeesStep() {
 
   const onNextEmployee = handleSubmit(
     (values) => {
+      setActionError(null);
       updateEmployee.mutate(
         { id: activeEmployee.id, data: values },
         {
@@ -240,6 +247,7 @@ export function ConfigureEmployeesStep() {
               goToStep('review');
             }
           },
+          onError: (err) => setActionError(err.message || 'Could not save this employee.'),
         },
       );
     },
@@ -259,6 +267,11 @@ export function ConfigureEmployeesStep() {
       subtitle={`You selected ${selectedTemplateKeys.length} AI employee${selectedTemplateKeys.length === 1 ? '' : 's'}. Let's set them up one by one.`}
       wide
     >
+      {actionError && (
+        <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          {actionError}
+        </p>
+      )}
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">

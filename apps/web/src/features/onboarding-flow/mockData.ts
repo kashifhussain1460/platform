@@ -12,11 +12,14 @@ import type { EmployeeRole } from '@vaep/types';
 import type { EmployeeTemplate } from './types';
 
 /**
- * All reference/catalog data on this screen is local and mock, per the
- * UI-first phase — Part 3 of the onboarding standard. Keys deliberately mirror
- * the REAL backend enums/catalog keys (EmployeeRole, the skill catalog's
- * `key`, the real Plan enum) so Phase 2 can map this 1:1 onto real data
- * instead of inventing a second vocabulary.
+ * Static reference data this flow needs but has no backend table for: the
+ * `EMPLOYEE_TEMPLATES`/`templateForRole` role-template catalog (name, icon,
+ * avatar colors, default persona, suggested skill/workflow keys) plus the
+ * `GOALS`/`INDUSTRIES`/`COMPANY_SIZES` picklists. Skills, plans, and
+ * workflows are NOT mocked here — those are fetched live from the real
+ * catalogs (`useCatalog`, `usePlans`, `useWorkflowTemplates`). Keys here
+ * (`EmployeeTemplateKey`) deliberately match the real `EmployeeRole` enum
+ * values so `templateForRole` is a direct lookup, not a translation layer.
  */
 
 export const INDUSTRIES: readonly string[] = [

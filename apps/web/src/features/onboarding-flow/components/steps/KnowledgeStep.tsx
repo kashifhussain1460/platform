@@ -11,7 +11,13 @@ import { StepFooter } from '../StepFooter';
 
 export function KnowledgeStep() {
   const goToStep = useOnboardingWizardStore((s) => s.goToStep);
-  const { employee } = useActiveEmployee();
+  const {
+    employee,
+    isLoading: employeeLoading,
+    isError: employeeIsError,
+    error: employeeError,
+    refetch: refetchEmployee,
+  } = useActiveEmployee();
   const [dragOver, setDragOver] = useState(false);
   // Surfaces the most recent upload/delete failure inline — both mutations
   // optimistically update the documents cache and roll back on error (see
@@ -31,6 +37,31 @@ export function KnowledgeStep() {
   const docs = docsQuery.data ?? [];
   const upload = useUploadDocument();
   const remove = useDeleteDocument(employee?.role);
+
+  // Distinguish "still resolving the active employee" (routine on a cold
+  // sessionStorage-resumed sub-step, e.g. a page refresh mid-wizard) and "the
+  // employees query genuinely failed" from a real, resolved absence — the
+  // three used to collapse into the same "No AI Employee selected yet."
+  // message, which is a harmless flash in the first case but a permanent,
+  // wrong, dead-end claim with no retry in the second.
+  if (employeeLoading) {
+    return (
+      <FlowShell heading="Knowledge">
+        <p className="text-sm text-fg-muted">Loading your AI Employee…</p>
+      </FlowShell>
+    );
+  }
+
+  if (employeeIsError) {
+    return (
+      <FlowShell heading="Knowledge">
+        <p className="text-sm text-red-400">
+          Couldn't load your AI Employees. {employeeError?.message ?? 'Please try again.'}
+        </p>
+        <StepFooter onBack={backToHub} onContinue={() => void refetchEmployee()} continueLabel="Retry" />
+      </FlowShell>
+    );
+  }
 
   if (!employee) {
     return (

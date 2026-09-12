@@ -22,7 +22,13 @@ import { StepFooter } from '../StepFooter';
 
 export function SkillsStep() {
   const goToStep = useOnboardingWizardStore((s) => s.goToStep);
-  const { employee } = useActiveEmployee();
+  const {
+    employee,
+    isLoading: employeeLoading,
+    isError: employeeIsError,
+    error: employeeError,
+    refetch: refetchEmployee,
+  } = useActiveEmployee();
   const [category, setCategory] = useState<string>('All');
   // Surfaces the most recent install/assign/unassign failure inline — these
   // mutations optimistically roll back on error, which otherwise reads as a
@@ -44,6 +50,31 @@ export function SkillsStep() {
   const unassignSkill = useUnassignSkill(employee?.id ?? '');
 
   const backToHub = () => goToStep('configureEmployees');
+
+  // Distinguish "still resolving the active employee" (routine on a cold
+  // sessionStorage-resumed sub-step, e.g. a page refresh mid-wizard) and "the
+  // employees query genuinely failed" from a real, resolved absence — the
+  // three used to collapse into the same "No AI Employee selected yet."
+  // message, which is a harmless flash in the first case but a permanent,
+  // wrong, dead-end claim with no retry in the second.
+  if (employeeLoading) {
+    return (
+      <FlowShell heading="Skills & Capabilities">
+        <p className="text-sm text-fg-muted">Loading your AI Employee…</p>
+      </FlowShell>
+    );
+  }
+
+  if (employeeIsError) {
+    return (
+      <FlowShell heading="Skills & Capabilities">
+        <p className="text-sm text-red-400">
+          Couldn't load your AI Employees. {employeeError?.message ?? 'Please try again.'}
+        </p>
+        <StepFooter onBack={backToHub} onContinue={() => void refetchEmployee()} continueLabel="Retry" />
+      </FlowShell>
+    );
+  }
 
   if (!employee) {
     return (

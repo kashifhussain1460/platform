@@ -48,11 +48,10 @@ function OnboardingFlowSwitch() {
 }
 
 /**
- * The complete 12-screen onboarding experience — UI-first phase (Part 3 of
- * the onboarding standard). All state is local (Zustand store);
- * no backend call is made anywhere in this tree. See
- * `docs/.../onboarding-flow-ui-phase-report.md` for what Phase 2 needs to
- * wire this to the real Company/AiEmployee/Skill/Workflow backend.
+ * The complete 12-screen onboarding experience. Every step is wired to the
+ * real backend (Company/AiEmployee/Skill/Workflow/Billing/Readiness) via the
+ * hooks each step file imports; only wizard navigation/position state
+ * (`useOnboardingWizardStore`) is local.
  */
 export function OnboardingFlow() {
   return <OnboardingFlowSwitch />;

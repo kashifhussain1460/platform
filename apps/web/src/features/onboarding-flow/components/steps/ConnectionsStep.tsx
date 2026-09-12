@@ -143,7 +143,13 @@ function ConfigField({
 
 export function ConnectionsStep() {
   const goToStep = useOnboardingWizardStore((s) => s.goToStep);
-  const { employee } = useActiveEmployee();
+  const {
+    employee,
+    isLoading: employeeLoading,
+    isError: employeeIsError,
+    error: employeeError,
+    refetch: refetchEmployee,
+  } = useActiveEmployee();
   const backToHub = () => goToStep('configureEmployees');
 
   const catalogQuery = useCatalog();
@@ -169,6 +175,31 @@ export function ConnectionsStep() {
   // otherwise reads as a click that silently did nothing.
   const [actionError, setActionError] = useState<string | null>(null);
   const [verifyResults, setVerifyResults] = useState<Record<string, VerifyDisplay>>({});
+
+  // Distinguish "still resolving the active employee" (routine on a cold
+  // sessionStorage-resumed sub-step, e.g. a page refresh mid-wizard) and "the
+  // employees query genuinely failed" from a real, resolved absence — the
+  // three used to collapse into the same "No AI Employee selected yet."
+  // message, which is a harmless flash in the first case but a permanent,
+  // wrong, dead-end claim with no retry in the second.
+  if (employeeLoading) {
+    return (
+      <FlowShell heading="Connect Services">
+        <p className="text-sm text-fg-muted">Loading your AI Employee…</p>
+      </FlowShell>
+    );
+  }
+
+  if (employeeIsError) {
+    return (
+      <FlowShell heading="Connect Services">
+        <p className="text-sm text-red-400">
+          Couldn't load your AI Employees. {employeeError?.message ?? 'Please try again.'}
+        </p>
+        <StepFooter onBack={backToHub} onContinue={() => void refetchEmployee()} continueLabel="Retry" />
+      </FlowShell>
+    );
+  }
 
   if (!employee) {
     return (

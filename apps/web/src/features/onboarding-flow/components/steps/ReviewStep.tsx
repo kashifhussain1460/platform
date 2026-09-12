@@ -27,13 +27,39 @@ export function ReviewStep() {
   const prevStep = useOnboardingWizardStore((s) => s.prevStep);
   const goToStep = useOnboardingWizardStore((s) => s.goToStep);
   const { employee } = useActiveEmployee();
-  const { data: readiness } = useEmployeeReadiness(employee?.id ?? '');
+  const readinessQuery = useEmployeeReadiness(employee?.id ?? '');
+  const readiness = readinessQuery.data;
 
   if (!employee) {
     return (
       <FlowShell heading="Review your AI Employees">
         <p className="text-sm text-fg-muted">No AI Employees selected yet.</p>
         <StepFooter onBack={prevStep} onContinue={prevStep} continueLabel="Back" />
+      </FlowShell>
+    );
+  }
+
+  // Load/error gate (Task 14's own lesson — the fake "Activated" pill it
+  // removed was exactly this dishonest-UI anti-pattern): don't render the
+  // checklist/readiness readout straight from an in-flight or failed query.
+  // Before the query resolves, `readiness` is `undefined` and every field
+  // read below is optional-chained, so this would otherwise silently render
+  // an empty checklist plus a bare "Not ready" — indistinguishable from a
+  // real, resolved "nothing is ready yet".
+  if (!readinessQuery.isSuccess) {
+    if (readinessQuery.isError) {
+      return (
+        <FlowShell heading="Review your AI Employees" subtitle="Make sure everything is ready before activating." wide>
+          <p className="text-sm text-red-400">
+            Couldn't load readiness for {employee.name}. {readinessQuery.error?.message ?? 'Please try again.'}
+          </p>
+          <StepFooter onBack={prevStep} onContinue={() => void readinessQuery.refetch()} continueLabel="Retry" />
+        </FlowShell>
+      );
+    }
+    return (
+      <FlowShell heading="Review your AI Employees" subtitle="Make sure everything is ready before activating." wide>
+        <p className="text-sm text-fg-muted">Checking readiness…</p>
       </FlowShell>
     );
   }

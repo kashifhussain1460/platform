@@ -20,6 +20,10 @@ export function PlanStep() {
   // and PlanDto only carries a monthly price, so nothing about this toggle
   // is persisted.
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  // Visible failure feedback (Tasks 10-13's recurring lesson): there is no
+  // global mutation error handler, so a failed plan change must surface here
+  // or the button just re-enables with nothing having happened.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const currentPlan = subscription?.plan;
   const pendingPlan = changePlan.isPending
@@ -27,6 +31,7 @@ export function PlanStep() {
     : undefined;
 
   const onSelectPlan = (plan: Plan) => {
+    setActionError(null);
     changePlan.mutate(
       { plan },
       {
@@ -37,12 +42,18 @@ export function PlanStep() {
           // the immediate (mock provider / no checkout) path.
           if (!data.checkoutUrl) nextStep();
         },
+        onError: (err) => setActionError(err.message || "Couldn't change your plan."),
       },
     );
   };
 
   return (
     <FlowShell heading="Choose your plan" subtitle="Start with a plan that fits your needs." wide>
+      {actionError && (
+        <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          {actionError}
+        </p>
+      )}
       <div className="mb-6 flex items-center justify-center gap-2">
         <div className="inline-flex rounded-xl border border-white/[0.1] bg-white/[0.02] p-1">
           {(['monthly', 'yearly'] as const).map((cycle) => (

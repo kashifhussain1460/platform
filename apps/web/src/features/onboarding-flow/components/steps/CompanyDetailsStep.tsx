@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Building2, Globe, LayoutGrid, Users } from 'lucide-react';
@@ -16,6 +17,10 @@ export function CompanyDetailsStep() {
   const prevStep = useOnboardingWizardStore((s) => s.prevStep);
   const { data: company, isLoading } = useCurrentCompany();
   const updateCompany = useUpdateCompany();
+  // Visible failure feedback (Tasks 10-13's recurring lesson): there is no
+  // global mutation error handler, so a failed save must surface here or the
+  // Continue button just re-enables with nothing having happened.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const {
     register,
@@ -34,7 +39,11 @@ export function CompanyDetailsStep() {
   });
 
   const onSubmit = handleSubmit((values) => {
-    updateCompany.mutate(values, { onSuccess: () => nextStep() });
+    setActionError(null);
+    updateCompany.mutate(values, {
+      onSuccess: () => nextStep(),
+      onError: (err) => setActionError(err.message || "Couldn't save your company details."),
+    });
   });
 
   if (isLoading) {
@@ -47,6 +56,11 @@ export function CompanyDetailsStep() {
 
   return (
     <FlowShell heading="Tell us about your company" subtitle="This helps us personalise your AI Employees.">
+      {actionError && (
+        <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          {actionError}
+        </p>
+      )}
       <form onSubmit={onSubmit} className="space-y-5">
         <div>
           <IconField id="co-name" label="Company name" icon={<Building2 className="h-[18px] w-[18px]" />}>

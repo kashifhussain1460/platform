@@ -18,6 +18,10 @@ export function GoalsStep() {
   const { data: status } = useOnboardingStatus();
   const saveGoals = useSaveOnboardingGoals();
   const [selected, setSelected] = useState<string[]>([]);
+  // Visible failure feedback (Tasks 10-13's recurring lesson): there is no
+  // global mutation error handler, so a failed save must surface here or the
+  // Continue button just re-enables with nothing having happened.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status?.goals) setSelected(status.goals);
@@ -33,7 +37,11 @@ export function GoalsStep() {
       setErrors({ goals: 'Choose at least one goal so we can tailor your setup.' });
       return;
     }
-    saveGoals.mutate(selected, { onSuccess: () => nextStep() });
+    setActionError(null);
+    saveGoals.mutate(selected, {
+      onSuccess: () => nextStep(),
+      onError: (err) => setActionError(err.message || "Couldn't save your goals."),
+    });
   };
 
   return (
@@ -58,6 +66,11 @@ export function GoalsStep() {
         })}
       </div>
       {errors.goals && <p className="mt-3 text-[13px] text-red-400">{errors.goals}</p>}
+      {actionError && (
+        <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          {actionError}
+        </p>
+      )}
       <StepFooter onBack={prevStep} onContinue={onContinue} continueDisabled={saveGoals.isPending} />
     </FlowShell>
   );
