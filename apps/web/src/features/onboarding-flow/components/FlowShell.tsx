@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { Check, ChevronDown, HelpCircle, Moon, Sun } from 'lucide-react';
+import { useCurrentCompany } from '@/features/tenant/hooks';
 import { FLOW_STEPS, STEP_LABELS } from '../types';
 import { useOnboardingWizardStore } from '../wizardStore';
 import { BrandPanel } from './BrandPanel';
@@ -95,8 +96,8 @@ export function FlowShell({
   wide?: boolean;
 }) {
   const step = useOnboardingWizardStore((s) => s.step);
-  // TODO(Task 5): replace with the real company name from useCurrentCompany().
-  const companyName = 'Your company';
+  const { data: company } = useCurrentCompany();
+  const companyName = company?.name || 'Your company';
   const stepIdx = FLOW_STEPS.indexOf(step);
 
   return (
