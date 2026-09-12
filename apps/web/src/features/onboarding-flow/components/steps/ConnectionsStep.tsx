@@ -12,6 +12,7 @@ import {
   useVerifyConnection,
 } from '@/features/skills/hooks';
 import { authorizeOAuth, type VerifyConnectionResult } from '@/features/skills/api';
+import type { NormalizedApiError } from '@/lib/apiClient';
 import { iconForSkill } from '../../skillIcons';
 import { useActiveEmployee } from '../../useActiveEmployee';
 import { useOnboardingWizardStore } from '../../wizardStore';
@@ -41,15 +42,9 @@ const STATUS_STYLE: Record<InstalledSkillDto['connectionStatus'], string> = {
  * URL and hand the browser off to it. A one-off function (not a hook) since
  * it's a single `window.location.assign` side effect, not cacheable
  * query/mutation state — mirrors what `SkillRequirementCard` does for the AI
- * Assist flow.
- *
- * KNOWN GAP (backend, out of this file's scope): `oauth.service.ts`'s
- * `RETURN_TO_PREFIXES` allowlist only covers `/assist/`, `/workflows/` and
- * `/employees/`. This onboarding page isn't on it, so the OAuth callback
- * will fall back to `/skills` instead of back into the wizard after a real
- * provider round-trip. Passing the real pathname is still the correct
- * intent (costs nothing, and starts working the moment that allowlist is
- * widened) — flagged here rather than silently working around it.
+ * Assist flow. `RETURN_TO_PREFIXES` in `oauth.service.ts` allowlists
+ * `/onboarding-preview` and `/onboarding` too, so this real pathname
+ * round-trips back into the wizard instead of falling back to `/skills`.
  */
 async function startOAuth(installedSkillId: string): Promise<void> {
   const { url } = await authorizeOAuth(installedSkillId, window.location.pathname);
@@ -266,9 +261,14 @@ export function ConnectionsStep() {
     try {
       await startOAuth(skill.id);
       // Browser is navigating away — no need to clear pendingId.
-    } catch {
+    } catch (err) {
       setPendingId(null);
-      setActionError(`Couldn't start connecting ${skill.displayName}. Try again.`);
+      // Both real failure modes here carry a real, actionable server message —
+      // OAuthService.assertCanActuallyAct explains when a skill is demo-only
+      // and connecting is deliberately blocked (e.g. hubspot/jira), and a
+      // missing provider config returns "OAuth is not configured." A fixed
+      // "try again" would be actively misleading for either.
+      setActionError((err as NormalizedApiError).message || `Couldn't start connecting ${skill.displayName}.`);
     }
   };
 
@@ -383,6 +383,16 @@ export function ConnectionsStep() {
                 const verifyResult = verifyResults[skill.id];
                 const needsReconnect = skill.connectionStatus === 'DEGRADED' || skill.connectionStatus === 'DISCONNECTED';
                 const canVerify = skill.connectionStatus === 'CONNECTED' || skill.connectionStatus === 'DEGRADED';
+                // A skill with no real executor must not ask for real credentials
+                // here either — same gate ConnectSkillControl.tsx already applies
+                // elsewhere in this app (stripe/github are api_key+SIMULATED,
+                // hubspot/jira are oauth+SIMULATED). The server refuses this in
+                // production (OAuthService.assertCanActuallyAct / the connect
+                // endpoint's own check), but outside production it would just
+                // flip to CONNECTED with nothing actually connected — a "green
+                // that did nothing" result. The skill stays installed/usable in
+                // simulated mode; only the credential handover is blocked.
+                const isSimulated = def?.executionSupport === 'SIMULATED';
 
                 return (
                   <li key={skill.id} className="px-4 py-3.5">
@@ -403,41 +413,47 @@ export function ConnectionsStep() {
                         </div>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2">
-                        {canVerify && (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => onVerify(skill)}
-                            className="rounded-lg border border-white/[0.1] px-3 py-1.5 text-xs font-medium text-zinc-300 hover:border-white/[0.2] disabled:opacity-60"
-                          >
-                            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Verify'}
-                          </button>
-                        )}
-                        {skill.connectionStatus !== 'CONNECTED' &&
-                          (isOAuth ? (
+                      {isSimulated ? (
+                        <span className="shrink-0 text-xs font-medium text-amber-400">
+                          Demo only — nothing to connect yet
+                        </span>
+                      ) : (
+                        <div className="flex shrink-0 items-center gap-2">
+                          {canVerify && (
                             <button
                               type="button"
                               disabled={busy}
-                              onClick={() => void onConnectOAuth(skill)}
-                              className="rounded-lg bg-violet px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-hover disabled:opacity-60"
+                              onClick={() => onVerify(skill)}
+                              className="rounded-lg border border-white/[0.1] px-3 py-1.5 text-xs font-medium text-zinc-300 hover:border-white/[0.2] disabled:opacity-60"
                             >
-                              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : needsReconnect ? 'Reconnect' : 'Connect'}
+                              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Verify'}
                             </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => (isOpen ? closeForm() : openForm(skill))}
-                              className="rounded-lg bg-violet px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-hover disabled:opacity-60"
-                            >
-                              {isOpen ? 'Cancel' : needsReconnect ? 'Reconnect' : 'Connect'}
-                            </button>
-                          ))}
-                      </div>
+                          )}
+                          {skill.connectionStatus !== 'CONNECTED' &&
+                            (isOAuth ? (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void onConnectOAuth(skill)}
+                                className="rounded-lg bg-violet px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-hover disabled:opacity-60"
+                              >
+                                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : needsReconnect ? 'Reconnect' : 'Connect'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => (isOpen ? closeForm() : openForm(skill))}
+                                className="rounded-lg bg-violet px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-hover disabled:opacity-60"
+                              >
+                                {isOpen ? 'Cancel' : needsReconnect ? 'Reconnect' : 'Connect'}
+                              </button>
+                            ))}
+                        </div>
+                      )}
                     </div>
 
-                    {!isOAuth && isOpen && (
+                    {!isSimulated && !isOAuth && isOpen && (
                       <div className="mt-3 space-y-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5">
                         {(def?.configSchema ?? []).length === 0 ? (
                           <p className="text-xs text-fg-muted">This connection needs no extra details.</p>
