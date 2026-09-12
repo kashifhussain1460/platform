@@ -1,14 +1,17 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import type { NormalizedApiError } from '@/lib/apiClient';
 import { Button } from '@/components/ui/Button';
 import { useEmployees } from '@/features/employees/hooks';
 import { useCompleteOnboarding } from '@/features/onboarding/hooks';
 import { templateForRole } from '../../mockData';
 import { useOnboardingWizardStore } from '../../wizardStore';
 import { FlowShell } from '../FlowShell';
+
+type CompletionPhase = 'pending' | 'success' | 'error';
 
 /**
  * Stamps `company.onboardedAt` via `POST /onboarding/complete` — the only
@@ -39,31 +42,58 @@ export function SuccessStep() {
     .map((id) => employees.find((e) => e.id === id))
     .filter((e): e is NonNullable<typeof e> => Boolean(e));
 
-  // Fire once on mount. Guarded by the mutation's OWN `isIdle` status, not a
-  // separate ref — a ref-based guard (`firedRef.current`) reliably prevents a
-  // second network call under React 18 Strict Mode's dev-only double-invoke,
-  // but does NOT reliably prevent the mutation observer from losing track of
-  // the in-flight call's resolution: the first effect invocation fires
-  // mutate() and flips the ref, the immediate synthetic cleanup+remount runs
-  // the effect again and correctly skips re-firing (ref says "already done"),
-  // but the underlying MutationObserver instance is still transitioning
-  // between the two invocations, and the in-flight promise's onSuccess/
-  // onSettled — and the isPending -> false transition — were observed to
-  // never reach this component in dev (confirmed live: network tab shows a
-  // real 201, but the button stayed stuck on "Finishing up…" indefinitely).
-  // Gating on `isIdle` instead ties the guard to the SAME state object the
-  // render reads (`completeOnboarding.status`), so there's no separate ref
-  // that can fall out of sync with the observer's actual lifecycle. The
-  // backend call is idempotent regardless (a company that is already
-  // onboarded short-circuits to its current state instead of re-running).
-  const { mutate: fireCompleteOnboarding, isIdle } = completeOnboarding;
+  // Fire once on mount, tracked via LOCAL state set from the mutateAsync
+  // promise's own continuation — deliberately NOT via the mutation's own
+  // reactive `isPending`/`isError` (what an earlier version of this file, and
+  // a first fix attempt, both did). Confirmed live (real network calls +
+  // instrumented tracing, then isolated by toggling next.config.mjs's
+  // `reactStrictMode` off/on) that React 18 Strict Mode's dev-only double-
+  // invoke of this mount effect does NOT re-render the component between the
+  // two invocations, so a primitive guard captured at render time (a `status`
+  // string, an `isIdle` boolean) is identical in both invocations and cannot
+  // block the second call — only a *ref* (a live binding, not a captured
+  // value) can. But a ref-only guard has its own failure mode here: React
+  // Query's `useMutation` internally double-subscribes/unsubscribes its
+  // `MutationObserver` across that same cycle, and the observer that started
+  // the in-flight call can get detached before it resolves — so relying on
+  // the OBSERVER's own `isPending`/`onSuccess` to drive this component's
+  // render silently drops the resolution, permanently stuck.
+  // `mutateAsync`'s returned promise is not affected by that observer
+  // detachment — it resolves independently — so pairing a `useRef` guard
+  // (prevents a second real network call) with a plain promise `.then()`/
+  // `.catch()` writing to local `useState` (decoupled from the observer's
+  // subscription lifecycle) fixes both problems at once. Confirmed by
+  // reproducing with `reactStrictMode: true` (the repo's real setting):
+  // exactly one `POST /onboarding/complete` fires, and the button correctly
+  // unsticks once it resolves.
+  const [phase, setPhase] = useState<CompletionPhase>('pending');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { mutateAsync: completeOnboardingAsync } = completeOnboarding;
+  const firedRef = useRef(false);
   useEffect(() => {
-    if (!isIdle) return;
-    fireCompleteOnboarding({ departments: [], employees: [] });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once, guarded by isIdle (the mutation's own status), not a ref
-  }, [isIdle, fireCompleteOnboarding]);
+    if (firedRef.current) return;
+    firedRef.current = true;
+    completeOnboardingAsync({ departments: [], employees: [] })
+      .then(() => setPhase('success'))
+      .catch((err: NormalizedApiError) => {
+        setPhase('error');
+        setErrorMessage(err?.message ?? null);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount, guarded by firedRef
+  }, []);
 
-  if (completeOnboarding.isError) {
+  const retry = () => {
+    setPhase('pending');
+    setErrorMessage(null);
+    completeOnboardingAsync({ departments: [], employees: [] })
+      .then(() => setPhase('success'))
+      .catch((err: NormalizedApiError) => {
+        setPhase('error');
+        setErrorMessage(err?.message ?? null);
+      });
+  };
+
+  if (phase === 'error') {
     return (
       <FlowShell>
         <div className="flex min-h-[70vh] flex-col items-center justify-center text-center">
@@ -72,11 +102,11 @@ export function SuccessStep() {
           </span>
           <h1 className="mt-6 text-[30px] font-bold text-white">Almost done</h1>
           <p className="mt-2 max-w-sm text-[15px] text-fg-muted">
-            {completeOnboarding.error?.message || "Couldn't finish setting up your account."}
+            {errorMessage || "Couldn't finish setting up your account."}
           </p>
           <button
             type="button"
-            onClick={() => completeOnboarding.mutate({ departments: [], employees: [] })}
+            onClick={retry}
             className="mt-6 rounded-xl bg-violet px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-hover"
           >
             Try again
@@ -129,11 +159,11 @@ export function SuccessStep() {
               // actually landed on the session's company — AppLayout's redirect
               // guard reads `company.onboardedAt` from the Zustand store and
               // would otherwise bounce straight back to /onboarding.
-              if (completeOnboarding.isPending) e.preventDefault();
+              if (phase === 'pending') e.preventDefault();
             }}
           >
-            <Button variant="violet" size="lg" className="w-full" disabled={completeOnboarding.isPending}>
-              {completeOnboarding.isPending ? 'Finishing up…' : 'Go to Dashboard →'}
+            <Button variant="violet" size="lg" className="w-full" disabled={phase === 'pending'}>
+              {phase === 'pending' ? 'Finishing up…' : 'Go to Dashboard →'}
             </Button>
           </Link>
           <button
