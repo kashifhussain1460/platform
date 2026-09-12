@@ -8,6 +8,7 @@ import type { AiEmployeeDto } from '@vaep/types';
 import { IconField } from '@/components/onboarding/fields';
 import { useCreateEmployee, useEmployees, useUpdateEmployee } from '@/features/employees/hooks';
 import { templateForRole, EMPLOYEE_TEMPLATES } from '../../mockData';
+import { useActiveEmployee } from '../../useActiveEmployee';
 import { useOnboardingWizardStore } from '../../wizardStore';
 import { employeeConfigSchema, type EmployeeConfigFormValues } from '../../employeeConfigSchema';
 import type { EmployeeTemplateKey, FlowStep } from '../../types';
@@ -42,7 +43,6 @@ function EmployeeStatusPill({ done, isActive }: { done: boolean; isActive: boole
 export function ConfigureEmployeesStep() {
   const selectedTemplateKeys = useOnboardingWizardStore((s) => s.selectedTemplateKeys);
   const employeeOrder = useOnboardingWizardStore((s) => s.employeeOrder);
-  const activeEmployeeId = useOnboardingWizardStore((s) => s.activeEmployeeId);
   const setActiveEmployee = useOnboardingWizardStore((s) => s.setActiveEmployee);
   const pushEmployeeId = useOnboardingWizardStore((s) => s.pushEmployeeId);
   const markVisited = useOnboardingWizardStore((s) => s.markVisited);
@@ -60,7 +60,7 @@ export function ConfigureEmployeesStep() {
   const roster = employeeOrder
     .map((id) => employees.find((e) => e.id === id))
     .filter((e): e is AiEmployeeDto => Boolean(e));
-  const activeEmployee = roster.find((e) => e.id === activeEmployeeId) ?? null;
+  const { employee: activeEmployee } = useActiveEmployee();
 
   /**
    * Synchronous in-flight guard for the create-on-demand effect below.
