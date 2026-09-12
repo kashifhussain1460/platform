@@ -12,7 +12,9 @@ interface OnboardingWizardState {
   goToStep: (step: FlowStep) => void;
   nextStep: () => void;
   prevStep: () => void;
-  setActiveEmployee: (id: string) => void;
+  /** `null` clears the active employee — used by ConfigureEmployeesStep to
+   * re-trigger its create-on-demand effect for the next not-yet-created role. */
+  setActiveEmployee: (id: string | null) => void;
   toggleTemplateKey: (key: EmployeeTemplateKey) => void;
   pushEmployeeId: (id: string) => void;
   markVisited: (id: string) => void;
