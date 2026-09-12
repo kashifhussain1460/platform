@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Globe, Link2, User, Workflow, BookOpen, Zap, ChevronRight } from 'lucide-react';
@@ -10,7 +10,7 @@ import { useCreateEmployee, useEmployees, useUpdateEmployee } from '@/features/e
 import { templateForRole, EMPLOYEE_TEMPLATES } from '../../mockData';
 import { useOnboardingWizardStore } from '../../wizardStore';
 import { employeeConfigSchema, type EmployeeConfigFormValues } from '../../employeeConfigSchema';
-import type { FlowStep } from '../../types';
+import type { EmployeeTemplateKey, FlowStep } from '../../types';
 import { EmployeeAvatar } from '../EmployeeAvatar';
 import { FlowShell } from '../FlowShell';
 import { StepFooter } from '../StepFooter';
@@ -52,7 +52,8 @@ export function ConfigureEmployeesStep() {
   const setErrors = useOnboardingWizardStore((s) => s.setErrors);
   const errors = useOnboardingWizardStore((s) => s.errors);
 
-  const { data: employees = [] } = useEmployees();
+  const employeesQuery = useEmployees();
+  const employees = employeesQuery.data ?? [];
   const createEmployee = useCreateEmployee();
   const updateEmployee = useUpdateEmployee();
 
@@ -90,8 +91,28 @@ export function ConfigureEmployeesStep() {
    */
   const creatingRef = useRef(false);
 
+  /** Latches a failed create so the effect won't auto-retry it. `roster` is
+   * rebuilt fresh every render (not memoized), so the effect's dependency
+   * array does not by itself throttle re-runs — without this latch, an
+   * `onError` clearing `creatingRef` plus calling `setErrors` (a state
+   * update, so a re-render) would let the effect immediately re-fire the
+   * same POST, forever, on any failure (seat limit, network blip, etc.),
+   * with the loading fallback the only thing the user ever sees. Cleared on
+   * success, and by the explicit "Try again" action below — never
+   * automatically. */
+  const [createError, setCreateError] = useState<{ role: EmployeeTemplateKey; message: string } | null>(null);
+
   // Materialize the next selected-but-not-yet-created role as a real employee.
   useEffect(() => {
+    // Gate on the employees list having actually loaded at least once. This
+    // page has no query hydration/persistence, so on a cold cache (e.g. a
+    // browser refresh) `employeesQuery.data` is `undefined` on the first
+    // render after the auth gate flips to authenticated — defaulted to `[]`
+    // above for convenience elsewhere, but treating that default as "confirmed
+    // empty roster" here would re-create the first role even though it
+    // already exists server-side and `employeeOrder`/`activeEmployeeId` in
+    // sessionStorage already point at it.
+    if (!employeesQuery.isSuccess) return;
     if (activeEmployee) {
       creatingRef.current = false;
       return;
@@ -99,6 +120,9 @@ export function ConfigureEmployeesStep() {
     if (creatingRef.current || createEmployee.isPending) return;
     const nextKey = selectedTemplateKeys.find((key) => !roster.some((e) => e.role === key));
     if (!nextKey) return;
+    // Latched failure for this exact role — wait for the user to explicitly
+    // retry rather than looping the same POST on every re-render.
+    if (createError && createError.role === nextKey) return;
     const template = EMPLOYEE_TEMPLATES.find((t) => t.key === nextKey);
     if (!template) return;
     creatingRef.current = true;
@@ -106,18 +130,36 @@ export function ConfigureEmployeesStep() {
       { name: template.name, role: nextKey as AiEmployeeDto['role'], persona: template.defaultPersona },
       {
         onSuccess: (created) => {
+          setCreateError(null);
+          // KNOWN GAP (narrow, documented rather than fixed here — a full fix
+          // means reconciling `employeeOrder` against the server's real
+          // employee list, which is bigger than this file): if the browser
+          // refreshes in the window between the server successfully creating
+          // this employee and this callback running, the new id never makes
+          // it into `employeeOrder`/`activeEmployeeId`. On resume, this role
+          // would look not-yet-created and get recreated — the POST carries
+          // no idempotency key. Narrow window (one HTTP response tick), not
+          // addressed by this task.
           pushEmployeeId(created.id);
           setActiveEmployee(created.id);
         },
-        onError: () => {
-          // Allow the next render to retry rather than getting stuck forever.
-          creatingRef.current = false;
-          setErrors({ configure: 'Could not create this employee. Please try again.' });
+        onError: (err) => {
+          // Deliberately do NOT clear `creatingRef` here — leaving it `true`
+          // (on top of the `createError` latch below) means a stray re-render
+          // before the user acts can't slip through and retry on its own.
+          setCreateError({ role: nextKey, message: err.message || 'Could not create this employee.' });
         },
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally re-runs only when these change
-  }, [activeEmployee, selectedTemplateKeys, roster, createEmployee.isPending]);
+  }, [activeEmployee, selectedTemplateKeys, roster, employeesQuery.isSuccess, createEmployee.isPending, createError]);
+
+  /** Explicit user action to retry the role `createError` latched — re-arms
+   * both guards so the effect above is allowed to attempt it again. */
+  const retryCreate = () => {
+    creatingRef.current = false;
+    setCreateError(null);
+  };
 
   const template = activeEmployee ? templateForRole(activeEmployee.role) : null;
 
@@ -133,9 +175,39 @@ export function ConfigureEmployeesStep() {
   });
 
   if (!activeEmployee || !template) {
+    // Genuinely loading the roster (cold cache / first render after the auth
+    // gate resolves) — not creating anything yet, so don't claim we are.
+    if (!employeesQuery.isSuccess) {
+      if (employeesQuery.isError) {
+        return (
+          <FlowShell heading="Configure Your AI Employees">
+            <p className="text-sm text-red-400">
+              Couldn't load your AI Employees. {employeesQuery.error?.message ?? 'Please try again.'}
+            </p>
+            <StepFooter onBack={prevStep} onContinue={() => void employeesQuery.refetch()} continueLabel="Retry" />
+          </FlowShell>
+        );
+      }
+      return (
+        <FlowShell heading="Configure Your AI Employees">
+          <p className="text-sm text-fg-muted">Loading your AI Employees…</p>
+        </FlowShell>
+      );
+    }
+    // Roster loaded fine, but creating the next employee failed — a dead end
+    // otherwise, since nothing else renders in this branch. Give the user a
+    // way out and an explicit way to retry (see `retryCreate` above).
+    if (createError) {
+      return (
+        <FlowShell heading="Configure Your AI Employees">
+          <p className="text-sm text-red-400">{createError.message}</p>
+          <StepFooter onBack={prevStep} onContinue={retryCreate} continueLabel="Try again" />
+        </FlowShell>
+      );
+    }
     return (
       <FlowShell heading="Configure Your AI Employees">
-        <p className="text-sm text-fg-muted">Setting up your first employee…</p>
+        <p className="text-sm text-fg-muted">Setting up your next AI Employee…</p>
       </FlowShell>
     );
   }
