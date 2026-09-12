@@ -125,6 +125,98 @@ export function AirbnbIcon({ className }: IconProps) {
   );
 }
 
+export function CalendarIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={box} aria-hidden xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="4" width="20" height="18" rx="3" fill="#FFFFFF" />
+      <rect x="2" y="4" width="20" height="5" rx="2" fill="#4285F4" />
+      <rect x="6" y="2" width="2" height="4" rx="1" fill="#1A73E8" />
+      <rect x="16" y="2" width="2" height="4" rx="1" fill="#1A73E8" />
+      <rect x="5" y="12" width="3" height="3" fill="#34A853" />
+      <rect x="10.5" y="12" width="3" height="3" fill="#FBBC05" />
+      <rect x="16" y="12" width="3" height="3" fill="#EA4335" />
+      <rect x="5" y="16.5" width="3" height="3" fill="#4285F4" />
+    </svg>
+  );
+}
+
+export function ZoomIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={box} aria-hidden xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="22" height="22" rx="6" fill="#2D8CFF" />
+      <rect x="5" y="8" width="10" height="8" rx="2" fill="#FFFFFF" />
+      <path d="M16 10.5 20 8v8l-4-2.5Z" fill="#FFFFFF" />
+    </svg>
+  );
+}
+
+export function StripeIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={box} aria-hidden xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="22" height="22" rx="5" fill="#635BFF" />
+      <path
+        d="M11.4 8.9c0-.6.5-.9 1.3-.9 1.2 0 2.6.4 3.8 1V6.1A9.9 9.9 0 0 0 12.7 5c-2.9 0-4.9 1.5-4.9 4 0 3.9 5.4 3.3 5.4 5 0 .7-.6 1-1.5 1-1.3 0-3-.5-4.3-1.2v2.9A10.6 10.6 0 0 0 11.7 18c3 0 5.1-1.5 5.1-4.1 0-4.2-5.4-3.4-5.4-5Z"
+        fill="#FFFFFF"
+      />
+    </svg>
+  );
+}
+
+export function AsanaIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={box} aria-hidden xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="5.5" r="3.5" fill="#F06A6A" />
+      <circle cx="5.5" cy="16" r="3.5" fill="#F06A6A" />
+      <circle cx="18.5" cy="16" r="3.5" fill="#F06A6A" />
+    </svg>
+  );
+}
+
+export function ClickUpIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={box} aria-hidden xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="cu-g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#8930FD" />
+          <stop offset="100%" stopColor="#49CCF9" />
+        </linearGradient>
+      </defs>
+      <path d="M4 15.5 12 9l8 6.5-2.4 1.9L12 13l-5.6 4.4Z" fill="url(#cu-g)" />
+      <path d="M4 19.5 12 13l8 6.5-2.4 1.9L12 17l-5.6 4.4Z" fill="url(#cu-g)" opacity=".55" />
+    </svg>
+  );
+}
+
+export function PipedriveIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={box} aria-hidden xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="11" fill="#000000" />
+      <path
+        d="M11.3 6.2c2.7 0 4.5 1.8 4.5 4.4 0 2.7-1.8 4.5-4.2 4.5-1 0-1.8-.3-2.3-.9v4.6H6.8V6.5h2.4l.1 1c.5-.8 1.3-1.3 2-1.3Zm-.6 6.9c1.3 0 2.2-.9 2.2-2.4 0-1.4-.9-2.4-2.2-2.4-1.3 0-2.2 1-2.2 2.4 0 1.5.9 2.4 2.2 2.4Z"
+        fill="#FFFFFF"
+      />
+    </svg>
+  );
+}
+
+export function CanvaIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} style={box} aria-hidden xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="canva-g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#00C4CC" />
+          <stop offset="100%" stopColor="#7D2AE8" />
+        </linearGradient>
+      </defs>
+      <circle cx="12" cy="12" r="11" fill="url(#canva-g)" />
+      <path
+        d="M16.8 11.3c0-.3-.2-.5-.5-.4-.7.2-1.2 1-1.7 1.8-.5.8-1 1.6-1.7 1.6-.6 0-.9-.5-.9-1.3 0-1.5.9-3.6 1.7-5 .1-.3 0-.5-.3-.5h-1.3c-.2 0-.3.1-.4.3-1 2-1.7 4.2-1.7 5.9 0 1.6.8 2.6 2.1 2.6 1.1 0 1.9-.7 2.5-1.6.1.9.7 1.6 1.7 1.6 1.4 0 2.2-1.5 2.2-3.1 0-.6-.1-1.3-.3-1.9Z"
+        fill="#FFFFFF"
+      />
+    </svg>
+  );
+}
+
 /** "+ More" tile glyph — plain plus, no brand. */
 export function MoreIcon({ className }: IconProps) {
   return (
