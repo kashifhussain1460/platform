@@ -1,53 +1,64 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+import { useOnboardingStatus, useSaveOnboardingGoals } from '@/features/onboarding/hooks';
 import { GOALS } from '../../mockData';
-import { useOnboardingFlow } from '../../state';
+import { useOnboardingWizardStore } from '../../wizardStore';
 import { CardCheckbox } from '../CardCheckbox';
 import { FlowShell } from '../FlowShell';
 import { StepFooter } from '../StepFooter';
 
 export function GoalsStep() {
-  const { state, dispatch, nextStep, prevStep, setErrors } = useOnboardingFlow();
+  const nextStep = useOnboardingWizardStore((s) => s.nextStep);
+  const prevStep = useOnboardingWizardStore((s) => s.prevStep);
+  const setErrors = useOnboardingWizardStore((s) => s.setErrors);
+  const errors = useOnboardingWizardStore((s) => s.errors);
+  const clearError = useOnboardingWizardStore((s) => s.clearError);
+
+  const { data: status } = useOnboardingStatus();
+  const saveGoals = useSaveOnboardingGoals();
+  const [selected, setSelected] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (status?.goals) setSelected(status.goals);
+  }, [status?.goals]);
+
+  const toggle = (key: string) => {
+    setSelected((prev) => (prev.includes(key) ? prev.filter((g) => g !== key) : [...prev, key]));
+    clearError('goals');
+  };
 
   const onContinue = () => {
-    if (state.goals.length === 0) {
+    if (selected.length === 0) {
       setErrors({ goals: 'Choose at least one goal so we can tailor your setup.' });
       return;
     }
-    nextStep();
+    saveGoals.mutate(selected, { onSuccess: () => nextStep() });
   };
 
   return (
     <FlowShell heading="What are your main goals?" subtitle="Select all that apply.">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {GOALS.map((goal) => {
-          const selected = state.goals.includes(goal.key);
+          const isSelected = selected.includes(goal.key);
           return (
             <button
               key={goal.key}
               type="button"
-              onClick={() => {
-                dispatch({ type: 'TOGGLE_GOAL', key: goal.key });
-                dispatch({ type: 'CLEAR_ERROR', field: 'goals' });
-              }}
-              aria-pressed={selected}
+              onClick={() => toggle(goal.key)}
+              aria-pressed={isSelected}
               className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-4 text-left text-sm font-medium transition-colors ${
-                selected
-                  ? 'border-violet-secondary/60 bg-violet/[0.1] text-white'
-                  : 'border-white/[0.08] bg-white/[0.02] text-zinc-300 hover:border-white/[0.16]'
+                isSelected ? 'border-violet-secondary/60 bg-violet/[0.1] text-white' : 'border-white/[0.08] bg-white/[0.02] text-zinc-300 hover:border-white/[0.16]'
               }`}
             >
               {goal.label}
-              <CardCheckbox checked={selected} className="mt-0.5" />
+              <CardCheckbox checked={isSelected} className="mt-0.5" />
             </button>
           );
         })}
       </div>
-      {state.errors.goals && (
-        <p className="mt-3 text-[13px] text-red-400">{state.errors.goals}</p>
-      )}
-
-      <StepFooter onBack={prevStep} onContinue={onContinue} />
+      {errors.goals && <p className="mt-3 text-[13px] text-red-400">{errors.goals}</p>}
+      <StepFooter onBack={prevStep} onContinue={onContinue} continueDisabled={saveGoals.isPending} />
     </FlowShell>
   );
 }
