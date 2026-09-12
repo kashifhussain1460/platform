@@ -2,33 +2,16 @@ import {
   Headphones,
   Kanban,
   Megaphone,
-  Settings2,
   Sparkles,
   TrendingUp,
   Users,
   CreditCard,
+  UserSearch,
 } from 'lucide-react';
-import {
-  AsanaIcon,
-  CalendarIcon,
-  CanvaIcon,
-  ClickUpIcon,
-  GmailIcon,
-  GoogleDriveIcon,
-  HubSpotIcon,
-  LinkedInIcon,
-  NotionIcon,
-  PipedriveIcon,
-  SalesforceIcon,
-  SlackIcon,
-  StripeIcon,
-  ZoomIcon,
-} from '@/components/marketing-dark/brand-icons';
 import type {
   EmployeeTemplate,
   EmployeeTemplateKey,
   PlanDef,
-  SkillDef,
   WorkflowTemplateDef,
 } from './types';
 
@@ -193,17 +176,17 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     suggestedWorkflowKeys: ['invoice-follow-up', 'expense-summary'],
   },
   {
-    key: 'OPERATIONS',
-    name: 'Operations AI',
-    department: 'Operations',
-    description: 'Automate internal tasks',
-    icon: Settings2,
+    key: 'RECRUITER',
+    name: 'Recruiter AI',
+    department: 'Recruiting',
+    description: 'Source & screen candidates',
+    icon: UserSearch,
     colorClass: 'bg-cyan-500/15 text-cyan-400',
     avatarFrom: '#22D3EE',
     avatarTo: '#0891B2',
     defaultPersona: 'Organised, efficient, detail-oriented',
-    suggestedSkillKeys: ['slack', 'gdrive', 'jira'],
-    suggestedWorkflowKeys: ['task-assignment', 'weekly-ops-report'],
+    suggestedSkillKeys: ['gmail', 'calendar', 'scheduling'],
+    suggestedWorkflowKeys: ['candidate-screening', 'interview-scheduling'],
   },
   {
     key: 'PROJECT_MANAGER',
@@ -235,152 +218,6 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
 
 export function templateFor(key: EmployeeTemplateKey): EmployeeTemplate {
   return EMPLOYEE_TEMPLATES.find((t) => t.key === key) ?? EMPLOYEE_TEMPLATES[7];
-}
-
-/** Same icon set/keys `features/skills/components/SkillCatalog.tsx` uses. */
-export const SKILLS: readonly SkillDef[] = [
-  {
-    key: 'gmail',
-    name: 'Gmail',
-    category: 'Communication',
-    description: 'Send and read email',
-    icon: GmailIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'slack',
-    name: 'Slack',
-    category: 'Communication',
-    description: 'Team communication and notifications',
-    icon: SlackIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'zoom',
-    name: 'Zoom',
-    category: 'Communication',
-    description: 'Join and schedule meetings',
-    icon: ZoomIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'hubspot',
-    name: 'HubSpot',
-    category: 'CRM & Sales',
-    description: 'Manage contacts, deals and pipelines',
-    icon: HubSpotIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'salesforce',
-    name: 'Salesforce',
-    category: 'CRM & Sales',
-    description: 'Sync CRM data',
-    icon: SalesforceIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'pipedrive',
-    name: 'Pipedrive',
-    category: 'CRM & Sales',
-    description: 'Sales pipeline management',
-    icon: PipedriveIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'linkedin',
-    name: 'LinkedIn',
-    category: 'CRM & Sales',
-    description: 'Find prospects and engage professionally',
-    icon: LinkedInIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'calendar',
-    name: 'Calendar',
-    category: 'Productivity',
-    description: 'Schedule meetings and follow-ups',
-    icon: CalendarIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'gdrive',
-    name: 'Google Drive',
-    category: 'Productivity',
-    description: 'File storage and sharing',
-    icon: GoogleDriveIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'notion',
-    name: 'Notion',
-    category: 'Productivity',
-    description: 'Notes and documentation',
-    icon: NotionIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'clickup',
-    name: 'ClickUp',
-    category: 'Productivity',
-    description: 'Project and task management',
-    icon: ClickUpIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'postiz',
-    name: 'Social Publishing',
-    category: 'Marketing',
-    description: 'Schedule and publish social posts',
-    icon: Megaphone,
-    requiresConnection: true,
-  },
-  {
-    key: 'canva',
-    name: 'Canva',
-    category: 'Marketing',
-    description: 'Create sales and marketing collateral',
-    icon: CanvaIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'stripe',
-    name: 'Stripe',
-    category: 'Finance',
-    description: 'Payment processing, invoices and balances',
-    icon: StripeIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'jira',
-    name: 'Jira',
-    category: 'Custom / Other',
-    description: 'Track issues and tasks',
-    icon: Kanban,
-    requiresConnection: true,
-  },
-  {
-    key: 'asana',
-    name: 'Asana',
-    category: 'Custom / Other',
-    description: 'Track tasks and projects',
-    icon: AsanaIcon,
-    requiresConnection: true,
-  },
-];
-
-export const SKILL_CATEGORIES: readonly SkillDef['category'][] = [
-  'Communication',
-  'CRM & Sales',
-  'Productivity',
-  'Marketing',
-  'Data & Analytics',
-  'Finance',
-  'Custom / Other',
-];
-
-export function skillFor(key: string): SkillDef | undefined {
-  return SKILLS.find((s) => s.key === key);
 }
 
 export const WORKFLOW_TEMPLATES: Readonly<Record<string, WorkflowTemplateDef>> = {

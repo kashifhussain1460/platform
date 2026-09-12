@@ -1,4 +1,5 @@
 import type { ElementType } from 'react';
+import type { EmployeeRole } from '@vaep/types';
 
 /**
  * The 12 screens, in navigation order. `welcome` carries no progress dot (a
@@ -64,7 +65,7 @@ export type EmployeeTemplateKey =
   | 'MARKETING'
   | 'HR'
   | 'ACCOUNTANT'
-  | 'OPERATIONS'
+  | 'RECRUITER'
   | 'PROJECT_MANAGER'
   | 'CUSTOM';
 
@@ -112,8 +113,10 @@ export interface KnowledgeDoc {
   id: string;
   name: string;
   sizeLabel: string;
-  /** `'shared'` or a draft employee id. */
-  scope: string;
+  /** `null` = shared company-wide; otherwise every employee of this ROLE
+   * sees it (not one specific hire) — matches the real backend's
+   * `KnowledgeDocument.category` semantics exactly. */
+  scope: EmployeeRole | null;
   source: 'upload' | 'suggested' | 'text';
 }
 
