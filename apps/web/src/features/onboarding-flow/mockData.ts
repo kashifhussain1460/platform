@@ -9,12 +9,7 @@ import {
   UserSearch,
 } from 'lucide-react';
 import type { EmployeeRole } from '@vaep/types';
-import type {
-  EmployeeTemplate,
-  EmployeeTemplateKey,
-  PlanDef,
-  WorkflowTemplateDef,
-} from './types';
+import type { EmployeeTemplate } from './types';
 
 /**
  * All reference/catalog data on this screen is local and mock, per the
@@ -60,55 +55,6 @@ export const GOALS: readonly GoalDef[] = [
   { key: 'financial_ops', label: 'Financial operations' },
   { key: 'other', label: 'Other / Custom' },
 ];
-
-export const PLANS: readonly PlanDef[] = [
-  {
-    key: 'STARTER',
-    displayName: 'Free',
-    priceMonthly: 0,
-    priceYearly: 0,
-    maxRoles: 2,
-    maxPerRole: 1,
-    blurb: 'Try Orlixa with up to 2 AI Employee roles.',
-    features: ['2 AI Employee roles', 'Workflow automation', 'Knowledge base'],
-  },
-  {
-    key: 'PRO',
-    displayName: 'Starter',
-    priceMonthly: 20,
-    priceYearly: 192,
-    maxRoles: 2,
-    maxPerRole: 1,
-    blurb: 'For a small team getting real work done.',
-    features: ['2 AI Employee roles', 'Connect your tools', 'Email & chat support'],
-  },
-  {
-    key: 'BUSINESS',
-    displayName: 'Growth',
-    priceMonthly: 40,
-    priceYearly: 384,
-    maxRoles: 2,
-    maxPerRole: 2,
-    blurb: 'Up to 2 of each role — room for your busiest departments.',
-    features: ['2 roles × 2 each', 'Priority support', 'Advanced workflows'],
-    popular: true,
-  },
-  {
-    key: 'ENTERPRISE',
-    displayName: 'Enterprise',
-    priceMonthly: null,
-    priceYearly: null,
-    maxRoles: null,
-    maxPerRole: null,
-    blurb: 'Unlimited roles and employees, custom onboarding.',
-    features: ['Unlimited AI Employees', 'Dedicated support', 'Custom integrations'],
-    custom: true,
-  },
-];
-
-/** Illustrative pricing — not real Stripe prices. See PLAN_CATALOG on the backend for the real numbers. */
-export const PLAN_PRICING_NOTE =
-  'Prices shown are illustrative for this preview.';
 
 export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
   {
@@ -217,10 +163,6 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
   },
 ];
 
-export function templateFor(key: EmployeeTemplateKey): EmployeeTemplate {
-  return EMPLOYEE_TEMPLATES.find((t) => t.key === key) ?? EMPLOYEE_TEMPLATES[7];
-}
-
 /**
  * Same lookup, keyed by the real backend `EmployeeRole` instead of the mock
  * `EmployeeTemplateKey` — the two share the same 8 string values, so this is
@@ -230,87 +172,3 @@ export function templateFor(key: EmployeeTemplateKey): EmployeeTemplate {
 export function templateForRole(role: EmployeeRole): EmployeeTemplate {
   return EMPLOYEE_TEMPLATES.find((t) => t.key === role) ?? EMPLOYEE_TEMPLATES[7];
 }
-
-export const WORKFLOW_TEMPLATES: Readonly<Record<string, WorkflowTemplateDef>> = {
-  'new-lead-follow-up': {
-    key: 'new-lead-follow-up',
-    name: 'New Lead Follow-up',
-    description: 'Reply to a new lead within minutes, every time.',
-  },
-  'lead-qualification': {
-    key: 'lead-qualification',
-    name: 'Lead Qualification',
-    description: 'Score and route leads by fit and intent.',
-  },
-  'daily-sales-report': {
-    key: 'daily-sales-report',
-    name: 'Daily Sales Report',
-    description: 'A morning summary of yesterday’s pipeline activity.',
-  },
-  'ticket-triage': {
-    key: 'ticket-triage',
-    name: 'Ticket Triage & Response',
-    description: 'Categorise and answer common support requests.',
-  },
-  'daily-support-summary': {
-    key: 'daily-support-summary',
-    name: 'Daily Support Summary',
-    description: 'Open tickets, response times, and escalations.',
-  },
-  'social-post-scheduler': {
-    key: 'social-post-scheduler',
-    name: 'Social Post Scheduler',
-    description: 'Plan and queue posts across channels.',
-  },
-  'content-approval': {
-    key: 'content-approval',
-    name: 'Content Approval Flow',
-    description: 'Draft, review and approve before it goes out.',
-  },
-  'candidate-screening': {
-    key: 'candidate-screening',
-    name: 'Candidate Screening',
-    description: 'Summarise and score new applications.',
-  },
-  'interview-scheduling': {
-    key: 'interview-scheduling',
-    name: 'Interview Scheduling',
-    description: 'Book interviews from a shared slot pool.',
-  },
-  'invoice-follow-up': {
-    key: 'invoice-follow-up',
-    name: 'Invoice Follow-up',
-    description: 'Chase overdue invoices automatically.',
-  },
-  'expense-summary': {
-    key: 'expense-summary',
-    name: 'Expense Report Summary',
-    description: 'Weekly rollup of submitted expenses.',
-  },
-  'task-assignment': {
-    key: 'task-assignment',
-    name: 'Task Assignment',
-    description: 'Route incoming requests to the right owner.',
-  },
-  'weekly-ops-report': {
-    key: 'weekly-ops-report',
-    name: 'Weekly Ops Report',
-    description: 'A digest of operational metrics.',
-  },
-  'sprint-status-report': {
-    key: 'sprint-status-report',
-    name: 'Sprint Status Report',
-    description: 'Where every tracked issue stands.',
-  },
-  'task-reminders': {
-    key: 'task-reminders',
-    name: 'Task Reminders',
-    description: 'Nudge owners before a deadline slips.',
-  },
-};
-
-export const KNOWLEDGE_SUGGESTIONS: readonly { name: string; sizeLabel: string }[] = [
-  { name: 'Sales Playbook', sizeLabel: '1.2 MB' },
-  { name: 'Pricing Guide', sizeLabel: '340 KB' },
-  { name: 'Company FAQ', sizeLabel: '210 KB' },
-];

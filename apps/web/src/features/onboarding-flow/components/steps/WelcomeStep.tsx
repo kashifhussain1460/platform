@@ -1,7 +1,7 @@
 'use client';
 
 import { BarChart3, Bot, FileText, Headphones, Play, Users } from 'lucide-react';
-import { useOnboardingFlow } from '../../state';
+import { useOnboardingWizardStore } from '../../wizardStore';
 import { FlowShell } from '../FlowShell';
 import { StepFooter } from '../StepFooter';
 
@@ -13,7 +13,8 @@ const CAN_DO = [
 ];
 
 export function WelcomeStep() {
-  const { nextStep, goToStep } = useOnboardingFlow();
+  const nextStep = useOnboardingWizardStore((s) => s.nextStep);
+  const goToStep = useOnboardingWizardStore((s) => s.goToStep);
 
   return (
     <FlowShell
