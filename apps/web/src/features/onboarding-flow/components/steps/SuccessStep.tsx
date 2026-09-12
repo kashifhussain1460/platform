@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -39,21 +39,29 @@ export function SuccessStep() {
     .map((id) => employees.find((e) => e.id === id))
     .filter((e): e is NonNullable<typeof e> => Boolean(e));
 
-  // Fire once on mount. A ref (not just the empty dependency array) guards
-  // against React 18 Strict Mode's dev-only mount -> cleanup -> remount,
-  // which runs both invocations back-to-back before either request's state
-  // can flush — same guard shape as ConfigureEmployeesStep's create-on-demand
-  // effect. The backend call is idempotent regardless (a company that is
-  // already onboarded short-circuits to its current state instead of
-  // re-running), so a duplicate call would be harmless, but there is no
-  // reason to send one.
-  const firedRef = useRef(false);
+  // Fire once on mount. Guarded by the mutation's OWN `isIdle` status, not a
+  // separate ref — a ref-based guard (`firedRef.current`) reliably prevents a
+  // second network call under React 18 Strict Mode's dev-only double-invoke,
+  // but does NOT reliably prevent the mutation observer from losing track of
+  // the in-flight call's resolution: the first effect invocation fires
+  // mutate() and flips the ref, the immediate synthetic cleanup+remount runs
+  // the effect again and correctly skips re-firing (ref says "already done"),
+  // but the underlying MutationObserver instance is still transitioning
+  // between the two invocations, and the in-flight promise's onSuccess/
+  // onSettled — and the isPending -> false transition — were observed to
+  // never reach this component in dev (confirmed live: network tab shows a
+  // real 201, but the button stayed stuck on "Finishing up…" indefinitely).
+  // Gating on `isIdle` instead ties the guard to the SAME state object the
+  // render reads (`completeOnboarding.status`), so there's no separate ref
+  // that can fall out of sync with the observer's actual lifecycle. The
+  // backend call is idempotent regardless (a company that is already
+  // onboarded short-circuits to its current state instead of re-running).
+  const { mutate: fireCompleteOnboarding, isIdle } = completeOnboarding;
   useEffect(() => {
-    if (firedRef.current) return;
-    firedRef.current = true;
-    completeOnboarding.mutate({ departments: [], employees: [] });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount
-  }, []);
+    if (!isIdle) return;
+    fireCompleteOnboarding({ departments: [], employees: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once, guarded by isIdle (the mutation's own status), not a ref
+  }, [isIdle, fireCompleteOnboarding]);
 
   if (completeOnboarding.isError) {
     return (
