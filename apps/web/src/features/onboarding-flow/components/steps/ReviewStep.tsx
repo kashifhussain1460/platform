@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, Check } from 'lucide-react';
-import { useEmployeeReadiness, useUpdateEmployee } from '@/features/employees/hooks';
+import { useEmployeeReadiness } from '@/features/employees/hooks';
 import { templateForRole } from '../../mockData';
 import { useActiveEmployee } from '../../useActiveEmployee';
 import { useOnboardingWizardStore } from '../../wizardStore';
@@ -16,6 +16,11 @@ import { StepFooter } from '../StepFooter';
  * workflows) the old mock's local `computeReadiness()` faked client-side.
  * No local re-derivation here; if the server's rules change, this screen
  * changes with them automatically instead of drifting.
+ *
+ * There is no "activate" action on this screen: `EmployeeStatus` has no
+ * draft/pending state, and every employee is already `ACTIVE` (and running)
+ * from the moment it's created. This screen is a read-only setup-progress
+ * readout, not a control that flips the employee on.
  */
 export function ReviewStep() {
   const nextStep = useOnboardingWizardStore((s) => s.nextStep);
@@ -23,7 +28,6 @@ export function ReviewStep() {
   const goToStep = useOnboardingWizardStore((s) => s.goToStep);
   const { employee } = useActiveEmployee();
   const { data: readiness } = useEmployeeReadiness(employee?.id ?? '');
-  const updateEmployee = useUpdateEmployee();
 
   if (!employee) {
     return (
@@ -35,7 +39,6 @@ export function ReviewStep() {
   }
 
   const template = templateForRole(employee.role);
-  const isActive = employee.status === 'ACTIVE';
 
   const fixTarget: Record<string, () => void> = {
     STATUS: () => goToStep('configureEmployees'),
@@ -58,7 +61,9 @@ export function ReviewStep() {
                 <p className="text-xs text-fg-muted">{employee.role}</p>
               </div>
             </div>
-            {isActive && <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-400">Activated</span>}
+            {readiness?.setupState === 'READY' && (
+              <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-400">Ready</span>
+            )}
           </div>
 
           <ul className="mt-5 space-y-2.5">
@@ -85,14 +90,15 @@ export function ReviewStep() {
             </ul>
           )}
 
-          <button
-            type="button"
-            disabled={!readiness?.ready || isActive}
-            onClick={() => updateEmployee.mutate({ id: employee.id, data: { status: 'ACTIVE' } })}
-            className="mt-6 w-full rounded-xl bg-violet px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-hover disabled:cursor-not-allowed disabled:opacity-40"
+          <div
+            className={
+              readiness?.ready
+                ? 'mt-6 w-full rounded-xl bg-violet px-4 py-2.5 text-center text-sm font-medium text-white'
+                : 'mt-6 w-full cursor-not-allowed rounded-xl bg-violet px-4 py-2.5 text-center text-sm font-medium text-white opacity-40'
+            }
           >
-            {isActive ? 'Activated ✓' : readiness?.ready ? 'Activate Employee' : 'Not ready'}
-          </button>
+            {readiness?.ready ? 'Ready ✓' : 'Not ready'}
+          </div>
         </div>
       </div>
       <StepFooter onBack={prevStep} onContinue={nextStep} continueLabel="Finish →" />
