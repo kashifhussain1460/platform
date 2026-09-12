@@ -1,6 +1,7 @@
 'use client';
 
 import { OnboardingFlow } from '@/features/onboarding-flow/OnboardingFlow';
+import { OnboardingPreviewAuthGate } from './OnboardingPreviewAuthGate';
 
 /**
  * PREVIEW route for the new 12-screen onboarding UX (UI-first phase).
@@ -8,9 +9,11 @@ import { OnboardingFlow } from '@/features/onboarding-flow/OnboardingFlow';
  * Deliberately OUTSIDE the `(app)` route group: that group's layout redirects
  * any non-onboarded session straight to the real `/onboarding` for every
  * other route, which would make a route like `(app)/onboarding-preview`
- * unreachable for exactly the accounts most useful for reviewing this. This
- * page also needs no session at all — every screen runs on local mock state,
- * so there is nothing here that requires auth.
+ * unreachable for exactly the accounts most useful for reviewing this.
+ *
+ * REQUIRES SESSION: Guests are redirected to `/login?returnTo=/onboarding-preview`.
+ * Authenticated users (onboarded or not) can access this page, since revisiting
+ * to hire more employees later is a supported use case.
  *
  * The LIVE `/onboarding` route (`features/onboarding/components/
  * OnboardingWizard.tsx`) is untouched and still backend-wired — real signups
@@ -18,5 +21,9 @@ import { OnboardingFlow } from '@/features/onboarding-flow/OnboardingFlow';
  * and Phase 3 (wiring) land.
  */
 export default function OnboardingPreviewPage() {
-  return <OnboardingFlow />;
+  return (
+    <OnboardingPreviewAuthGate>
+      <OnboardingFlow />
+    </OnboardingPreviewAuthGate>
+  );
 }
