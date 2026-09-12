@@ -8,6 +8,7 @@ import {
   CreditCard,
   UserSearch,
 } from 'lucide-react';
+import type { EmployeeRole } from '@vaep/types';
 import type {
   EmployeeTemplate,
   EmployeeTemplateKey,
@@ -218,6 +219,16 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
 
 export function templateFor(key: EmployeeTemplateKey): EmployeeTemplate {
   return EMPLOYEE_TEMPLATES.find((t) => t.key === key) ?? EMPLOYEE_TEMPLATES[7];
+}
+
+/**
+ * Same lookup, keyed by the real backend `EmployeeRole` instead of the mock
+ * `EmployeeTemplateKey` — the two share the same 8 string values, so this is
+ * a direct match, not a mapping. Lets real `AiEmployeeDto.role` values drive
+ * the same template/avatar catalog this mock screen already uses.
+ */
+export function templateForRole(role: EmployeeRole): EmployeeTemplate {
+  return EMPLOYEE_TEMPLATES.find((t) => t.key === role) ?? EMPLOYEE_TEMPLATES[7];
 }
 
 export const WORKFLOW_TEMPLATES: Readonly<Record<string, WorkflowTemplateDef>> = {

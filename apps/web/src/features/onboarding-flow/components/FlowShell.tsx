@@ -3,14 +3,14 @@
 import type { ReactNode } from 'react';
 import { Check, ChevronDown, HelpCircle, Moon, Sun } from 'lucide-react';
 import { FLOW_STEPS, STEP_LABELS } from '../types';
-import { useOnboardingFlow } from '../state';
+import { useOnboardingWizardStore } from '../wizardStore';
 import { BrandPanel } from './BrandPanel';
 
 /** The 12-item tracker, 1:1 with the real `FLOW_STEPS` — no invented
  * milestone that doesn't correspond to an actual screen. */
 function StepTracker() {
-  const { state } = useOnboardingFlow();
-  const currentIdx = FLOW_STEPS.indexOf(state.step);
+  const step = useOnboardingWizardStore((s) => s.step);
+  const currentIdx = FLOW_STEPS.indexOf(step);
 
   return (
     <div
@@ -94,13 +94,14 @@ export function FlowShell({
   /** Steps with card grids (employees, skills, review) need more than a form column. */
   wide?: boolean;
 }) {
-  const { state } = useOnboardingFlow();
-  const companyName = state.company.name.trim() || 'Acme Private Limited';
-  const stepIdx = FLOW_STEPS.indexOf(state.step);
+  const step = useOnboardingWizardStore((s) => s.step);
+  // TODO(Task 5): replace with the real company name from useCurrentCompany().
+  const companyName = 'Your company';
+  const stepIdx = FLOW_STEPS.indexOf(step);
 
   return (
     <main className="font-marketing flex min-h-screen flex-col bg-[#02030a] lg:h-screen lg:flex-row lg:overflow-hidden">
-      <BrandPanel step={state.step} />
+      <BrandPanel step={step} />
 
       <div className="flex flex-1 flex-col lg:h-full lg:overflow-y-auto">
         <TopBar companyName={companyName} />
