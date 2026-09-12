@@ -68,6 +68,13 @@ export function WorkflowsStep() {
   // still surface somewhere — a click that silently does nothing reads as
   // broken.
   const [actionError, setActionError] = useState<string | null>(null);
+  // Templates can declare required parameters beyond the employee binding
+  // (e.g. Sales's WhatsApp nurture-template Content SID) — a free-text value
+  // this screen cannot derive automatically. Keyed by templateId, then by
+  // param key; only holds values the user has actually typed. `param.default`
+  // is applied as a read-time fallback (see `getExtraParamValue` below) so an
+  // untouched field still displays and submits its declared default.
+  const [extraParamValues, setExtraParamValues] = useState<Record<string, Record<string, string>>>({});
 
   const category = employee ? ROLE_TO_WORKFLOW_CATEGORY[employee.role] : undefined;
   const templatesQuery = useWorkflowTemplates(category);
@@ -111,6 +118,27 @@ export function WorkflowsStep() {
     );
   }
 
+  // Any parameter a template requires besides the employee binding (e.g.
+  // Sales's `nurtureTemplateId`) — the wizard can't derive these, so the
+  // user must type them before Install can fire.
+  const getExtraRequiredParams = (template: (typeof templates)[number]) =>
+    template.parameters.filter((p) => p.required && p.binds !== 'employee');
+
+  // Effective value for one extra param: whatever the user typed, falling
+  // back to the template's declared default (still needed even if the field
+  // was never touched — that default must still reach the install call).
+  const getExtraParamValue = (
+    templateId: string,
+    param: (typeof templates)[number]['parameters'][number],
+  ) => extraParamValues[templateId]?.[param.key] ?? (param.default != null ? String(param.default) : '');
+
+  const setExtraParamValue = (templateId: string, key: string, value: string) => {
+    setExtraParamValues((prev) => ({
+      ...prev,
+      [templateId]: { ...prev[templateId], [key]: value },
+    }));
+  };
+
   const onInstall = (templateId: string) => {
     const template = templates.find((t) => t.id === templateId);
     if (!template) return;
@@ -123,7 +151,11 @@ export function WorkflowsStep() {
     // workflow is employee-scoped) installs with no employee binding rather
     // than being blocked.
     const employeeParam = template.parameters.find((p) => p.binds === 'employee');
-    const parameters = employeeParam ? { [employeeParam.key]: employee.id } : {};
+    const extraRequiredParams = getExtraRequiredParams(template);
+    const parameters = {
+      ...(employeeParam ? { [employeeParam.key]: employee.id } : {}),
+      ...Object.fromEntries(extraRequiredParams.map((p) => [p.key, getExtraParamValue(templateId, p)])),
+    };
 
     setActionError(null);
     setPendingId(templateId);
@@ -196,34 +228,57 @@ export function WorkflowsStep() {
           {templates.map((tpl) => {
             const installed = installedIds.has(tpl.id);
             const pending = pendingId === tpl.id;
+            const extraRequiredParams = getExtraRequiredParams(tpl);
+            const missingExtraParam = extraRequiredParams.some(
+              (p) => getExtraParamValue(tpl.id, p).trim() === '',
+            );
             return (
               <li
                 key={tpl.id}
-                className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 transition-colors ${
+                className={`flex flex-col gap-3 rounded-xl border px-4 py-3 transition-colors ${
                   installed ? 'border-violet-secondary/60 bg-violet/[0.08]' : 'border-white/[0.08] bg-white/[0.02]'
                 }`}
               >
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-white">{tpl.name}</span>
-                  <span className="block text-xs text-fg-muted">{tpl.description}</span>
-                </span>
-                <button
-                  type="button"
-                  disabled={installed || pending}
-                  onClick={() => onInstall(tpl.id)}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    installed
-                      ? 'cursor-default bg-violet/20 text-violet-bright'
-                      : 'border border-white/[0.1] text-zinc-300 hover:border-white/[0.2] hover:text-white disabled:cursor-default disabled:opacity-60'
-                  }`}
-                >
-                  {pending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : installed ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : null}
-                  {installed ? 'Installed' : pending ? 'Installing…' : 'Install'}
-                </button>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-white">{tpl.name}</span>
+                    <span className="block text-xs text-fg-muted">{tpl.description}</span>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={installed || pending || missingExtraParam}
+                    onClick={() => onInstall(tpl.id)}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      installed
+                        ? 'cursor-default bg-violet/20 text-violet-bright'
+                        : 'border border-white/[0.1] text-zinc-300 hover:border-white/[0.2] hover:text-white disabled:cursor-default disabled:opacity-60'
+                    }`}
+                  >
+                    {pending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : installed ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : null}
+                    {installed ? 'Installed' : pending ? 'Installing…' : 'Install'}
+                  </button>
+                </div>
+                {!installed && extraRequiredParams.length > 0 && (
+                  <div className="grid gap-2 border-t border-white/[0.06] pt-3 sm:grid-cols-2">
+                    {extraRequiredParams.map((p) => (
+                      <label key={p.key} className="flex flex-col gap-1">
+                        <span className="text-xs font-medium text-zinc-300">{p.label}</span>
+                        <input
+                          type="text"
+                          value={getExtraParamValue(tpl.id, p)}
+                          onChange={(e) => setExtraParamValue(tpl.id, p.key, e.target.value)}
+                          placeholder={p.help}
+                          disabled={pending}
+                          className="rounded-lg border border-white/[0.1] bg-white/[0.02] px-2.5 py-1.5 text-xs text-white placeholder:text-fg-muted focus:border-violet-secondary/60 focus:outline-none disabled:opacity-60"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
               </li>
             );
           })}
