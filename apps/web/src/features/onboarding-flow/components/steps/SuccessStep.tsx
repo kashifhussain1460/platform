@@ -1,27 +1,95 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { templateFor } from '../../mockData';
-import { useOnboardingFlow } from '../../state';
+import { useEmployees } from '@/features/employees/hooks';
+import { useCompleteOnboarding } from '@/features/onboarding/hooks';
+import { templateForRole } from '../../mockData';
+import { useOnboardingWizardStore } from '../../wizardStore';
 import { FlowShell } from '../FlowShell';
 
+/**
+ * Stamps `company.onboardedAt` via `POST /onboarding/complete` — the only
+ * existing mechanism, so this is the correct endpoint even though this
+ * wizard already hired every AI Employee individually through
+ * `POST /employees` (Task 9's path) rather than through this endpoint's own
+ * `employees` array.
+ *
+ * Payload is deliberately `{ departments: [], employees: [] }`. Traced
+ * `OnboardingService.complete()` end to end (apps/api/src/modules/onboarding/
+ * onboarding.service.ts): the only early return is the top-of-method
+ * "already onboarded" short-circuit; the `onboardedAt` stamp (step 3) runs
+ * unconditionally afterwards regardless of whether `dto.employees` or
+ * `dto.departments` is empty — there is no gate on either array's length
+ * before that write. So an empty roster still gets the flag stamped
+ * correctly; no backend change was needed.
+ */
 export function SuccessStep() {
-  const { state, dispatch, goToStep } = useOnboardingFlow();
+  const goToStep = useOnboardingWizardStore((s) => s.goToStep);
+  const employeeOrder = useOnboardingWizardStore((s) => s.employeeOrder);
+  const { data: employees = [] } = useEmployees();
+  const completeOnboarding = useCompleteOnboarding();
+
+  // This wizard's own hires, in hire order — same join EmployeeTabs and
+  // useActiveEmployee use, so this summary doesn't show a pre-existing
+  // tenant employee that was never part of this run.
+  const roster = employeeOrder
+    .map((id) => employees.find((e) => e.id === id))
+    .filter((e): e is NonNullable<typeof e> => Boolean(e));
+
+  // Fire once on mount. A ref (not just the empty dependency array) guards
+  // against React 18 Strict Mode's dev-only mount -> cleanup -> remount,
+  // which runs both invocations back-to-back before either request's state
+  // can flush — same guard shape as ConfigureEmployeesStep's create-on-demand
+  // effect. The backend call is idempotent regardless (a company that is
+  // already onboarded short-circuits to its current state instead of
+  // re-running), so a duplicate call would be harmless, but there is no
+  // reason to send one.
+  const firedRef = useRef(false);
+  useEffect(() => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    completeOnboarding.mutate({ departments: [], employees: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount
+  }, []);
+
+  if (completeOnboarding.isError) {
+    return (
+      <FlowShell>
+        <div className="flex min-h-[70vh] flex-col items-center justify-center text-center">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/15 text-red-400">
+            <AlertTriangle className="h-9 w-9" />
+          </span>
+          <h1 className="mt-6 text-[30px] font-bold text-white">Almost done</h1>
+          <p className="mt-2 max-w-sm text-[15px] text-fg-muted">
+            {completeOnboarding.error?.message || "Couldn't finish setting up your account."}
+          </p>
+          <button
+            type="button"
+            onClick={() => completeOnboarding.mutate({ departments: [], employees: [] })}
+            className="mt-6 rounded-xl bg-violet px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-hover"
+          >
+            Try again
+          </button>
+        </div>
+      </FlowShell>
+    );
+  }
 
   return (
     <FlowShell>
       <div className="flex min-h-[70vh] flex-col items-center justify-center text-center">
-        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-status-active/15 text-sl-active">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
           <CheckCircle2 className="h-9 w-9" />
         </span>
         <h1 className="mt-6 text-[30px] font-bold text-white">You&apos;re all set!</h1>
         <p className="mt-2 text-[15px] text-fg-muted">Your AI Employees are ready to work.</p>
 
         <ul className="mt-8 w-full max-w-sm space-y-2">
-          {state.employees.map((e) => {
-            const template = templateFor(e.templateKey);
+          {roster.map((e) => {
+            const template = templateForRole(e.role);
             const Icon = template.icon;
             return (
               <li
@@ -36,7 +104,7 @@ export function SuccessStep() {
                     {e.name || template.name} ({template.name})
                   </span>
                 </span>
-                <span className="flex items-center gap-1 text-xs font-medium text-sl-active">
+                <span className="flex items-center gap-1 text-xs font-medium text-emerald-400">
                   Ready to work <CheckCircle2 className="h-3.5 w-3.5" />
                 </span>
               </li>
@@ -45,12 +113,19 @@ export function SuccessStep() {
         </ul>
 
         <div className="mt-8 flex w-full max-w-sm flex-col gap-3">
-          {/* Phase 1 preview: no real dashboard/company exists yet, so this
-              points at the marketing home rather than /dashboard. Phase 3
-              wires this to the real post-onboarding redirect. */}
-          <Link href="/" className="w-full">
-            <Button variant="violet" size="lg" className="w-full">
-              Go to Dashboard →
+          <Link
+            href="/dashboard"
+            className="w-full"
+            onClick={(e) => {
+              // Guard against navigating to /dashboard before onboardedAt has
+              // actually landed on the session's company — AppLayout's redirect
+              // guard reads `company.onboardedAt` from the Zustand store and
+              // would otherwise bounce straight back to /onboarding.
+              if (completeOnboarding.isPending) e.preventDefault();
+            }}
+          >
+            <Button variant="violet" size="lg" className="w-full" disabled={completeOnboarding.isPending}>
+              {completeOnboarding.isPending ? 'Finishing up…' : 'Go to Dashboard →'}
             </Button>
           </Link>
           <button
@@ -59,13 +134,6 @@ export function SuccessStep() {
             className="rounded-xl border border-white/[0.1] px-5 py-2.5 text-sm font-medium text-zinc-300 hover:border-white/[0.2]"
           >
             Hire Another Employee
-          </button>
-          <button
-            type="button"
-            onClick={() => dispatch({ type: 'RESET' })}
-            className="text-xs text-fg-muted underline hover:text-zinc-300"
-          >
-            Restart this preview
           </button>
         </div>
       </div>
