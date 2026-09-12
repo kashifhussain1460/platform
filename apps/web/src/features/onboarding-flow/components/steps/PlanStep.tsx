@@ -76,6 +76,12 @@ export function PlanStep() {
                   ? plan.priceMonthlyUsd * 12
                   : plan.priceMonthlyUsd;
 
+            // Marketing chrome, not backend data — mirrors where "Most Popular"
+            // sat in the old mock (BUSINESS/"Growth"). Client-derived flag off
+            // the stable Plan enum, same technique PlanCatalog.tsx uses for
+            // `isCurrent`.
+            const isPopular = plan.plan === 'BUSINESS';
+
             return (
               <div
                 key={plan.plan}
@@ -85,6 +91,11 @@ export function PlanStep() {
                     : 'border-white/[0.08] bg-white/[0.02]'
                 }`}
               >
+                {isPopular && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-violet px-2.5 py-0.5 text-[10px] font-semibold text-white">
+                    Most Popular
+                  </span>
+                )}
                 <p className="text-sm font-semibold text-white">{plan.name}</p>
                 <p className="mt-2 text-2xl font-bold text-white">
                   {formatPrice(displayPrice)}
