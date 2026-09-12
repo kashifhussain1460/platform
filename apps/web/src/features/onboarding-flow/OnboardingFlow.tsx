@@ -1,6 +1,6 @@
 'use client';
 
-import { OnboardingFlowProvider, useOnboardingFlow } from './state';
+import { useOnboardingWizardStore } from './wizardStore';
 import { CompanyDetailsStep } from './components/steps/CompanyDetailsStep';
 import { ConfigureEmployeesStep } from './components/steps/ConfigureEmployeesStep';
 import { ConnectionsStep } from './components/steps/ConnectionsStep';
@@ -15,9 +15,9 @@ import { WelcomeStep } from './components/steps/WelcomeStep';
 import { WorkflowsStep } from './components/steps/WorkflowsStep';
 
 function OnboardingFlowSwitch() {
-  const { state } = useOnboardingFlow();
+  const step = useOnboardingWizardStore((s) => s.step);
 
-  switch (state.step) {
+  switch (step) {
     case 'welcome':
       return <WelcomeStep />;
     case 'company':
@@ -49,15 +49,11 @@ function OnboardingFlowSwitch() {
 
 /**
  * The complete 12-screen onboarding experience — UI-first phase (Part 3 of
- * the onboarding standard). All state is local (`OnboardingFlowProvider`);
+ * the onboarding standard). All state is local (Zustand store);
  * no backend call is made anywhere in this tree. See
  * `docs/.../onboarding-flow-ui-phase-report.md` for what Phase 2 needs to
  * wire this to the real Company/AiEmployee/Skill/Workflow backend.
  */
 export function OnboardingFlow() {
-  return (
-    <OnboardingFlowProvider>
-      <OnboardingFlowSwitch />
-    </OnboardingFlowProvider>
-  );
+  return <OnboardingFlowSwitch />;
 }
