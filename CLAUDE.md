@@ -14,6 +14,25 @@ pnpm + Turborepo · `apps/web` (Next.js App Router, Tailwind, TanStack Query, Zu
 - **Minimal `useRef`** — only for focus, commented.
 - Frontend `features/*` mirror backend `modules/*` one-to-one.
 
+## Feature implementation order (permanent rule, 2026-09-10)
+For every new user-facing product feature, in this order — do not reverse it for a normal
+feature unless explicitly told to implement backend-first:
+1. **UI first.** Build the complete frontend: all screens, navigation, loading/empty/error/
+   validation/disabled states, responsive behavior, using realistic local/mock data.
+2. **Backend second.** Only after the UI flow is settled: APIs, schema, services, authorization,
+   business rules, jobs/events/integrations.
+3. **Wire UI + backend.** Replace the mock/local data with real API integration; every UI state
+   maps to real backend state.
+4. **Verify.** Unit + API/E2E + browser Playwright against the real stack — happy paths and
+   failure/security paths both.
+
+Before starting Phase 2 for any such feature, inspect the existing backend (Company, User,
+Department, AiEmployee, Product Context, Capability Resolver, Skill, Connection, Knowledge,
+Workflow, Plan, Entitlement, Credit, Authorization) and reuse it — do not create a duplicate
+model/service/engine unless repository inspection proves the existing one is actually missing
+the capability. AI Employee stays the primary product abstraction; do not introduce a
+competing one (no separate "Agent" table/engine).
+
 ## Run locally
 ```
 cd platform && pnpm install
