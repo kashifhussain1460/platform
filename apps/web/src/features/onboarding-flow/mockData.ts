@@ -2,42 +2,24 @@ import {
   Headphones,
   Kanban,
   Megaphone,
-  Settings2,
   Sparkles,
   TrendingUp,
   Users,
   CreditCard,
+  UserSearch,
 } from 'lucide-react';
-import {
-  AsanaIcon,
-  CalendarIcon,
-  CanvaIcon,
-  ClickUpIcon,
-  GmailIcon,
-  GoogleDriveIcon,
-  HubSpotIcon,
-  LinkedInIcon,
-  NotionIcon,
-  PipedriveIcon,
-  SalesforceIcon,
-  SlackIcon,
-  StripeIcon,
-  ZoomIcon,
-} from '@/components/marketing-dark/brand-icons';
-import type {
-  EmployeeTemplate,
-  EmployeeTemplateKey,
-  PlanDef,
-  SkillDef,
-  WorkflowTemplateDef,
-} from './types';
+import type { EmployeeRole } from '@vaep/types';
+import type { EmployeeTemplate } from './types';
 
 /**
- * All reference/catalog data on this screen is local and mock, per the
- * UI-first phase — Part 3 of the onboarding standard. Keys deliberately mirror
- * the REAL backend enums/catalog keys (EmployeeRole, the skill catalog's
- * `key`, the real Plan enum) so Phase 2 can map this 1:1 onto real data
- * instead of inventing a second vocabulary.
+ * Static reference data this flow needs but has no backend table for: the
+ * `EMPLOYEE_TEMPLATES`/`templateForRole` role-template catalog (name, icon,
+ * avatar colors, default persona, suggested skill/workflow keys) plus the
+ * `GOALS`/`INDUSTRIES`/`COMPANY_SIZES` picklists. Skills, plans, and
+ * workflows are NOT mocked here — those are fetched live from the real
+ * catalogs (`useCatalog`, `usePlans`, `useWorkflowTemplates`). Keys here
+ * (`EmployeeTemplateKey`) deliberately match the real `EmployeeRole` enum
+ * values so `templateForRole` is a direct lookup, not a translation layer.
  */
 
 export const INDUSTRIES: readonly string[] = [
@@ -76,55 +58,6 @@ export const GOALS: readonly GoalDef[] = [
   { key: 'financial_ops', label: 'Financial operations' },
   { key: 'other', label: 'Other / Custom' },
 ];
-
-export const PLANS: readonly PlanDef[] = [
-  {
-    key: 'STARTER',
-    displayName: 'Free',
-    priceMonthly: 0,
-    priceYearly: 0,
-    maxRoles: 2,
-    maxPerRole: 1,
-    blurb: 'Try Orlixa with up to 2 AI Employee roles.',
-    features: ['2 AI Employee roles', 'Workflow automation', 'Knowledge base'],
-  },
-  {
-    key: 'PRO',
-    displayName: 'Starter',
-    priceMonthly: 20,
-    priceYearly: 192,
-    maxRoles: 2,
-    maxPerRole: 1,
-    blurb: 'For a small team getting real work done.',
-    features: ['2 AI Employee roles', 'Connect your tools', 'Email & chat support'],
-  },
-  {
-    key: 'BUSINESS',
-    displayName: 'Growth',
-    priceMonthly: 40,
-    priceYearly: 384,
-    maxRoles: 2,
-    maxPerRole: 2,
-    blurb: 'Up to 2 of each role — room for your busiest departments.',
-    features: ['2 roles × 2 each', 'Priority support', 'Advanced workflows'],
-    popular: true,
-  },
-  {
-    key: 'ENTERPRISE',
-    displayName: 'Enterprise',
-    priceMonthly: null,
-    priceYearly: null,
-    maxRoles: null,
-    maxPerRole: null,
-    blurb: 'Unlimited roles and employees, custom onboarding.',
-    features: ['Unlimited AI Employees', 'Dedicated support', 'Custom integrations'],
-    custom: true,
-  },
-];
-
-/** Illustrative pricing — not real Stripe prices. See PLAN_CATALOG on the backend for the real numbers. */
-export const PLAN_PRICING_NOTE =
-  'Prices shown are illustrative for this preview.';
 
 export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
   {
@@ -193,17 +126,17 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
     suggestedWorkflowKeys: ['invoice-follow-up', 'expense-summary'],
   },
   {
-    key: 'OPERATIONS',
-    name: 'Operations AI',
-    department: 'Operations',
-    description: 'Automate internal tasks',
-    icon: Settings2,
+    key: 'RECRUITER',
+    name: 'Recruiter AI',
+    department: 'Recruiting',
+    description: 'Source & screen candidates',
+    icon: UserSearch,
     colorClass: 'bg-cyan-500/15 text-cyan-400',
     avatarFrom: '#22D3EE',
     avatarTo: '#0891B2',
     defaultPersona: 'Organised, efficient, detail-oriented',
-    suggestedSkillKeys: ['slack', 'gdrive', 'jira'],
-    suggestedWorkflowKeys: ['task-assignment', 'weekly-ops-report'],
+    suggestedSkillKeys: ['gmail', 'calendar', 'scheduling'],
+    suggestedWorkflowKeys: ['candidate-screening', 'interview-scheduling'],
   },
   {
     key: 'PROJECT_MANAGER',
@@ -233,236 +166,12 @@ export const EMPLOYEE_TEMPLATES: readonly EmployeeTemplate[] = [
   },
 ];
 
-export function templateFor(key: EmployeeTemplateKey): EmployeeTemplate {
-  return EMPLOYEE_TEMPLATES.find((t) => t.key === key) ?? EMPLOYEE_TEMPLATES[7];
+/**
+ * Same lookup, keyed by the real backend `EmployeeRole` instead of the mock
+ * `EmployeeTemplateKey` — the two share the same 8 string values, so this is
+ * a direct match, not a mapping. Lets real `AiEmployeeDto.role` values drive
+ * the same template/avatar catalog this mock screen already uses.
+ */
+export function templateForRole(role: EmployeeRole): EmployeeTemplate {
+  return EMPLOYEE_TEMPLATES.find((t) => t.key === role) ?? EMPLOYEE_TEMPLATES[7];
 }
-
-/** Same icon set/keys `features/skills/components/SkillCatalog.tsx` uses. */
-export const SKILLS: readonly SkillDef[] = [
-  {
-    key: 'gmail',
-    name: 'Gmail',
-    category: 'Communication',
-    description: 'Send and read email',
-    icon: GmailIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'slack',
-    name: 'Slack',
-    category: 'Communication',
-    description: 'Team communication and notifications',
-    icon: SlackIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'zoom',
-    name: 'Zoom',
-    category: 'Communication',
-    description: 'Join and schedule meetings',
-    icon: ZoomIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'hubspot',
-    name: 'HubSpot',
-    category: 'CRM & Sales',
-    description: 'Manage contacts, deals and pipelines',
-    icon: HubSpotIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'salesforce',
-    name: 'Salesforce',
-    category: 'CRM & Sales',
-    description: 'Sync CRM data',
-    icon: SalesforceIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'pipedrive',
-    name: 'Pipedrive',
-    category: 'CRM & Sales',
-    description: 'Sales pipeline management',
-    icon: PipedriveIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'linkedin',
-    name: 'LinkedIn',
-    category: 'CRM & Sales',
-    description: 'Find prospects and engage professionally',
-    icon: LinkedInIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'calendar',
-    name: 'Calendar',
-    category: 'Productivity',
-    description: 'Schedule meetings and follow-ups',
-    icon: CalendarIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'gdrive',
-    name: 'Google Drive',
-    category: 'Productivity',
-    description: 'File storage and sharing',
-    icon: GoogleDriveIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'notion',
-    name: 'Notion',
-    category: 'Productivity',
-    description: 'Notes and documentation',
-    icon: NotionIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'clickup',
-    name: 'ClickUp',
-    category: 'Productivity',
-    description: 'Project and task management',
-    icon: ClickUpIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'postiz',
-    name: 'Social Publishing',
-    category: 'Marketing',
-    description: 'Schedule and publish social posts',
-    icon: Megaphone,
-    requiresConnection: true,
-  },
-  {
-    key: 'canva',
-    name: 'Canva',
-    category: 'Marketing',
-    description: 'Create sales and marketing collateral',
-    icon: CanvaIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'stripe',
-    name: 'Stripe',
-    category: 'Finance',
-    description: 'Payment processing, invoices and balances',
-    icon: StripeIcon,
-    requiresConnection: true,
-  },
-  {
-    key: 'jira',
-    name: 'Jira',
-    category: 'Custom / Other',
-    description: 'Track issues and tasks',
-    icon: Kanban,
-    requiresConnection: true,
-  },
-  {
-    key: 'asana',
-    name: 'Asana',
-    category: 'Custom / Other',
-    description: 'Track tasks and projects',
-    icon: AsanaIcon,
-    requiresConnection: true,
-  },
-];
-
-export const SKILL_CATEGORIES: readonly SkillDef['category'][] = [
-  'Communication',
-  'CRM & Sales',
-  'Productivity',
-  'Marketing',
-  'Data & Analytics',
-  'Finance',
-  'Custom / Other',
-];
-
-export function skillFor(key: string): SkillDef | undefined {
-  return SKILLS.find((s) => s.key === key);
-}
-
-export const WORKFLOW_TEMPLATES: Readonly<Record<string, WorkflowTemplateDef>> = {
-  'new-lead-follow-up': {
-    key: 'new-lead-follow-up',
-    name: 'New Lead Follow-up',
-    description: 'Reply to a new lead within minutes, every time.',
-  },
-  'lead-qualification': {
-    key: 'lead-qualification',
-    name: 'Lead Qualification',
-    description: 'Score and route leads by fit and intent.',
-  },
-  'daily-sales-report': {
-    key: 'daily-sales-report',
-    name: 'Daily Sales Report',
-    description: 'A morning summary of yesterday’s pipeline activity.',
-  },
-  'ticket-triage': {
-    key: 'ticket-triage',
-    name: 'Ticket Triage & Response',
-    description: 'Categorise and answer common support requests.',
-  },
-  'daily-support-summary': {
-    key: 'daily-support-summary',
-    name: 'Daily Support Summary',
-    description: 'Open tickets, response times, and escalations.',
-  },
-  'social-post-scheduler': {
-    key: 'social-post-scheduler',
-    name: 'Social Post Scheduler',
-    description: 'Plan and queue posts across channels.',
-  },
-  'content-approval': {
-    key: 'content-approval',
-    name: 'Content Approval Flow',
-    description: 'Draft, review and approve before it goes out.',
-  },
-  'candidate-screening': {
-    key: 'candidate-screening',
-    name: 'Candidate Screening',
-    description: 'Summarise and score new applications.',
-  },
-  'interview-scheduling': {
-    key: 'interview-scheduling',
-    name: 'Interview Scheduling',
-    description: 'Book interviews from a shared slot pool.',
-  },
-  'invoice-follow-up': {
-    key: 'invoice-follow-up',
-    name: 'Invoice Follow-up',
-    description: 'Chase overdue invoices automatically.',
-  },
-  'expense-summary': {
-    key: 'expense-summary',
-    name: 'Expense Report Summary',
-    description: 'Weekly rollup of submitted expenses.',
-  },
-  'task-assignment': {
-    key: 'task-assignment',
-    name: 'Task Assignment',
-    description: 'Route incoming requests to the right owner.',
-  },
-  'weekly-ops-report': {
-    key: 'weekly-ops-report',
-    name: 'Weekly Ops Report',
-    description: 'A digest of operational metrics.',
-  },
-  'sprint-status-report': {
-    key: 'sprint-status-report',
-    name: 'Sprint Status Report',
-    description: 'Where every tracked issue stands.',
-  },
-  'task-reminders': {
-    key: 'task-reminders',
-    name: 'Task Reminders',
-    description: 'Nudge owners before a deadline slips.',
-  },
-};
-
-export const KNOWLEDGE_SUGGESTIONS: readonly { name: string; sizeLabel: string }[] = [
-  { name: 'Sales Playbook', sizeLabel: '1.2 MB' },
-  { name: 'Pricing Guide', sizeLabel: '340 KB' },
-  { name: 'Company FAQ', sizeLabel: '210 KB' },
-];

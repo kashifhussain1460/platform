@@ -2,41 +2,215 @@
 
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { SKILLS, SKILL_CATEGORIES, templateFor } from '../../mockData';
-import { useOnboardingFlow } from '../../state';
+import {
+  useAssignSkill,
+  useCatalog,
+  useEmployeeSkills,
+  useInstalledSkills,
+  useInstallSkill,
+  useUnassignSkill,
+} from '@/features/skills/hooks';
+import type { SkillDefinitionDto } from '@vaep/types';
+import { iconForSkill } from '../../skillIcons';
+import { templateForRole } from '../../mockData';
+import { useActiveEmployee } from '../../useActiveEmployee';
+import { useOnboardingWizardStore } from '../../wizardStore';
 import { CardCheckbox } from '../CardCheckbox';
 import { EmployeeContextHeader } from '../EmployeeContextHeader';
 import { FlowShell } from '../FlowShell';
 import { StepFooter } from '../StepFooter';
 
 export function SkillsStep() {
-  const { activeEmployee, dispatch, goToStep, prevStep } = useOnboardingFlow();
-  const [category, setCategory] = useState<'All' | (typeof SKILL_CATEGORIES)[number]>('All');
+  const goToStep = useOnboardingWizardStore((s) => s.goToStep);
+  const {
+    employee,
+    isLoading: employeeLoading,
+    isError: employeeIsError,
+    error: employeeError,
+    refetch: refetchEmployee,
+  } = useActiveEmployee();
+  const [category, setCategory] = useState<string>('All');
+  // Surfaces the most recent install/assign/unassign failure inline — these
+  // mutations optimistically roll back on error, which otherwise reads as a
+  // click that silently "did nothing" (a 409 conflict, a permission error, a
+  // network blip all look identical to the user without this).
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  if (!activeEmployee) {
+  const { data: catalog = [] } = useCatalog();
+  // Company-wide installed skills — the only place an InstalledSkillDto's
+  // `skillKey` lives. `useEmployeeSkills` only returns EmployeeSkillDto rows
+  // (id/installedSkillId/employeeId), so this is required to resolve which
+  // *skill key* each assignment actually points at.
+  const installedSkillsQuery = useInstalledSkills();
+  const installedSkills = installedSkillsQuery.data ?? [];
+  const employeeSkillsQuery = useEmployeeSkills(employee?.id ?? '');
+  const employeeSkills = employeeSkillsQuery.data ?? [];
+  const installSkill = useInstallSkill();
+  const assignSkill = useAssignSkill(employee?.id ?? '');
+  const unassignSkill = useUnassignSkill(employee?.id ?? '');
+
+  const backToHub = () => goToStep('configureEmployees');
+
+  // Distinguish "still resolving the active employee" (routine on a cold
+  // sessionStorage-resumed sub-step, e.g. a page refresh mid-wizard) and "the
+  // employees query genuinely failed" from a real, resolved absence — the
+  // three used to collapse into the same "No AI Employee selected yet."
+  // message, which is a harmless flash in the first case but a permanent,
+  // wrong, dead-end claim with no retry in the second.
+  if (employeeLoading) {
     return (
       <FlowShell heading="Skills & Capabilities">
-        <p className="text-sm text-app-ink-3">No AI Employees selected yet.</p>
-        <StepFooter onBack={prevStep} onContinue={() => goToStep('configureEmployees')} />
+        <p className="text-sm text-fg-muted">Loading your AI Employee…</p>
       </FlowShell>
     );
   }
 
-  const template = templateFor(activeEmployee.templateKey);
-  const recommended = SKILLS.filter((s) => template.suggestedSkillKeys.includes(s.key));
-  const visible = category === 'All' ? SKILLS : SKILLS.filter((s) => s.category === category);
-  const backToHub = () => goToStep('configureEmployees');
+  if (employeeIsError) {
+    return (
+      <FlowShell heading="Skills & Capabilities">
+        <p className="text-sm text-red-400">
+          Couldn't load your AI Employees. {employeeError?.message ?? 'Please try again.'}
+        </p>
+        <StepFooter onBack={backToHub} onContinue={() => void refetchEmployee()} continueLabel="Retry" />
+      </FlowShell>
+    );
+  }
 
-  const toggle = (skillKey: string) =>
-    dispatch({ type: 'TOGGLE_EMPLOYEE_SKILL', employeeId: activeEmployee.id, skillKey });
+  if (!employee) {
+    return (
+      <FlowShell heading="Skills & Capabilities">
+        <p className="text-sm text-fg-muted">No AI Employee selected yet.</p>
+        <StepFooter onBack={backToHub} onContinue={backToHub} />
+      </FlowShell>
+    );
+  }
+
+  const template = templateForRole(employee.role);
+
+  // Gate the interactive list on both lists having actually loaded — `catalog`
+  // is effectively always ready (staleTime: Infinity), but installed-skills
+  // and employee-skills are real network fetches. Rendering checkboxes before
+  // they resolve would show every skill as unchecked/uninstalled, so a
+  // "remove" click on an already-assigned skill would silently re-assign it
+  // instead, and an already-installed skill would trigger a duplicate install
+  // that 409s and rolls back with no visible sign anything happened.
+  if (!installedSkillsQuery.isSuccess || !employeeSkillsQuery.isSuccess) {
+    if (installedSkillsQuery.isError || employeeSkillsQuery.isError) {
+      return (
+        <FlowShell heading="Skills & Capabilities">
+          <EmployeeContextHeader employee={employee} />
+          <p className="text-sm text-red-400">
+            Couldn't load skills. {(installedSkillsQuery.error ?? employeeSkillsQuery.error)?.message ?? 'Please try again.'}
+          </p>
+          <StepFooter
+            onBack={backToHub}
+            onContinue={() => {
+              void installedSkillsQuery.refetch();
+              void employeeSkillsQuery.refetch();
+            }}
+            continueLabel="Retry"
+          />
+        </FlowShell>
+      );
+    }
+    return (
+      <FlowShell heading="Skills & Capabilities">
+        <EmployeeContextHeader employee={employee} />
+        <p className="text-sm text-fg-muted">Loading skills…</p>
+      </FlowShell>
+    );
+  }
+
+  // The join: InstalledSkillDto.id === EmployeeSkillDto.installedSkillId,
+  // and InstalledSkillDto.skillKey is the catalog key. Build id -> skillKey
+  // once, then map this employee's assignments through it. Both the
+  // "Recommended" section and the "Selected Skills" sidebar read this same
+  // Set so they can never disagree about what's assigned.
+  const installedSkillKeyById = new Map(installedSkills.map((s) => [s.id, s.skillKey]));
+  const assignedSkillKeys = new Set(
+    employeeSkills
+      .map((es) => installedSkillKeyById.get(es.installedSkillId))
+      .filter((key): key is string => Boolean(key)),
+  );
+
+  const categories = Array.from(new Set(catalog.map((s) => s.category)));
+  const recommended = catalog.filter((s) => template.suggestedSkillKeys.includes(s.key));
+  const visible = category === 'All' ? catalog : catalog.filter((s) => s.category === category);
+
+  const toggle = (skill: SkillDefinitionDto) => {
+    if (assignedSkillKeys.has(skill.key)) {
+      // Unassign: find THIS employee's assignment row for this skill key (via
+      // the same id -> skillKey join) and delete that specific assignment —
+      // the InstalledSkill itself (and any other employee's assignment to it)
+      // is left alone.
+      const assignment = employeeSkills.find(
+        (es) => installedSkillKeyById.get(es.installedSkillId) === skill.key,
+      );
+      if (assignment) {
+        unassignSkill.mutate(
+          { installedSkillId: assignment.installedSkillId },
+          {
+            onSuccess: () => setActionError(null),
+            onError: (err) => setActionError(err.message || 'Could not remove this skill.'),
+          },
+        );
+      }
+      return;
+    }
+
+    // Not assigned to this employee yet. If the company has already
+    // installed this skillKey, reuse that InstalledSkill instead of creating
+    // a new one — but ONLY if it's usable by this employee: `employeeId:
+    // null` means company-wide (anyone can use it), while a set `employeeId`
+    // means it's privately owned by that one AiEmployee and would silently
+    // resolve to nothing at execution time for anyone else. Only install a
+    // fresh one when no InstalledSkill this employee can actually use exists
+    // yet (mirrors employee-skills.controller.ts's install-then-assign flow).
+    const existingInstalled = installedSkills.find(
+      (s) => s.skillKey === skill.key && (s.employeeId === null || s.employeeId === employee.id),
+    );
+    if (existingInstalled) {
+      assignSkill.mutate(
+        { installedSkillId: existingInstalled.id },
+        {
+          onSuccess: () => setActionError(null),
+          onError: (err) => setActionError(err.message || 'Could not assign this skill.'),
+        },
+      );
+      return;
+    }
+
+    installSkill.mutate(
+      { skillKey: skill.key },
+      {
+        onSuccess: (installed) => {
+          setActionError(null);
+          assignSkill.mutate(
+            { installedSkillId: installed.id },
+            {
+              onSuccess: () => setActionError(null),
+              onError: (err) => setActionError(err.message || 'Could not assign this skill.'),
+            },
+          );
+        },
+        onError: (err) => setActionError(err.message || 'Could not install this skill.'),
+      },
+    );
+  };
 
   return (
     <FlowShell
-      heading={`Select Skills for ${activeEmployee.name || template.name}`}
+      heading={`Select Skills for ${employee.name}`}
       subtitle="Choose the tools and capabilities this employee can use. We'll recommend the best skills based on their role."
       wide
     >
-      <EmployeeContextHeader employee={activeEmployee} />
+      <EmployeeContextHeader employee={employee} />
+
+      {actionError && (
+        <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          {actionError}
+        </p>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
         <div>
@@ -48,13 +222,13 @@ export function SkillsStep() {
               <p className="mb-3 text-xs text-fg-muted">Based on their role and goals</p>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 {recommended.map((skill) => {
-                  const checked = activeEmployee.skillKeys.includes(skill.key);
-                  const Icon = skill.icon;
+                  const checked = assignedSkillKeys.has(skill.key);
+                  const Icon = iconForSkill(skill.key);
                   return (
                     <button
                       key={skill.key}
                       type="button"
-                      onClick={() => toggle(skill.key)}
+                      onClick={() => toggle(skill)}
                       className={`flex flex-col items-start gap-2 rounded-xl border p-3 text-left transition-colors ${
                         checked
                           ? 'border-violet-secondary/60 bg-violet/[0.1]'
@@ -79,7 +253,7 @@ export function SkillsStep() {
           <p className="mb-2 text-sm font-semibold text-white">All Skills</p>
           <p className="mb-3 text-xs text-fg-muted">Browse and select from all available skills</p>
           <div className="flex flex-wrap gap-2">
-            {(['All', ...SKILL_CATEGORIES] as const).map((c) => (
+            {['All', ...categories].map((c) => (
               <button
                 key={c}
                 type="button"
@@ -102,8 +276,8 @@ export function SkillsStep() {
               </p>
             ) : (
               visible.map((skill) => {
-                const checked = activeEmployee.skillKeys.includes(skill.key);
-                const Icon = skill.icon;
+                const checked = assignedSkillKeys.has(skill.key);
+                const Icon = iconForSkill(skill.key);
                 return (
                   <label
                     key={skill.key}
@@ -116,7 +290,7 @@ export function SkillsStep() {
                     <input
                       type="checkbox"
                       checked={checked}
-                      onChange={() => toggle(skill.key)}
+                      onChange={() => toggle(skill)}
                       className="h-4 w-4 shrink-0 rounded-md border-white/20 bg-white/5 accent-[#6a30ec]"
                     />
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white/[0.06] p-1.5">
@@ -136,26 +310,31 @@ export function SkillsStep() {
         <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 lg:h-fit">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-sm font-semibold text-white">
-              Selected Skills ({activeEmployee.skillKeys.length})
+              Selected Skills ({assignedSkillKeys.size})
             </p>
-            {activeEmployee.skillKeys.length > 0 && (
+            {assignedSkillKeys.size > 0 && (
               <button
                 type="button"
-                onClick={() => activeEmployee.skillKeys.forEach((k) => toggle(k))}
+                onClick={() => {
+                  Array.from(assignedSkillKeys).forEach((key) => {
+                    const skill = catalog.find((s) => s.key === key);
+                    if (skill) toggle(skill);
+                  });
+                }}
                 className="text-xs text-fg-muted underline hover:text-zinc-300"
               >
                 Clear All
               </button>
             )}
           </div>
-          {activeEmployee.skillKeys.length === 0 ? (
+          {assignedSkillKeys.size === 0 ? (
             <p className="text-xs text-fg-muted">No skills selected yet.</p>
           ) : (
             <ul className="space-y-2">
-              {activeEmployee.skillKeys.map((key) => {
-                const skill = SKILLS.find((s) => s.key === key);
+              {Array.from(assignedSkillKeys).map((key) => {
+                const skill = catalog.find((s) => s.key === key);
                 if (!skill) return null;
-                const Icon = skill.icon;
+                const Icon = iconForSkill(skill.key);
                 return (
                   <li key={key} className="flex items-center gap-2.5 rounded-lg bg-white/[0.03] px-2.5 py-2">
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded p-1">
@@ -165,7 +344,7 @@ export function SkillsStep() {
                     <button
                       type="button"
                       aria-label={`Remove ${skill.name}`}
-                      onClick={() => toggle(key)}
+                      onClick={() => toggle(skill)}
                       className="shrink-0 text-fg-muted hover:text-white"
                     >
                       <X className="h-3.5 w-3.5" />

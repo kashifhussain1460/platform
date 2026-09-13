@@ -37,8 +37,22 @@ interface OAuthState {
  * install (`EmployeeSkillPicker.tsx`) had nowhere safe to send the OAuth
  * callback back to, so it always landed the user on `/skills` regardless of
  * where they started the connection.
+ *
+ * `/onboarding-preview` and `/onboarding` were the same gap for the
+ * onboarding wizard's Connections step: it's a single-route page (no
+ * `/onboarding-preview/<id>` sub-path), so — unlike the other three entries
+ * — these two are deliberately WITHOUT a trailing slash. `safeReturnPath`
+ * matches with a plain `startsWith`, so a trailing slash here would reject
+ * the exact bare path (`/onboarding-preview`, no trailing segment) that
+ * `window.location.pathname` actually sends.
  */
-const RETURN_TO_PREFIXES = ['/assist/', '/workflows/', '/employees/'] as const;
+const RETURN_TO_PREFIXES = [
+  '/assist/',
+  '/workflows/',
+  '/employees/',
+  '/onboarding-preview',
+  '/onboarding',
+] as const;
 
 /** Signed OAuth state lifetime (defends against stale/replayed authorize links). */
 const STATE_TTL_MS = 10 * 60 * 1000;

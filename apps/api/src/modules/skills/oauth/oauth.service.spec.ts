@@ -179,6 +179,24 @@ describe('OAuthService — state + PKCE', () => {
       expect(result).toContain('skillError=');
     });
 
+    it('honours the onboarding wizard\'s exact bare path (no trailing segment)', async () => {
+      // `/onboarding-preview` and `/onboarding` were the same gap as
+      // `/employees/` above, for the onboarding wizard's Connections step.
+      // Unlike the other allowlist entries this is a single-route page with
+      // no `/onboarding-preview/<id>` sub-path, so the prefix is deliberately
+      // WITHOUT a trailing slash — confirming here that the exact bare path
+      // (what `window.location.pathname` actually sends) still matches
+      // `safeReturnPath`'s plain `startsWith` check.
+      const { oauth } = build();
+      const url = await oauth.buildAuthorizeUrl('co1', 'is1', {
+        returnTo: '/onboarding-preview',
+      });
+      const state = stateFrom(url);
+      const result = await oauth.handleCallback('code-1', state);
+      expect(result).toContain('http://localhost:3000/onboarding-preview');
+      expect(result).toContain('skillError=');
+    });
+
     it('falls back to /skills for a returnTo outside the allowlist', async () => {
       const { oauth } = build();
       const url = await oauth.buildAuthorizeUrl('co1', 'is1', {

@@ -1,17 +1,17 @@
 'use client';
 
 import { Pencil } from 'lucide-react';
-import { templateFor } from '../mockData';
-import { useOnboardingFlow } from '../state';
-import type { DraftEmployee } from '../types';
+import type { AiEmployeeDto } from '@vaep/types';
+import { templateForRole } from '../mockData';
+import { useOnboardingWizardStore } from '../wizardStore';
 import { EmployeeAvatar } from './EmployeeAvatar';
 
 /** Shared header for the per-employee Skills/Connections/Knowledge screens —
  * makes clear which employee this screen belongs to, and "Edit Employee"
  * returns to that employee's Configure Hub rather than the generic Back. */
-export function EmployeeContextHeader({ employee }: { employee: DraftEmployee }) {
-  const { goToStep } = useOnboardingFlow();
-  const template = templateFor(employee.templateKey);
+export function EmployeeContextHeader({ employee }: { employee: AiEmployeeDto }) {
+  const goToStep = useOnboardingWizardStore((s) => s.goToStep);
+  const template = templateForRole(employee.role);
 
   return (
     <div className="mb-6 flex items-center justify-between gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5">

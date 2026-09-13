@@ -1,55 +1,79 @@
 'use client';
 
-import type { ChangeEvent } from 'react';
+import { useState } from 'react';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
 import { Building2, Globe, LayoutGrid, Users } from 'lucide-react';
 import { IconField } from '@/components/onboarding/fields';
+import { useCurrentCompany, useUpdateCompany } from '@/features/tenant/hooks';
 import { COMPANY_SIZES, INDUSTRIES } from '../../mockData';
-import { useOnboardingFlow } from '../../state';
+import { useOnboardingWizardStore } from '../../wizardStore';
+import { companySchema, type CompanyFormValues } from '../../companySchema';
 import { FlowShell } from '../FlowShell';
 import { StepFooter } from '../StepFooter';
 
 export function CompanyDetailsStep() {
-  const { state, dispatch, nextStep, prevStep, setErrors } = useOnboardingFlow();
-  const { company, errors } = state;
+  const nextStep = useOnboardingWizardStore((s) => s.nextStep);
+  const prevStep = useOnboardingWizardStore((s) => s.prevStep);
+  const { data: company, isLoading } = useCurrentCompany();
+  const updateCompany = useUpdateCompany();
+  // Visible failure feedback (Tasks 10-13's recurring lesson): there is no
+  // global mutation error handler, so a failed save must surface here or the
+  // Continue button just re-enables with nothing having happened.
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const setField = (field: keyof typeof company) => (
-    e: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
-  ) => {
-    dispatch({ type: 'SET_COMPANY_FIELD', field, value: e.target.value });
-    dispatch({ type: 'CLEAR_ERROR', field });
-  };
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<CompanyFormValues>({
+    resolver: zodResolver(companySchema),
+    values: company
+      ? {
+          name: company.name,
+          industry: company.industry ?? '',
+          size: company.size ?? '',
+          website: company.website ?? '',
+        }
+      : undefined,
+  });
 
-  const onContinue = () => {
-    const next: Record<string, string> = {};
-    if (!company.name.trim()) next.name = 'Company name is required.';
-    if (!company.industry) next.industry = 'Choose an industry.';
-    if (!company.size) next.size = 'Choose a company size.';
-    if (company.website.trim() && !/^https?:\/\/.+\..+/.test(company.website.trim())) {
-      next.website = 'Enter a full URL, e.g. https://acme.com';
-    }
-    if (Object.keys(next).length > 0) {
-      setErrors(next);
-      return;
-    }
-    nextStep();
-  };
+  const onSubmit = handleSubmit((values) => {
+    setActionError(null);
+    updateCompany.mutate(values, {
+      onSuccess: () => nextStep(),
+      onError: (err) => setActionError(err.message || "Couldn't save your company details."),
+    });
+  });
+
+  if (isLoading) {
+    return (
+      <FlowShell heading="Tell us about your company">
+        <p className="text-sm text-fg-muted">Loading…</p>
+      </FlowShell>
+    );
+  }
 
   return (
     <FlowShell heading="Tell us about your company" subtitle="This helps us personalise your AI Employees.">
-      <div className="space-y-5">
+      {actionError && (
+        <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+          {actionError}
+        </p>
+      )}
+      <form onSubmit={onSubmit} className="space-y-5">
         <div>
           <IconField id="co-name" label="Company name" icon={<Building2 className="h-[18px] w-[18px]" />}>
             <input
               id="co-name"
               className="field-modern field-with-icon"
               autoFocus
-              value={company.name}
-              onChange={setField('name')}
+              {...register('name')}
               placeholder="Acme Private Limited"
               aria-invalid={Boolean(errors.name)}
             />
           </IconField>
-          {errors.name && <p className="mt-1.5 text-[13px] text-red-400">{errors.name}</p>}
+          {errors.name && <p className="mt-1.5 text-[13px] text-red-400">{errors.name.message}</p>}
         </div>
 
         <div>
@@ -57,8 +81,7 @@ export function CompanyDetailsStep() {
             <select
               id="co-industry"
               className="field-modern field-with-icon"
-              value={company.industry}
-              onChange={setField('industry')}
+              {...register('industry')}
               aria-invalid={Boolean(errors.industry)}
             >
               <option value="" disabled>Select an industry</option>
@@ -67,7 +90,7 @@ export function CompanyDetailsStep() {
               ))}
             </select>
           </IconField>
-          {errors.industry && <p className="mt-1.5 text-[13px] text-red-400">{errors.industry}</p>}
+          {errors.industry && <p className="mt-1.5 text-[13px] text-red-400">{errors.industry.message}</p>}
         </div>
 
         <div>
@@ -75,8 +98,7 @@ export function CompanyDetailsStep() {
             <select
               id="co-size"
               className="field-modern field-with-icon"
-              value={company.size}
-              onChange={setField('size')}
+              {...register('size')}
               aria-invalid={Boolean(errors.size)}
             >
               <option value="" disabled>Select a size</option>
@@ -85,7 +107,7 @@ export function CompanyDetailsStep() {
               ))}
             </select>
           </IconField>
-          {errors.size && <p className="mt-1.5 text-[13px] text-red-400">{errors.size}</p>}
+          {errors.size && <p className="mt-1.5 text-[13px] text-red-400">{errors.size.message}</p>}
         </div>
 
         <div>
@@ -93,17 +115,16 @@ export function CompanyDetailsStep() {
             <input
               id="co-website"
               className="field-modern field-with-icon"
-              value={company.website}
-              onChange={setField('website')}
+              {...register('website')}
               placeholder="https://acme.com"
               aria-invalid={Boolean(errors.website)}
             />
           </IconField>
-          {errors.website && <p className="mt-1.5 text-[13px] text-red-400">{errors.website}</p>}
+          {errors.website && <p className="mt-1.5 text-[13px] text-red-400">{errors.website.message}</p>}
         </div>
-      </div>
 
-      <StepFooter onBack={prevStep} onContinue={onContinue} />
+        <StepFooter onBack={prevStep} onContinue={onSubmit} continueDisabled={updateCompany.isPending} />
+      </form>
     </FlowShell>
   );
 }
