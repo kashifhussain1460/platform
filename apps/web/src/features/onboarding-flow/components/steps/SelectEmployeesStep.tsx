@@ -16,11 +16,34 @@ export function SelectEmployeesStep() {
   const setErrors = useOnboardingWizardStore((s) => s.setErrors);
   const errors = useOnboardingWizardStore((s) => s.errors);
   const clearError = useOnboardingWizardStore((s) => s.clearError);
-  const { reasonBlocked } = useSeatAvailability();
+  const { seats, reasonBlocked } = useSeatAvailability();
+
+  // How many MORE roles this plan allows, on top of whatever's already
+  // hired — null = unlimited. Shown next to the selection count so the cap
+  // is visible before the user hits it, not just as a per-card grey-out.
+  const remaining = (() => {
+    if (!seats) return null;
+    if (seats.max == null && seats.maxRoles == null) return null;
+    const byTotal = seats.max != null ? seats.max - seats.used : Infinity;
+    const byRoles = seats.maxRoles != null ? seats.maxRoles - seats.rolesUsed : Infinity;
+    return Math.max(0, Math.min(byTotal, byRoles));
+  })();
 
   const onContinue = () => {
     if (selectedTemplateKeys.length === 0) {
       setErrors({ employees: 'Select at least one AI Employee to continue.' });
+      return;
+    }
+    // Defense in depth: card-level greying already prevents selecting past
+    // the cap going forward, but a plan downgrade after selecting (or a
+    // wizard session resumed from before this check existed) could leave a
+    // stale over-cap selection sitting in the persisted store. Re-validate
+    // the WHOLE current selection against live entitlements before
+    // proceeding, rather than trusting that the UI never let it happen.
+    if (remaining !== null && selectedTemplateKeys.length > remaining) {
+      setErrors({
+        employees: `Your plan only allows ${remaining} more AI employee${remaining === 1 ? '' : 's'} right now — deselect ${selectedTemplateKeys.length - remaining} to continue, or upgrade your plan.`,
+      });
       return;
     }
     nextStep();
@@ -31,7 +54,8 @@ export function SelectEmployeesStep() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {EMPLOYEE_TEMPLATES.map((template) => {
           const selected = selectedTemplateKeys.includes(template.key);
-          const blockedReason = selected ? null : reasonBlocked(template.key);
+          const pendingRoles = selectedTemplateKeys.filter((key) => key !== template.key);
+          const blockedReason = selected ? null : reasonBlocked(template.key, pendingRoles);
           const disabled = Boolean(blockedReason);
           return (
             <button
@@ -53,7 +77,11 @@ export function SelectEmployeesStep() {
         })}
       </div>
       {errors.employees && <p className="mt-3 text-[13px] text-red-400">{errors.employees}</p>}
-      <p className="mt-4 text-sm text-fg-muted">{selectedTemplateKeys.length} selected</p>
+      <p className="mt-4 text-sm text-fg-muted">
+        {selectedTemplateKeys.length} selected
+        {remaining !== null &&
+          ` · ${Math.max(0, remaining - selectedTemplateKeys.length)} more available on your plan`}
+      </p>
       <StepFooter onBack={prevStep} onContinue={onContinue} />
     </FlowShell>
   );

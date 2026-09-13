@@ -129,13 +129,24 @@ export function useDashboardComposition() {
  *
  * Unknown (context not loaded) → allowed, for the same reason as the other
  * hooks here: fail toward the product working and let the server say no.
+ *
+ * `reasonBlocked`'s optional second argument, `pendingRoles`, is for a
+ * multi-select picker (the onboarding wizard's Select Employees step) where
+ * several roles are chosen BEFORE any of them is actually hired — `seats`
+ * only reflects what the server already has, so a picker checking each card
+ * in isolation would let a Starter plan (`maxRoles: 2`) select all 8 roles
+ * with nothing greyed out. Pass the OTHER roles already selected in this same
+ * picker session (not including the one being asked about) so the total/role
+ * caps are checked against "already hired + about to be hired," not just
+ * "already hired." The single-role hire form omits it and gets the original,
+ * unaffected behavior.
  */
 export function useSeatAvailability(): {
   isLoading: boolean;
   seats: EntitlementsDto['seats'] | null;
   creditsPerEmployeePerMonth: number | null;
   /** null = hireable; otherwise the plain-language reason it is not. */
-  reasonBlocked: (role: EmployeeRole) => string | null;
+  reasonBlocked: (role: EmployeeRole, pendingRoles?: EmployeeRole[]) => string | null;
 } {
   const { data, isLoading } = useProductContext();
   const seats = data?.entitlements.seats ?? null;
@@ -143,17 +154,25 @@ export function useSeatAvailability(): {
     isLoading,
     seats,
     creditsPerEmployeePerMonth: data?.entitlements.creditsPerEmployeePerMonth ?? null,
-    reasonBlocked: (role) => {
+    reasonBlocked: (role, pendingRoles = []) => {
       if (!seats) return null;
-      if (seats.max !== null && seats.used >= seats.max) {
-        return `All ${seats.max} seats on your plan are taken.`;
+      const pendingCount = pendingRoles.length;
+      const effectiveUsed = seats.used + pendingCount;
+      if (seats.max !== null && effectiveUsed >= seats.max) {
+        return pendingCount > 0
+          ? `Your plan allows ${seats.max} AI employees in total, including the ${pendingCount} you've already selected.`
+          : `All ${seats.max} seats on your plan are taken.`;
       }
       const inRole = seats.perRole.find((r) => r.role === role);
       if (seats.maxPerRole !== null && inRole && inRole.used >= seats.maxPerRole) {
         return `Your plan includes ${seats.maxPerRole} per role and you already have ${inRole.used}.`;
       }
-      if (seats.maxRoles !== null && !inRole && seats.rolesUsed >= seats.maxRoles) {
-        return `Your plan includes ${seats.maxRoles} roles and you already use ${seats.rolesUsed}.`;
+      const pendingNewRoles = pendingRoles.filter((r) => !seats.perRole.some((pr) => pr.role === r)).length;
+      const effectiveRolesUsed = seats.rolesUsed + pendingNewRoles;
+      if (seats.maxRoles !== null && !inRole && effectiveRolesUsed >= seats.maxRoles) {
+        return pendingCount > 0
+          ? `Your plan includes ${seats.maxRoles} roles and your current selection already uses ${effectiveRolesUsed}.`
+          : `Your plan includes ${seats.maxRoles} roles and you already use ${seats.rolesUsed}.`;
       }
       return null;
     },
