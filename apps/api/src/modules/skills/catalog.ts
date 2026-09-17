@@ -853,7 +853,7 @@ const CATALOG: readonly CatalogEntry[] = [
     name: 'WhatsApp (Twilio)',
     description: 'Send and receive WhatsApp Business messages via Twilio for lead qualification and sales outreach.',
     category: 'communication',
-    connection: { type: 'api_key', label: 'Connect WhatsApp (Twilio)' },
+    connection: { type: 'custom', label: 'Connect WhatsApp (Twilio)' },
     configSchema: [
       { key: 'twilioAccountSid', label: 'Twilio Account SID', type: 'string', placeholder: 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
       { key: 'twilioAuthToken', label: 'Twilio Auth Token', type: 'string', secret: true, help: 'Stored encrypted-at-rest; never returned in responses.' },

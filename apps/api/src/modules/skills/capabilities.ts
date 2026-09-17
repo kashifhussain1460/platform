@@ -1,4 +1,4 @@
-import type { SkillCapability } from '@vaep/types';
+import type { SkillCapability, SkillConnectionType } from '@vaep/types';
 import { SKILL_CAPABILITIES } from '@vaep/types';
 import { SkillCatalog } from './catalog';
 import { providerForSkill } from './oauth/oauth.providers';
@@ -124,8 +124,8 @@ export const SkillCapabilities = {
     return providerForSkill(skillKey);
   },
 
-  /** Catalog connection type (`oauth` | `api_key` | `none`); undefined if unknown skill. */
-  connectionType(skillKey: string): 'oauth' | 'api_key' | 'none' | undefined {
+  /** Catalog connection type (see SkillConnectionType); undefined if unknown skill. */
+  connectionType(skillKey: string): SkillConnectionType | undefined {
     return SkillCatalog.get(skillKey)?.connection.type;
   },
 

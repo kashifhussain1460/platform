@@ -904,11 +904,15 @@ export type SkillCategory =
   | 'project_management';
 
 /**
- * How a skill authenticates against its (real) backend. `api_key` prompts for a
- * secret key; `oauth` is a stubbed connect flow (real OAuth = TODO); `none` needs
- * no connection (mock/sandbox executors run without one either way).
+ * How a skill authenticates against its (real) backend. `api_key` prompts
+ * for a secret key/form via the generic InstalledSkill credentials path;
+ * `oauth` is a real authorization-code flow (see skills/oauth); `none` needs
+ * no connection; `custom` means the skill owns a dedicated connect
+ * endpoint/table outside InstalledSkill entirely (e.g. `whatsapp` →
+ * `WhatsAppAccount`) and the wizard must render that skill's own component
+ * instead of the generic form.
  */
-export type SkillConnectionType = 'oauth' | 'api_key' | 'none';
+export type SkillConnectionType = 'oauth' | 'api_key' | 'none' | 'custom';
 
 /** Connection descriptor for a catalog skill. */
 export interface SkillConnectionDto {
