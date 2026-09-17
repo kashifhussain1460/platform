@@ -31,6 +31,9 @@ describe('WhatsappAccountsService', () => {
       aiEmployee: {
         findFirst: jest.fn().mockResolvedValue({ id: 'emp_1' }),
       },
+      installedSkill: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
     };
     const crypto: any = {
       encrypt: jest.fn((s: string) => `enc:${s}`),
@@ -105,6 +108,21 @@ describe('WhatsappAccountsService', () => {
       const { service } = build();
       const result = await service.connect('c_1', dto);
       expect(result).not.toHaveProperty('twilioAuthToken');
+    });
+
+    /**
+     * The Skills catalog list and the employee skill picker both read
+     * InstalledSkill.connectionStatus, not WhatsAppAccount.status — without
+     * this sync, a real successful connect here would still show as "Not
+     * connected" everywhere outside this dedicated form.
+     */
+    it('syncs InstalledSkill.connectionStatus to CONNECTED on a successful connect', async () => {
+      const { service, prisma } = build();
+      await service.connect('c_1', dto);
+      expect(prisma.installedSkill.updateMany).toHaveBeenCalledWith({
+        where: { companyId: 'c_1', skillKey: 'whatsapp' },
+        data: { connectionStatus: 'CONNECTED' },
+      });
     });
 
     /**

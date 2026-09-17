@@ -89,6 +89,18 @@ export class WhatsappAccountsService {
       },
     });
 
+    // The Skills catalog list, EmployeeSkillPicker and the wizard's own
+    // initial-stage check all read InstalledSkill.connectionStatus, not
+    // WhatsAppAccount.status — without this, a real successful connect here
+    // would still show as "Not connected" everywhere outside this form.
+    // updateMany (not update): a company can reach this dedicated connect
+    // form before ever installing the catalog entry, so there may be no
+    // matching row yet — that's a no-op, not an error.
+    await this.prisma.installedSkill.updateMany({
+      where: { companyId, skillKey: 'whatsapp' },
+      data: { connectionStatus: 'CONNECTED' },
+    });
+
     await this.audit.record({
       companyId,
       action: 'connector.verified',
