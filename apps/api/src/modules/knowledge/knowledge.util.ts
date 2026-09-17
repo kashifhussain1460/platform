@@ -66,5 +66,36 @@ export async function extractText(
     const parsed = await mammoth.extractRawText({ buffer: bytes });
     return parsed.value;
   }
+  if (looksLikeBinary(bytes)) {
+    throw new Error(
+      'File does not look like plain text — it may be a renamed binary file (e.g. an image). Upload a PDF, DOCX, TXT, or MD file.',
+    );
+  }
   return bytes.toString('utf8');
+}
+
+/**
+ * Heuristic binary-content sniff for the TXT/MD fallback path: extension and
+ * mimetype checks (`isAllowedKnowledgeUpload`) can't catch a binary file
+ * renamed to `.txt`/`.md` — there's no magic-byte signature for plain text.
+ * A null byte or a high density of non-printable control bytes never occurs
+ * in real text but is common in images/binaries, so reject on that instead of
+ * silently decoding garbage as UTF-8.
+ */
+function looksLikeBinary(bytes: Buffer): boolean {
+  if (bytes.includes(0)) {
+    return true;
+  }
+  const sample = bytes.subarray(0, 8192);
+  if (sample.length === 0) {
+    return false;
+  }
+  let suspicious = 0;
+  for (const byte of sample) {
+    const isControlButNotWhitespace = byte < 32 && byte !== 9 && byte !== 10 && byte !== 13;
+    if (isControlButNotWhitespace || byte === 127) {
+      suspicious++;
+    }
+  }
+  return suspicious / sample.length > 0.05;
 }

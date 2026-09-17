@@ -223,6 +223,18 @@ export const DOCUMENT_STATUSES: readonly DocumentStatus[] = [
   'FAILED',
 ] as const;
 
+/**
+ * Shared with `apps/api/src/common/config/credit-abuse.constants.ts`
+ * (`isAllowedKnowledgeUpload`/`knowledgeUploadMaxBytes`) and
+ * `apps/web/src/features/onboarding-flow/components/steps/KnowledgeStep.tsx`
+ * so the client-side pre-check and the server's real enforcement can't drift
+ * apart on the default. The server's `KNOWLEDGE_UPLOAD_MAX_BYTES` env
+ * override is not reflected here — this is the default only, used purely as
+ * a fast first check; the server remains the real enforcement point.
+ */
+export const KNOWLEDGE_UPLOAD_ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.md'] as const;
+export const KNOWLEDGE_UPLOAD_DEFAULT_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
+
 /** Public shape of a knowledge document (never includes the storage key). */
 export interface KnowledgeDocumentDto {
   id: string;

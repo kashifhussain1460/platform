@@ -2,12 +2,28 @@
 
 import { useRef, useState } from 'react';
 import { FileText, Upload, X } from 'lucide-react';
+import {
+  KNOWLEDGE_UPLOAD_ALLOWED_EXTENSIONS,
+  KNOWLEDGE_UPLOAD_DEFAULT_MAX_BYTES,
+} from '@vaep/types';
 import { useDeleteDocument, useDocuments, useUploadDocument } from '@/features/knowledge/hooks';
 import { useActiveEmployee } from '../../useActiveEmployee';
 import { useOnboardingWizardStore } from '../../wizardStore';
 import { EmployeeContextHeader } from '../EmployeeContextHeader';
 import { FlowShell } from '../FlowShell';
 import { StepFooter } from '../StepFooter';
+
+// Sourced from `@vaep/types` so this can't drift from the server's allow-list
+// (apps/api/src/common/config/credit-abuse.constants.ts). The size ceiling is
+// the server's *default* only — an env-set `KNOWLEDGE_UPLOAD_MAX_BYTES`
+// override isn't visible here. The server is the real enforcement point;
+// this is a fast, no-round-trip first check, not the source of truth.
+const MAX_UPLOAD_BYTES = KNOWLEDGE_UPLOAD_DEFAULT_MAX_BYTES;
+
+function isAllowedFile(file: File): boolean {
+  const lower = file.name.toLowerCase();
+  return (KNOWLEDGE_UPLOAD_ALLOWED_EXTENSIONS as readonly string[]).some((ext) => lower.endsWith(ext));
+}
 
 export function KnowledgeStep() {
   const goToStep = useOnboardingWizardStore((s) => s.goToStep);
@@ -102,10 +118,31 @@ export function KnowledgeStep() {
   const addFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setActionError(null);
+    const rejected: string[] = [];
     for (const file of Array.from(files)) {
+      // Live-discovered bug (fixed here): this used to upload every file
+      // regardless of type — a renamed .png was accepted and marked READY,
+      // even though only PDF/DOCX have real text extractors server-side; a
+      // non-text file falls through to a raw UTF-8 decode of its bytes,
+      // silently corrupting the knowledge base with garbled chunks and no
+      // error anywhere. The server now rejects these too (defense in depth);
+      // this check just avoids the round trip for the common case.
+      if (!isAllowedFile(file)) {
+        rejected.push(file.name);
+        continue;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        rejected.push(file.name);
+        continue;
+      }
       upload.mutate(
         { file, category: employee.role },
         { onError: (err) => setActionError(err.message || `Couldn't upload ${file.name}.`) },
+      );
+    }
+    if (rejected.length > 0) {
+      setActionError(
+        `${rejected.join(', ')} ${rejected.length === 1 ? "wasn't" : "weren't"} uploaded — only PDF, DOCX, TXT, or MD files up to 20MB are supported.`,
       );
     }
   };
@@ -145,11 +182,12 @@ export function KnowledgeStep() {
       >
         <Upload className="mx-auto h-8 w-8 text-violet-secondary" />
         <p className="mt-3 text-sm text-zinc-300">Drag and drop files here</p>
-        <p className="mt-1 text-xs text-fg-muted">PDF, DOC, TXT, MD (Max 10MB)</p>
+        <p className="mt-1 text-xs text-fg-muted">PDF, DOCX, TXT, MD (Max 20MB)</p>
         <input
           ref={inputRef}
           type="file"
           multiple
+          accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
           className="hidden"
           onChange={(e) => addFiles(e.target.files)}
         />

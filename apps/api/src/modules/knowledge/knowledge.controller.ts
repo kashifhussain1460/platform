@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -16,7 +17,10 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { knowledgeUploadMaxBytes } from '../../common/config/credit-abuse.constants';
+import {
+  isAllowedKnowledgeUpload,
+  knowledgeUploadMaxBytes,
+} from '../../common/config/credit-abuse.constants';
 import type { KnowledgeDocumentDto, SearchResultDto } from '@vaep/types';
 import { CurrentTenant } from '../auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -42,7 +46,24 @@ export class KnowledgeController {
    * mid-way.
    */
   @Post('documents')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: knowledgeUploadMaxBytes() } }))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: knowledgeUploadMaxBytes() },
+      // Live-discovered gap (closed here): there was no fileFilter at all, so
+      // any file extension was silently accepted and marked READY even
+      // though only PDF/DOCX have real text extractors — everything else
+      // (including a binary file with no real parser) was decoded as raw
+      // UTF-8, producing garbled chunks/embeddings with no error surfaced
+      // anywhere. Reject unsupported types before Multer even buffers them.
+      fileFilter: (_req, file, cb) => {
+        if (!isAllowedKnowledgeUpload(file.mimetype, file.originalname)) {
+          cb(new BadRequestException('Unsupported file type — upload a PDF, DOCX, TXT, or MD file.'), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
   upload(
     @CurrentTenant() companyId: string,
     @UploadedFile() file: UploadedDocFile,
