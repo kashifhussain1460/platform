@@ -109,11 +109,22 @@ export function SkillSetupWizard({
     // on the "Back to details" buttons further down — same rule, opened here
     // instead of gated there — kept as one derived constant so the two can
     // never drift apart.
+    //
+    // `isCustom` is checked before `canReturnToDetails` because
+    // `canReturnToDetails` is derived from `hasNoConfig`
+    // (`def.configSchema`), which says nothing about custom skills:
+    // `CUSTOM_ORDER` has no `'verify'` stage at all, so a custom skill with
+    // a (hypothetically) empty `configSchema` must still open on `details`,
+    // never on `verify` — opening there would compute `currentIndex === -1`
+    // against `CUSTOM_ORDER` and permanently strand the user on a stage the
+    // `details`-stage ternary can't route out of.
     installed.connectionStatus === 'CONNECTED'
       ? 'test'
-      : !canReturnToDetails
-        ? 'verify'
-        : 'details',
+      : isCustom
+        ? 'details'
+        : !canReturnToDetails
+          ? 'verify'
+          : 'details',
   );
   const [steps, setSteps] = useState<VerifyStepResult[]>([]);
   const [account, setAccount] = useState<string | null>(null);
@@ -198,8 +209,23 @@ export function SkillSetupWizard({
       </ol>
 
       {stage === 'details' ? (
-        CustomConnect ? (
-          <CustomConnect onConnected={() => setStage('test')} />
+        isCustom ? (
+          CustomConnect ? (
+            <CustomConnect onConnected={() => setStage('test')} />
+          ) : (
+            // A catalog entry with connection.type === 'custom' but no
+            // matching CUSTOM_CONNECT_COMPONENTS registration is a
+            // configuration bug, not a user-fixable state — falling through
+            // to ConfigureSkillForm here would silently route its onDone
+            // into setStage('verify'), a stage CUSTOM_ORDER doesn't contain,
+            // stranding the user with no error explaining why. Fail loudly
+            // instead.
+            <p className="text-sm text-red-600">
+              {def.name} is marked as a custom-connect skill but has no
+              registered connect component — this is a configuration bug, not
+              something you can fix here. Contact support.
+            </p>
+          )
         ) : needsOAuth ? (
           <ConnectSkillControl installed={installed} def={def} />
         ) : (
