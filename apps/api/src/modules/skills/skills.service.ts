@@ -278,6 +278,7 @@ export class SkillsService {
   ): Promise<InstalledSkillDto> {
     const installed = await this.findOwnedInstalled(companyId, id);
     const def = this.defFor(installed.skillKey);
+    this.assertNotCustomConnect(def);
     const { config, secrets } = this.partitionConfig(def, dto.config);
 
     const mergedConfig = {
@@ -321,6 +322,7 @@ export class SkillsService {
     const installed = await this.findOwnedInstalled(companyId, id);
     const def = this.defFor(installed.skillKey);
     this.assertNotSimulatedInProduction(def);
+    this.assertNotCustomConnect(def);
 
     // Merge with any existing (decrypted) creds, then persist only the ciphertext.
     const mergedCreds = {
@@ -585,6 +587,24 @@ export class SkillsService {
       `"${def.name}" has no real integration in this build — connecting it would show ` +
         'a live connection that cannot perform any real action. It has been left ' +
         'disconnected on purpose. Use a skill marked as supporting real execution.',
+    );
+  }
+
+  /**
+   * A `'custom'`-type skill (its real credentials live in a dedicated table
+   * outside InstalledSkill entirely — e.g. whatsapp -> WhatsAppAccount) has no
+   * business accepting a connect/configure call through the generic path: it
+   * would write a CONNECTED status (or store secrets) with nothing behind it,
+   * the same false-positive this file's other guards exist to prevent. Unlike
+   * assertNotSimulatedInProduction this is not an environment-gated policy —
+   * a 'custom' skill connecting through the wrong door is architecturally
+   * wrong in every environment, not just production.
+   */
+  private assertNotCustomConnect(def: SkillDefinition): void {
+    if (def.connection.type !== 'custom') return;
+    throw new BadRequestException(
+      `"${def.name}" connects through its own dedicated form, not the generic ` +
+        'connect flow. Use that skill-specific screen instead.',
     );
   }
 

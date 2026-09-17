@@ -126,5 +126,25 @@ describe('AutoSkillExecutor fail-closed', () => {
       expect(out.ok).toBe(true);
       expect(real.calls).toEqual(['http.request']);
     });
+
+    /**
+     * The bug this pins: a `'custom'`-type skill (whatsapp) keeps its real
+     * credentials in its own dedicated table (WhatsAppAccount), never in
+     * InstalledSkill.credentials — so `ctx.credentials` is legitimately empty
+     * even after a real, Twilio-verified connect. Before this fix that empty
+     * `credsPresent` sent every whatsapp call to the mock/refusal path,
+     * silently defeating the whole feature. `connected` alone must be enough
+     * for a `'custom'` skill.
+     */
+    it('routes a CONNECTED custom-type skill (whatsapp) to the real executor even with no stored credentials', async () => {
+      const out = await auto().execute(
+        'whatsapp',
+        'send_message',
+        {},
+        ctx({ connectionStatus: 'CONNECTED', credentials: {} }),
+      );
+      expect(out.result).toEqual({ real: true });
+      expect(real.calls).toEqual(['whatsapp.send_message']);
+    });
   });
 });

@@ -63,6 +63,24 @@ export function ConnectSkillControl({
   }
 
   /**
+   * `'custom'`-type skills (e.g. whatsapp) keep their real credentials in
+   * their own dedicated table, connected through their own dedicated form
+   * (see SkillSetupWizard's CUSTOM_CONNECT_COMPONENTS). This generic control
+   * only knows single-API-key and OAuth flows — falling through to the
+   * `api_key` branch below for a custom skill would post junk credentials to
+   * `connectSkill`, which the backend now refuses (assertNotCustomConnect),
+   * but a hidden control is a better experience than a control that always
+   * errors when clicked.
+   */
+  if (type === 'custom') {
+    return (
+      <span className="text-xs text-app-ink-3">
+        Connects through its own setup screen
+      </span>
+    );
+  }
+
+  /**
    * A skill with no real executor must not ask for real credentials.
    *
    * `SIMULATED` means not one of this skill's tools reaches a live provider —

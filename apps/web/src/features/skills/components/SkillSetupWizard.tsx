@@ -54,12 +54,18 @@ const CUSTOM_CONNECT_COMPONENTS: Record<string, ComponentType<{ onConnected?: ()
   whatsapp: WhatsAppConnectForm,
 };
 
-/** custom skills skip the separate "Sign in" stage — their one connect call
- * already both saves and live-verifies (see WhatsappAccountsService.connect,
- * which calls verifyTwilioCredentials before ever writing CONNECTED). */
+/** custom skills skip both the separate "Sign in" stage AND the "Test" stage —
+ * their one connect call already both saves and live-verifies (see
+ * WhatsappAccountsService.connect, which calls verifyTwilioCredentials before
+ * ever writing CONNECTED), and the generic `'test'` stage has no adapter-less
+ * fallback of its own (only `'verify'` does): for whatsapp it rendered an
+ * `<input type="email">` "send test" box that makes no sense for a
+ * phone-number-based skill, and pressing "Send test" called the generic
+ * `/verify` endpoint, which returns `adapterAvailable: false` and left the
+ * user stuck with no way forward except "Skip the test". So custom is a
+ * 2-step sequence: Connect → Ready. */
 const CUSTOM_ORDER: { key: Stage; label: string }[] = [
   { key: 'details', label: 'Connect' },
-  { key: 'test', label: 'Test' },
   { key: 'done', label: 'Ready' },
 ];
 
@@ -110,16 +116,24 @@ export function SkillSetupWizard({
     // instead of gated there — kept as one derived constant so the two can
     // never drift apart.
     //
-    // `isCustom` is checked before `canReturnToDetails` because
-    // `canReturnToDetails` is derived from `hasNoConfig`
-    // (`def.configSchema`), which says nothing about custom skills:
-    // `CUSTOM_ORDER` has no `'verify'` stage at all, so a custom skill with
-    // a (hypothetically) empty `configSchema` must still open on `details`,
-    // never on `verify` — opening there would compute `currentIndex === -1`
-    // against `CUSTOM_ORDER` and permanently strand the user on a stage the
-    // `details`-stage ternary can't route out of.
+    // `isCustom` is checked FIRST in the CONNECTED branch too: `CUSTOM_ORDER`
+    // has no `'test'` stage (see its comment above) — opening an
+    // already-connected custom skill on `'test'` would compute
+    // `currentIndex === -1` against `CUSTOM_ORDER` and still render the
+    // generic email-shaped test box the custom skills are explicitly opting
+    // out of. `'done'` is the correct landing stage for a custom skill that
+    // is already connected.
+    //
+    // `isCustom` is checked before `canReturnToDetails` in the NOT-connected
+    // branch for the same underlying reason: `canReturnToDetails` is derived
+    // from `hasNoConfig` (`def.configSchema`), which says nothing about
+    // custom skills — a custom skill with a (hypothetically) empty
+    // `configSchema` must still open on `details`, never on `verify`, which
+    // `CUSTOM_ORDER` doesn't contain either.
     installed.connectionStatus === 'CONNECTED'
-      ? 'test'
+      ? isCustom
+        ? 'done'
+        : 'test'
       : isCustom
         ? 'details'
         : !canReturnToDetails
@@ -211,7 +225,7 @@ export function SkillSetupWizard({
       {stage === 'details' ? (
         isCustom ? (
           CustomConnect ? (
-            <CustomConnect onConnected={() => setStage('test')} />
+            <CustomConnect onConnected={() => setStage('done')} />
           ) : (
             // A catalog entry with connection.type === 'custom' but no
             // matching CUSTOM_CONNECT_COMPONENTS registration is a

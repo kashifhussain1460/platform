@@ -168,6 +168,11 @@ describe('WhatsappAccountsService', () => {
         );
         await expect(service.connect('c_1', dto)).rejects.toThrow(BadRequestException);
         expect(prisma.whatsAppAccount.upsert).not.toHaveBeenCalled();
+        // Pins the ORDER, not just the WhatsAppAccount write: a future
+        // refactor that hoists the InstalledSkill sync above the verification
+        // call could still silently reintroduce a false-positive CONNECTED
+        // write even with the assertion above intact.
+        expect(prisma.installedSkill.updateMany).not.toHaveBeenCalled();
         expect(audit.record).toHaveBeenCalledWith(
           expect.objectContaining({ action: 'connector.verify_failed', companyId: 'c_1' }),
         );

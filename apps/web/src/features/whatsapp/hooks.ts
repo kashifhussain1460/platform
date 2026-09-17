@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ConnectWhatsAppAccountDto, WhatsAppAccountDto } from '@vaep/types';
 import type { NormalizedApiError } from '@/lib/apiClient';
+import { skillKeys } from '@/features/skills/hooks';
 import { useSessionStore } from '@/stores/session.store';
 import { connectWhatsAppAccount, getWhatsAppAccount } from './api';
 
@@ -25,6 +26,11 @@ export function useConnectWhatsAppAccount() {
     mutationFn: connectWhatsAppAccount,
     onSuccess: (account) => {
       qc.setQueryData(whatsappAccountKeys.account, account);
+      // The Skills catalog list reads InstalledSkill.connectionStatus, which
+      // WhatsappAccountsService.connect() also flips server-side — without
+      // this the WhatsApp card on the Skills page still shows "Not connected"
+      // until a hard reload.
+      void qc.invalidateQueries({ queryKey: skillKeys.installed });
     },
   });
 }

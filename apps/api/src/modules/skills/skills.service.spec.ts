@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { SkillsService } from './skills.service';
 import { MetricsRegistry } from '../../common/observability/metrics.registry';
 
@@ -364,5 +365,68 @@ describe('SkillsService.connectOAuth — verify before CONNECTED', () => {
     await service.connectOAuth('c1', 'is-3', { accessToken: 'tok' });
 
     expect(update.mock.calls[0][0].data.connectionStatus).toBe('CONNECTED');
+  });
+});
+
+/**
+ * Fix 3 (final-review fix wave) — a `'custom'`-type skill (whatsapp) has no
+ * business accepting a connect/configure call through the generic path: its
+ * real credentials live in a dedicated table (WhatsAppAccount) outside
+ * InstalledSkill entirely, and letting `connectSkill`/`configureSkill` write
+ * to InstalledSkill for it would recreate the exact "Ready with zero real
+ * connection" bug this whole plan exists to close, on a different screen.
+ */
+describe('SkillsService — custom-type skills reject the generic connect/configure path', () => {
+  function buildService(installed: Record<string, unknown>) {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma = {
+      installedSkill: {
+        findFirst: jest.fn().mockResolvedValue(installed),
+        update,
+      },
+    } as never;
+    const service = new SkillsService(
+      prisma,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { record: jest.fn() } as never,
+      new MetricsRegistry(),
+      { findSuppressed: jest.fn().mockResolvedValue([]) } as never,
+      {} as never, // costCalculator — unused by these tests (runTool is never called here)
+      {} as never, // reservations — unused by these tests (runTool is never called here)
+      {} as never, // creditLimits — unused by these tests (runTool is never called here)
+      {} as never, // concurrencyGuard — unused by these tests (runTool is never called here)
+    );
+    return { service, update };
+  }
+
+  const installedWhatsapp = {
+    id: 'is-wa',
+    companyId: 'c1',
+    skillKey: 'whatsapp',
+    connectionType: 'custom',
+    connectionStatus: 'NOT_CONNECTED',
+    credentials: {},
+    config: {},
+  };
+
+  it('connectSkill throws BadRequestException for a custom-type skill', async () => {
+    const { service, update } = buildService(installedWhatsapp);
+    await expect(
+      service.connectSkill('c1', 'is-wa', { credentials: { apiKey: 'x' } }),
+    ).rejects.toThrow(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('configureSkill throws BadRequestException for a custom-type skill', async () => {
+    const { service, update } = buildService(installedWhatsapp);
+    await expect(
+      service.configureSkill('c1', 'is-wa', { config: { foo: 'bar' } }),
+    ).rejects.toThrow(BadRequestException);
+    expect(update).not.toHaveBeenCalled();
   });
 });

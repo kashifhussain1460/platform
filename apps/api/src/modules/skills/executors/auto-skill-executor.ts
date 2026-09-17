@@ -52,8 +52,15 @@ export class AutoSkillExecutor implements SkillExecutor {
       ctx.credentials && Object.keys(ctx.credentials).length > 0,
     );
     const connected = ctx.connectionStatus === 'CONNECTED';
+    // `'custom'` skills (e.g. whatsapp) keep their real credentials outside
+    // InstalledSkill entirely, in their own dedicated table — ctx.credentials
+    // being empty is expected and correct for them. `connected` alone is the
+    // trustworthy signal because it was only ever set after that skill's own
+    // real provider verification (see WhatsappAccountsService.connect, which
+    // calls verifyTwilioCredentials before ever writing CONNECTED).
     const eligible =
-      connectionType === 'none' || (connected && credsPresent);
+      connectionType === 'none' ||
+      (connected && (credsPresent || connectionType === 'custom'));
     if (eligible) {
       return this.real.execute(skillKey, tool, args, ctx);
     }
