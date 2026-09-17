@@ -1,10 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { ComponentType } from 'react';
 import { Check, CircleDashed, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { ConfigureSkillForm } from './ConfigureSkillForm';
 import { ConnectSkillControl } from './ConnectSkillControl';
+import { WhatsAppConnectForm } from '@/features/whatsapp/components/WhatsAppConnectForm';
+import { iconForSkill } from '../skillIcons';
 import { useVerifyConnection } from '../hooks';
 import type { VerifyStepResult } from '../api';
 import type { InstalledSkillDto, SkillDefinitionDto } from '../schemas';
@@ -41,6 +44,25 @@ const ORDER: { key: Stage; label: string }[] = [
   { key: 'done', label: 'Ready' },
 ];
 
+/**
+ * Skills whose real credentials live outside InstalledSkill entirely (their
+ * catalog `connection.type` is `'custom'`) get their own connect component
+ * here instead of the generic ConfigureSkillForm/ConnectSkillControl. One
+ * entry today; add one more line per future custom skill, not new plumbing.
+ */
+const CUSTOM_CONNECT_COMPONENTS: Record<string, ComponentType<{ onConnected?: () => void }>> = {
+  whatsapp: WhatsAppConnectForm,
+};
+
+/** custom skills skip the separate "Sign in" stage — their one connect call
+ * already both saves and live-verifies (see WhatsappAccountsService.connect,
+ * which calls verifyTwilioCredentials before ever writing CONNECTED). */
+const CUSTOM_ORDER: { key: Stage; label: string }[] = [
+  { key: 'details', label: 'Connect' },
+  { key: 'test', label: 'Test' },
+  { key: 'done', label: 'Ready' },
+];
+
 export function SkillSetupWizard({
   installed,
   def,
@@ -59,6 +81,8 @@ export function SkillSetupWizard({
   // fall into the "already has it" branch below and go straight to fixing/
   // retrying the connection, not back through a brand-new browser redirect.
   const needsOAuth = def.connection?.type === 'oauth' && !installed.credentialsSet;
+  const isCustom = def.connection?.type === 'custom';
+  const CustomConnect = isCustom ? CUSTOM_CONNECT_COMPONENTS[def.key] : null;
   // A skill with nothing to configure renders ConfigureSkillForm's inert
   // "no configuration" text with no button — a dead end for anyone routed to
   // `details` who doesn't need OAuth either (already has credentials, or
@@ -133,16 +157,24 @@ export function SkillSetupWizard({
     // rule while suppressing nothing.)
   }, [stage]);
 
-  const currentIndex = ORDER.findIndex((s) => s.key === stage);
+  const order = isCustom ? CUSTOM_ORDER : ORDER;
+  const currentIndex = order.findIndex((s) => s.key === stage);
 
+  const Icon = iconForSkill(def.key);
   return (
     <div>
+      <div className="mb-2 flex items-center gap-2">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden">
+          <Icon className="h-full w-full" aria-hidden />
+        </span>
+        <p className="text-sm font-medium text-app-ink">{def.name}</p>
+      </div>
       <p className="mb-4 text-xs text-app-ink-3">
         Each step has to pass before this skill can run.
       </p>
 
       <ol className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-        {ORDER.map((s, i) => {
+        {order.map((s, i) => {
           const state = i < currentIndex ? 'done' : i === currentIndex ? 'current' : 'todo';
           return (
             <li key={s.key} className="flex items-center gap-1.5 text-xs">
@@ -166,7 +198,9 @@ export function SkillSetupWizard({
       </ol>
 
       {stage === 'details' ? (
-        needsOAuth ? (
+        CustomConnect ? (
+          <CustomConnect onConnected={() => setStage('test')} />
+        ) : needsOAuth ? (
           <ConnectSkillControl installed={installed} def={def} />
         ) : (
           <ConfigureSkillForm
