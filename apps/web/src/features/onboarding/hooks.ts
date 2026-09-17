@@ -21,7 +21,6 @@ import {
   completeOnboardingRequest,
   onboardingCatalogRequest,
   onboardingStatusRequest,
-  saveOnboardingAiEmployeesRequest,
   saveOnboardingCompanyRequest,
   saveOnboardingDepartmentsRequest,
   saveOnboardingGoalsRequest,
@@ -57,14 +56,6 @@ export function useSaveOnboardingCompany() {
       // product context from (INDUSTRY_CAPABILITIES branching).
       void qc.invalidateQueries({ queryKey: productContextKeys.all });
     },
-  });
-}
-
-export function useSaveOnboardingAiEmployees() {
-  const qc = useQueryClient();
-  return useMutation<OnboardingStatusDto, NormalizedApiError, string[]>({
-    mutationFn: saveOnboardingAiEmployeesRequest,
-    onSuccess: (s) => qc.setQueryData(onboardingKeys.status, s),
   });
 }
 

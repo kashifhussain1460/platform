@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { Mail } from 'lucide-react';
 import {
@@ -18,8 +18,15 @@ import { loginSchema, type LoginDto } from '../schemas';
 
 const labelClass = 'mb-1.5 block text-sm font-medium text-zinc-300';
 
+/** Only ever follow a same-origin relative path — never let an open `?returnTo=` redirect off-site. */
+function safeReturnTo(raw: string | null): string | null {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//')) return null;
+  return raw;
+}
+
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const login = useLogin();
   const {
     register,
@@ -33,7 +40,8 @@ export function LoginForm() {
   const onSubmit = handleSubmit(async (values) => {
     try {
       const result = await login.mutateAsync(values);
-      router.push(result.company.onboardedAt ? '/dashboard' : '/onboarding');
+      const returnTo = safeReturnTo(searchParams.get('returnTo'));
+      router.push(returnTo ?? (result.company.onboardedAt ? '/dashboard' : '/onboarding'));
     } catch {
       // surfaced below via login.error
     }

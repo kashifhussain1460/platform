@@ -32,15 +32,6 @@ export async function saveOnboardingCompanyRequest(body: {
   return data;
 }
 
-export async function saveOnboardingAiEmployeesRequest(
-  roles: string[],
-): Promise<OnboardingStatusDto> {
-  const { data } = await apiClient.patch<OnboardingStatusDto>('/onboarding/ai-employees', {
-    roles,
-  });
-  return data;
-}
-
 export async function saveOnboardingDepartmentsRequest(
   departments: string[],
 ): Promise<OnboardingStatusDto> {
