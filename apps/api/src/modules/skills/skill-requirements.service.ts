@@ -12,6 +12,7 @@ import type {
 } from '@vaep/types';
 import { SkillCapabilities } from './capabilities';
 import { SkillCatalog } from './catalog';
+import { hasAnyRealExecution } from './executors/real-execution-support';
 import { SkillsService } from './skills.service';
 
 /** A distinct skill dependency accumulated while scanning the graph. */
@@ -196,7 +197,20 @@ export class SkillRequirementsService {
       ...new Set(capabilities.flatMap((c) => SkillCapabilities.skillsFor(c))),
     ].filter((k) => k !== dep.skillKey);
 
-    const requiresConnection = known && SkillCapabilities.requiresConnection(dep.skillKey);
+    // Live-discovered bug (fixed here): a skill with NO real executor at all
+    // (Stripe, GitHub — see executors/real-execution-support.ts) still had
+    // `connection.type: 'api_key'|'oauth'` in the catalog, so it kept
+    // requiring a connection here — but the Connections screen already
+    // refuses to render a credential form for a SIMULATED skill ("Demo only
+    // — nothing to connect yet"), so an employee whose only skill is one of
+    // these could never satisfy this requirement: Review said "connect it to
+    // finish setting this employee up" and Connections said there was
+    // nothing to connect. Since a SIMULATED skill's executor falls through to
+    // the mock regardless of whether it's "connected" (real-execution-
+    // support.ts's whole point), requiring a connection here is theater —
+    // exclude it the same way a `connection.type: 'none'` skill already is.
+    const requiresConnection =
+      known && SkillCapabilities.requiresConnection(dep.skillKey) && hasAnyRealExecution(dep.skillKey);
     const connectionType: SkillConnectionType | null =
       (SkillCapabilities.connectionType(dep.skillKey) as SkillConnectionType | undefined) ?? null;
 

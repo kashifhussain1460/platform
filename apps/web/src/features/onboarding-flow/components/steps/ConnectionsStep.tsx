@@ -255,10 +255,15 @@ export function ConnectionsStep() {
   // employee (not just installed company-wide and merely usable), and to
   // skills whose connection type isn't 'none' — a 'none' skill is
   // operational the moment it's installed and never needs a connect action.
+  // A SIMULATED skill (no real executor at all) is excluded by the last
+  // filter below: it was previously counted in "Connection Summary"'s
+  // denominator (e.g. "0/1") even though it can never be satisfied, which is
+  // the same live-discovered dishonesty the readiness backend fix addresses.
   const connectable = installedSkills
     .filter((s) => s.employeeId === null || s.employeeId === employee.id)
     .filter((s) => assignedInstalledIds.has(s.id))
-    .filter((s) => s.connectionType && s.connectionType !== 'none');
+    .filter((s) => s.connectionType && s.connectionType !== 'none')
+    .filter((s) => catalogByKey.get(s.skillKey)?.executionSupport !== 'SIMULATED');
 
   const connectedCount = connectable.filter((s) => s.connectionStatus === 'CONNECTED').length;
 
@@ -414,16 +419,6 @@ export function ConnectionsStep() {
                 const verifyResult = verifyResults[skill.id];
                 const needsReconnect = skill.connectionStatus === 'DEGRADED' || skill.connectionStatus === 'DISCONNECTED';
                 const canVerify = skill.connectionStatus === 'CONNECTED' || skill.connectionStatus === 'DEGRADED';
-                // A skill with no real executor must not ask for real credentials
-                // here either — same gate ConnectSkillControl.tsx already applies
-                // elsewhere in this app (stripe/github are api_key+SIMULATED,
-                // hubspot/jira are oauth+SIMULATED). The server refuses this in
-                // production (OAuthService.assertCanActuallyAct / the connect
-                // endpoint's own check), but outside production it would just
-                // flip to CONNECTED with nothing actually connected — a "green
-                // that did nothing" result. The skill stays installed/usable in
-                // simulated mode; only the credential handover is blocked.
-                const isSimulated = def?.executionSupport === 'SIMULATED';
 
                 return (
                   <li key={skill.id} className="px-4 py-3.5">
@@ -444,47 +439,41 @@ export function ConnectionsStep() {
                         </div>
                       </div>
 
-                      {isSimulated ? (
-                        <span className="shrink-0 text-xs font-medium text-amber-400">
-                          Demo only — nothing to connect yet
-                        </span>
-                      ) : (
-                        <div className="flex shrink-0 items-center gap-2">
-                          {canVerify && (
+                      <div className="flex shrink-0 items-center gap-2">
+                        {canVerify && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => onVerify(skill)}
+                            className="rounded-lg border border-white/[0.1] px-3 py-1.5 text-xs font-medium text-zinc-300 hover:border-white/[0.2] disabled:opacity-60"
+                          >
+                            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Verify'}
+                          </button>
+                        )}
+                        {skill.connectionStatus !== 'CONNECTED' &&
+                          (isOAuth ? (
                             <button
                               type="button"
                               disabled={busy}
-                              onClick={() => onVerify(skill)}
-                              className="rounded-lg border border-white/[0.1] px-3 py-1.5 text-xs font-medium text-zinc-300 hover:border-white/[0.2] disabled:opacity-60"
+                              onClick={() => void onConnectOAuth(skill)}
+                              className="rounded-lg bg-violet px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-hover disabled:opacity-60"
                             >
-                              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Verify'}
+                              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : needsReconnect ? 'Reconnect' : 'Connect'}
                             </button>
-                          )}
-                          {skill.connectionStatus !== 'CONNECTED' &&
-                            (isOAuth ? (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => void onConnectOAuth(skill)}
-                                className="rounded-lg bg-violet px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-hover disabled:opacity-60"
-                              >
-                                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : needsReconnect ? 'Reconnect' : 'Connect'}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => (isOpen ? closeForm() : openForm(skill))}
-                                className="rounded-lg bg-violet px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-hover disabled:opacity-60"
-                              >
-                                {isOpen ? 'Cancel' : needsReconnect ? 'Reconnect' : 'Connect'}
-                              </button>
-                            ))}
-                        </div>
-                      )}
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => (isOpen ? closeForm() : openForm(skill))}
+                              className="rounded-lg bg-violet px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-hover disabled:opacity-60"
+                            >
+                              {isOpen ? 'Cancel' : needsReconnect ? 'Reconnect' : 'Connect'}
+                            </button>
+                          ))}
+                      </div>
                     </div>
 
-                    {!isSimulated && !isOAuth && isOpen && (
+                    {!isOAuth && isOpen && (
                       <div className="mt-3 space-y-3 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5">
                         {(def?.configSchema ?? []).length === 0 ? (
                           <p className="text-xs text-fg-muted">This connection needs no extra details.</p>

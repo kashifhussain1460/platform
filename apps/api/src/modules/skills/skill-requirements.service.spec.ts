@@ -92,6 +92,23 @@ describe('SkillRequirementsService', () => {
     expect((await disconnected.forDefinition('co_1', d, { canManageConnection: true })).allRequiredReady).toBe(false);
   });
 
+  it('treats a SIMULATED skill (stripe — no real executor) as READY and non-blocking despite connection.type: api_key', async () => {
+    // Live-discovered bug: stripe has catalog connection.type 'api_key' (so
+    // requiresConnection was true) but zero real tool implementations (see
+    // real-execution-support.ts) — the Connections UI already refuses to let
+    // a user submit real credentials for it ("Demo only — nothing to connect
+    // yet"), so an employee whose only skill was stripe could never satisfy
+    // this requirement. A SIMULATED skill must be READY/non-blocking exactly
+    // like a `none`-connection skill, not stuck at NOT_CONNECTED forever.
+    const svc = makeService({});
+    const result = await svc.forDefinition('co_1', def([toolNode('n1', 'stripe', 'create_payment_link')]), {
+      canManageConnection: true,
+    });
+    expect(result.requirements[0].requiresConnection).toBe(false);
+    expect(result.requirements[0].status).toBe('READY');
+    expect(result.allRequiredReady).toBe(true);
+  });
+
   it('treats a `none`-connection skill (http) as READY and non-blocking', async () => {
     const svc = makeService({});
     const result = await svc.forDefinition('co_1', def([toolNode('n1', 'http', 'request')]), {
