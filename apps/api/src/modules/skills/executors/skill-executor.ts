@@ -52,6 +52,25 @@ export interface SkillExecutionResult {
   ok: boolean;
   result?: unknown;
   error?: string;
+  /**
+   * True when this result came from the mock executor rather than a real
+   * provider call — whether because the connector isn't CONNECTED (`auto`'s
+   * ineligibility fallback) or because this specific tool has no real
+   * implementation yet on an otherwise-real connector (`real`'s per-tool
+   * fallback, e.g. an unimplemented Chatwoot/Postiz call). Both paths
+   * delegate to `MockSkillExecutor` and return its result unchanged, so this
+   * flag is set in exactly one place (`MockSkillExecutor`) and propagates
+   * through every layer above it.
+   *
+   * Exists because nothing else told the truth after the fact: `result` is
+   * `unknown` and varies per skill, so a consumer would have to duck-type
+   * `result?.sandbox` (the mock's own internal marker, never meant to be
+   * read back out) to tell a real success from a simulated one. In dev mode
+   * (`SKILL_EXECUTOR=auto`, not `failClosed`) a simulated call still reports
+   * `ok: true` — this is the only way to distinguish "it worked" from
+   * "nothing happened, but nothing errored either."
+   */
+  simulated?: boolean;
 }
 
 export interface SkillExecutor {

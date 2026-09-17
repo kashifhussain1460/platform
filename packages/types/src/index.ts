@@ -1242,6 +1242,14 @@ export interface ToolCallDto {
   result: unknown;
   ok: boolean;
   /**
+   * True when this ran on the mock executor rather than a real provider call
+   * — either the connector isn't CONNECTED, or this specific tool has no real
+   * implementation yet. `ok: true` alone does NOT mean it really happened:
+   * in dev mode (`SKILL_EXECUTOR=auto`, not production) a simulated call
+   * still reports success, so this is the field that tells the two apart.
+   */
+  simulated: boolean;
+  /**
    * True when the call was NOT executed because it is high-risk and was routed to
    * the Approval Center; `approvalId` is the created PENDING ApprovalRequest.
    */
@@ -1278,6 +1286,8 @@ export interface SkillExecutionDto {
   status: SkillExecutionStatus;
   error: string | null;
   createdAt: string;
+  /** See `ToolCallDto.simulated` — same meaning, persisted for history. */
+  simulated: boolean;
 }
 
 // --- Zod schemas (shared with the web forms) -------------------------------

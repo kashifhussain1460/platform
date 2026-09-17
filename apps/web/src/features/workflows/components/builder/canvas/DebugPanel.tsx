@@ -10,6 +10,20 @@ function preview(value: unknown): string {
   return text.length > 1200 ? `${text.slice(0, 1200)}…` : text;
 }
 
+/**
+ * TOOL_ACTION steps store a `ToolCallDto` (with `simulated`) as their output;
+ * every other node type's output has no such concept. A structural check
+ * rather than gating on `node.type === 'TOOL_ACTION'` keeps this correct if
+ * another node type ever gains the same field.
+ */
+function isSimulatedOutput(output: unknown): boolean {
+  return (
+    typeof output === 'object' &&
+    output !== null &&
+    (output as { simulated?: unknown }).simulated === true
+  );
+}
+
 function durationMs(start: string | null, end: string | null): string | null {
   if (!start || !end) return null;
   const ms = new Date(end).getTime() - new Date(start).getTime();
@@ -63,6 +77,14 @@ export function DebugPanel({
               {step.attempt > 1 ? (
                 <span className="rounded-full bg-status-escalated/15 px-2 py-0.5 text-[10px] font-medium text-status-escalated">
                   attempt {step.attempt}
+                </span>
+              ) : null}
+              {isSimulatedOutput(step.output) ? (
+                <span
+                  title="This ran on the mock executor — no real request was made."
+                  className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-800"
+                >
+                  simulated
                 </span>
               ) : null}
               {took ? <span className="text-xs text-wf-ink-3">{took}</span> : null}

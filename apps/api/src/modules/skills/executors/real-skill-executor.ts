@@ -171,9 +171,14 @@ async function fetchWithTimeout(
  * are in.
  *
  * Still TODO (unchanged by this phase): real executors for
- * stripe/github/hubspot/jira; OAuth access-token refresh when `expiresAt` has
- * passed (currently the stored token is used as-is and a 401 surfaces as a
- * tool error).
+ * stripe/github/hubspot/jira.
+ *
+ * OAuth access-token refresh is NOT a gap — `resolveExecutorContext` (in
+ * SkillsService) calls `resolveFreshCredentials`, which refreshes via
+ * `ConnectorTokenService` (single-flight, skew-window, auto-DISCONNECT on a
+ * revoked grant) before the credentials ever reach this executor. That used
+ * to be missing; this comment was not updated when it was built, so it kept
+ * describing a bug that no longer exists.
  */
 @Injectable()
 export class RealSkillExecutor implements SkillExecutor {

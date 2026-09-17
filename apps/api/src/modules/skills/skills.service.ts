@@ -666,6 +666,7 @@ export class SkillsService {
         args,
         result: null,
         ok: false,
+        simulated: false,
         error: 'Too many requests are already in flight for this company — please wait for one to finish and try again.',
       };
     }
@@ -1000,6 +1001,7 @@ export class SkillsService {
         error: typeof safeError === 'string' ? safeError : null,
         durationMs,
         creditsUsed: meteredPrice.credits > 0 ? meteredPrice.credits : null,
+        simulated: outcome.simulated === true,
       },
     });
 
@@ -1015,6 +1017,7 @@ export class SkillsService {
       args: maskedArgs,
       result: safeResult ?? null,
       ok: outcome.ok,
+      simulated: outcome.simulated === true,
       // Only on failure, and only the masked form — the same string the
       // SkillExecution row stores. A success carrying an `error` key would be a
       // confusing shape for every consumer.

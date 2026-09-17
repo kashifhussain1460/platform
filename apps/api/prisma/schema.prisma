@@ -887,6 +887,13 @@ model SkillExecution {
   error          String?
   createdAt      DateTime             @default(now())
 
+  // True when this ran on the mock executor (unconnected skill, or an
+  // unimplemented tool on an otherwise-real connector) rather than a real
+  // provider call. `status` can still be SUCCESS in this case — SKILL_EXECUTOR
+  // =auto reports a simulated call as ok:true — so this is the one field that
+  // tells a real success apart from a demo that looked like one.
+  simulated Boolean @default(false)
+
   // Credit system (Phase 1 foundation, plan §28.3) — closes the confirmed gap
   // (no cost/creditsUsed/duration ever persisted here). Inert until Phase 3
   // wires a writer.

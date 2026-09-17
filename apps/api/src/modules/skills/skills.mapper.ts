@@ -58,5 +58,6 @@ export function toSkillExecutionDto(s: SkillExecution): SkillExecutionDto {
     status: s.status,
     error: s.error,
     createdAt: s.createdAt.toISOString(),
+    simulated: s.simulated,
   };
 }

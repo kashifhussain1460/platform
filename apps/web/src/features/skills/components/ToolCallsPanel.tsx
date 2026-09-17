@@ -21,20 +21,35 @@ export function ToolCallsPanel({ toolCalls }: { toolCalls: ToolCallDto[] }) {
               <span className="font-medium text-app-ink-2">
                 {call.skillKey} · {call.tool}
               </span>
-              <span
-                className={`inline-block rounded-full px-2 py-0.5 font-medium ${
-                  call.pendingApproval
-                    ? 'bg-amber-500/15 text-amber-800'
+              <span className="flex items-center gap-1.5">
+                {/* An `ok:true` simulated call is not a real success — the mock
+                    executor reports one whenever a skill isn't connected (or a
+                    specific tool has no real implementation yet), so this has to
+                    be visible right next to the status, not just in a tooltip
+                    someone has to know to check. */}
+                {call.simulated && (
+                  <span
+                    title="This ran on the mock executor — no real request was made."
+                    className="inline-block rounded-full bg-amber-500/15 px-2 py-0.5 font-medium text-amber-800"
+                  >
+                    simulated
+                  </span>
+                )}
+                <span
+                  className={`inline-block rounded-full px-2 py-0.5 font-medium ${
+                    call.pendingApproval
+                      ? 'bg-amber-500/15 text-amber-800'
+                      : call.ok
+                        ? 'bg-green-500/15 text-green-800'
+                        : 'bg-red-500/15 text-red-600'
+                  }`}
+                >
+                  {call.pendingApproval
+                    ? 'awaiting approval'
                     : call.ok
-                      ? 'bg-green-500/15 text-green-800'
-                      : 'bg-red-500/15 text-red-600'
-                }`}
-              >
-                {call.pendingApproval
-                  ? 'awaiting approval'
-                  : call.ok
-                    ? 'ok'
-                    : 'failed'}
+                      ? 'ok'
+                      : 'failed'}
+                </span>
               </span>
             </div>
             <pre className="overflow-x-auto whitespace-pre-wrap break-words text-app-ink-3">

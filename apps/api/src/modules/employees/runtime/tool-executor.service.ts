@@ -83,6 +83,7 @@ export class ToolExecutorService {
         args,
         result: null,
         ok: false,
+        simulated: false,
         pendingApproval: true,
         approvalId: request.id,
       };

@@ -44,6 +44,7 @@ export class MockSkillExecutor implements SkillExecutor {
     return {
       ok: true,
       result: { id, skillKey, tool, echoed: args, sandbox: true },
+      simulated: true,
     };
   }
 }
