@@ -163,13 +163,31 @@ export function useSeatAvailability(): {
           ? `Your plan allows ${seats.max} AI employees in total, including the ${pendingCount} you've already selected.`
           : `All ${seats.max} seats on your plan are taken.`;
       }
+
+      // Live-discovered gap (fixed here): `pendingRoles` can now contain the
+      // SAME role more than once (the Select Employees screen supports
+      // picking e.g. 2 Sales on a plan with maxPerRole: 2) — the per-role
+      // check used to only compare against `inRole.used` (already hired,
+      // server-side), so a user could select past the cap with nothing
+      // greying out, since neither pending occurrence was counted here.
       const inRole = seats.perRole.find((r) => r.role === role);
-      if (seats.maxPerRole !== null && inRole && inRole.used >= seats.maxPerRole) {
-        return `Your plan includes ${seats.maxPerRole} per role and you already have ${inRole.used}.`;
+      const pendingSameRole = pendingRoles.filter((r) => r === role).length;
+      const perRoleUsed = (inRole?.used ?? 0) + pendingSameRole;
+      if (seats.maxPerRole !== null && perRoleUsed >= seats.maxPerRole) {
+        return pendingSameRole > 0
+          ? `Your plan includes ${seats.maxPerRole} per role — you've already selected ${perRoleUsed} for this role.`
+          : `Your plan includes ${seats.maxPerRole} per role and you already have ${inRole?.used ?? 0}.`;
       }
-      const pendingNewRoles = pendingRoles.filter((r) => !seats.perRole.some((pr) => pr.role === r)).length;
-      const effectiveRolesUsed = seats.rolesUsed + pendingNewRoles;
-      if (seats.maxRoles !== null && !inRole && effectiveRolesUsed >= seats.maxRoles) {
+
+      // Distinct NEW roles pending (excluding the role being asked about, and
+      // de-duplicated) — two pending copies of the SAME new role must not
+      // each count as a separate role against `maxRoles`.
+      const pendingDistinctNewRoles = new Set(
+        pendingRoles.filter((r) => r !== role && !seats.perRole.some((pr) => pr.role === r)),
+      ).size;
+      const isAlreadyUsedRole = Boolean(inRole) || pendingSameRole > 0;
+      const effectiveRolesUsed = seats.rolesUsed + pendingDistinctNewRoles;
+      if (seats.maxRoles !== null && !isAlreadyUsedRole && effectiveRolesUsed >= seats.maxRoles) {
         return pendingCount > 0
           ? `Your plan includes ${seats.maxRoles} roles and your current selection already uses ${effectiveRolesUsed}.`
           : `Your plan includes ${seats.maxRoles} roles and you already use ${seats.rolesUsed}.`;
