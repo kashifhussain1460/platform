@@ -132,6 +132,6 @@ export const SkillCapabilities = {
   /** True when the skill needs an authenticated connection before it can run for real. */
   requiresConnection(skillKey: string): boolean {
     const type = SkillCapabilities.connectionType(skillKey);
-    return type === 'oauth' || type === 'api_key';
+    return type === 'oauth' || type === 'api_key' || type === 'custom';
   },
 };

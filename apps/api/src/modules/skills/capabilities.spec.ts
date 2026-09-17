@@ -29,6 +29,7 @@ describe('SkillCapabilities', () => {
   it('reports connection requirement from the catalog', () => {
     expect(SkillCapabilities.requiresConnection('gmail')).toBe(true); // oauth
     expect(SkillCapabilities.requiresConnection('stripe')).toBe(true); // api_key
+    expect(SkillCapabilities.requiresConnection('whatsapp')).toBe(true); // custom (regression: must not silently mark as READY when not connected)
     expect(SkillCapabilities.requiresConnection('http')).toBe(false); // none
     expect(SkillCapabilities.requiresConnection('scheduling')).toBe(false); // none
   });
