@@ -4,6 +4,7 @@ import { useOnboardingWizardStore } from './wizardStore';
 import { CompanyDetailsStep } from './components/steps/CompanyDetailsStep';
 import { ConfigureEmployeesStep } from './components/steps/ConfigureEmployeesStep';
 import { ConnectionsStep } from './components/steps/ConnectionsStep';
+import { DepartmentsStep } from './components/steps/DepartmentsStep';
 import { GoalsStep } from './components/steps/GoalsStep';
 import { KnowledgeStep } from './components/steps/KnowledgeStep';
 import { PlanStep } from './components/steps/PlanStep';
@@ -22,6 +23,8 @@ function OnboardingFlowSwitch() {
       return <WelcomeStep />;
     case 'company':
       return <CompanyDetailsStep />;
+    case 'departments':
+      return <DepartmentsStep />;
     case 'goals':
       return <GoalsStep />;
     case 'plan':
@@ -48,7 +51,7 @@ function OnboardingFlowSwitch() {
 }
 
 /**
- * The complete 12-screen onboarding experience. Every step is wired to the
+ * The complete 13-screen onboarding experience. Every step is wired to the
  * real backend (Company/AiEmployee/Skill/Workflow/Billing/Readiness) via the
  * hooks each step file imports; only wizard navigation/position state
  * (`useOnboardingWizardStore`) is local.

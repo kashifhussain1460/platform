@@ -33,6 +33,14 @@ export const PANEL_CONTENT: Record<FlowStep, PanelContent> = {
     annotations: ['Ideas → Action', 'Your AI team works for you 24/7'],
     quote: 'The fastest way to grow is with the right AI team.',
   },
+  departments: {
+    headlineLead: 'Structure Your',
+    headlineHighlight: 'Organization.',
+    tagline: 'Add the teams you actually have — AI Employees and approvals can be scoped to them later.',
+    bullets: ['Mirrors how you already work', 'Nobody is restricted by default', 'Change it anytime', 'Powers approval routing later'],
+    annotations: ['Teams, mapped.', 'Ready for approvals & routing.'],
+    quote: 'Structure now, so nothing has to be rebuilt later.',
+  },
   goals: {
     headlineLead: 'Turn Your Goals Into',
     headlineHighlight: 'Real Outcomes.',

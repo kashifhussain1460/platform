@@ -1,7 +1,7 @@
 import type { ElementType } from 'react';
 
 /**
- * The 12 screens, in navigation order. `welcome` carries no progress dot (a
+ * The screens, in navigation order. `welcome` carries no progress dot (a
  * pre-step splash) and `selectEmployees`/`configureEmployees` share ONE
  * progress milestone ("AI Employees") — see `PROGRESS_STEPS` below. Kept as
  * two distinct entries here because Back/Continue must move between them
@@ -10,6 +10,7 @@ import type { ElementType } from 'react';
 export type FlowStep =
   | 'welcome'
   | 'company'
+  | 'departments'
   | 'goals'
   | 'plan'
   | 'selectEmployees'
@@ -24,6 +25,7 @@ export type FlowStep =
 export const FLOW_STEPS: readonly FlowStep[] = [
   'welcome',
   'company',
+  'departments',
   'goals',
   'plan',
   'selectEmployees',
@@ -36,13 +38,14 @@ export const FLOW_STEPS: readonly FlowStep[] = [
   'success',
 ];
 
-/** Short label for each real step, in order — what the top tracker (12 items,
- * one per `FLOW_STEPS` entry) shows. Kept 1:1 with `FLOW_STEPS` rather than
+/** Short label for each real step, in order — what the top tracker (one item
+ * per `FLOW_STEPS` entry) shows. Kept 1:1 with `FLOW_STEPS` rather than
  * grouped into milestones, so the tracker never claims progress on a screen
  * that doesn't exist. */
 export const STEP_LABELS: Record<FlowStep, string> = {
   welcome: 'Welcome',
   company: 'Company',
+  departments: 'Departments',
   goals: 'Goals',
   plan: 'Plan',
   selectEmployees: 'Employees',
