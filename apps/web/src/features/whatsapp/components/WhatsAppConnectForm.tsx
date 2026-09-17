@@ -13,7 +13,9 @@ import { useConnectWhatsAppAccount, useWhatsAppAccount } from '../hooks';
  * catalog entry alone cannot connect this. Posts to
  * `POST /engines/whatsapp/accounts`, which does the encrypt-and-upsert.
  */
-export function WhatsAppConnectForm() {
+export function WhatsAppConnectForm({
+  onConnected,
+}: { onConnected?: () => void } = {}) {
   const { data: account, isLoading } = useWhatsAppAccount();
   const connect = useConnectWhatsAppAccount();
 
@@ -31,7 +33,12 @@ export function WhatsAppConnectForm() {
     e.preventDefault();
     connect.mutate(
       { twilioAccountSid, twilioAuthToken, whatsappSenderNumber },
-      { onSuccess: () => setTwilioAuthToken('') },
+      {
+        onSuccess: () => {
+          setTwilioAuthToken('');
+          onConnected?.();
+        },
+      },
     );
   };
 
