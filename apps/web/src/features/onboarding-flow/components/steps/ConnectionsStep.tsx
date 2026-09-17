@@ -13,7 +13,7 @@ import {
 } from '@/features/skills/hooks';
 import { authorizeOAuth, type VerifyConnectionResult } from '@/features/skills/api';
 import type { NormalizedApiError } from '@/lib/apiClient';
-import { iconForSkill } from '../../skillIcons';
+import { iconForSkill } from '@/features/skills/skillIcons';
 import { useActiveEmployee } from '../../useActiveEmployee';
 import { useOnboardingWizardStore } from '../../wizardStore';
 import { EmployeeContextHeader } from '../EmployeeContextHeader';

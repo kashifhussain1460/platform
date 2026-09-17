@@ -11,7 +11,7 @@ import {
   useUnassignSkill,
 } from '@/features/skills/hooks';
 import type { SkillDefinitionDto } from '@vaep/types';
-import { iconForSkill } from '../../skillIcons';
+import { iconForSkill } from '@/features/skills/skillIcons';
 import { templateForRole } from '../../mockData';
 import { useActiveEmployee } from '../../useActiveEmployee';
 import { useOnboardingWizardStore } from '../../wizardStore';
