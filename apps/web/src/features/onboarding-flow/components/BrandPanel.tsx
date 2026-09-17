@@ -27,7 +27,7 @@ function Orb() {
 }
 
 function ProgressDots({ index }: { index: number }) {
-  // Position among the 11 non-welcome screens, capped at 5 dots (§ matches
+  // Position among the non-welcome screens, capped at 5 dots (§ matches
   // the reference design's compressed "how far along" strip — the exact
   // numbered tracker lives in the top bar, this is just mood).
   const filled = Math.min(5, index);
@@ -48,7 +48,13 @@ export function BrandPanel({ step }: { step: FlowStep }) {
   const index = FLOW_STEPS.indexOf(step);
 
   return (
-    <aside className="relative flex w-full shrink-0 flex-col justify-between overflow-x-hidden overflow-y-auto border-white/[0.06] px-8 py-10 [-ms-overflow-style:none] [scrollbar-width:none] sm:px-10 lg:h-full lg:w-[440px] lg:border-r lg:px-10 [&::-webkit-scrollbar]:hidden">
+    // Hidden below `lg`: this panel is pure decorative/marketing content, and
+    // at narrower widths it used to render at full natural height ABOVE the
+    // real step content in FlowShell's flex-col stack — a phone-width user
+    // saw nothing but this panel and had to scroll ~1200px to reach the
+    // actual form. Below `lg` the functional content is the only thing that
+    // renders; above `lg` this sits beside it exactly as before.
+    <aside className="relative hidden w-full shrink-0 flex-col justify-between overflow-x-hidden overflow-y-auto border-white/[0.06] px-8 py-10 [-ms-overflow-style:none] [scrollbar-width:none] sm:px-10 lg:flex lg:h-full lg:w-[440px] lg:border-r lg:px-10 [&::-webkit-scrollbar]:hidden">
       <div
         aria-hidden
         className="pointer-events-none absolute -left-40 top-1/3 h-[480px] w-[480px] rounded-full bg-violet/20 blur-[110px]"

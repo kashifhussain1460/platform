@@ -129,24 +129,32 @@ export function PlanStep() {
                     </li>
                   ))}
                 </ul>
-                <button
-                  type="button"
-                  disabled={selected || changePlan.isPending}
-                  onClick={() => onSelectPlan(plan.plan)}
-                  className={`mt-5 rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                    selected
-                      ? 'bg-violet text-white'
-                      : 'border border-white/[0.1] text-zinc-300 hover:border-white/[0.2]'
-                  }`}
-                >
-                  {selected
-                    ? 'Current plan'
-                    : pendingPlan === plan.plan
-                      ? 'Selecting…'
-                      : isCustom
-                        ? 'Contact us'
-                        : 'Select'}
-                </button>
+                {isCustom ? (
+                  // Enterprise is custom-priced and always rejected by the
+                  // billing API (a real 400 every time) — this used to fire
+                  // that doomed request on click. A mailto to the real sales
+                  // address (the same one contact-sales/pricing pages use) is
+                  // what "Contact us" should have been from the start.
+                  <a
+                    href={`mailto:sales@orlixa.io?subject=${encodeURIComponent('Enterprise plan enquiry')}`}
+                    className="mt-5 block rounded-xl border border-white/[0.1] px-4 py-2 text-center text-sm font-medium text-zinc-300 transition-colors hover:border-white/[0.2]"
+                  >
+                    Contact us
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={selected || changePlan.isPending}
+                    onClick={() => onSelectPlan(plan.plan)}
+                    className={`mt-5 rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                      selected
+                        ? 'bg-violet text-white'
+                        : 'border border-white/[0.1] text-zinc-300 hover:border-white/[0.2]'
+                    }`}
+                  >
+                    {selected ? 'Current plan' : pendingPlan === plan.plan ? 'Selecting…' : 'Select'}
+                  </button>
+                )}
               </div>
             );
           })}

@@ -562,14 +562,20 @@ export function useWorkflowRuns(id: string) {
   });
 }
 
-/** True while the run is still executing. */
-function isActive(run: WorkflowRunDto | undefined): boolean {
-  return run?.status === 'PENDING' || run?.status === 'RUNNING';
-}
-
 /**
- * A single run WITH its steps. Polls every 1s while PENDING/RUNNING so the run
- * log advances live, then stops (refetchInterval → false).
+ * A single run WITH its steps. Polls every 1s while the run is still in
+ * flight (`isRunInFlight` — the same PENDING/RUNNING/WAITING/COMPENSATING
+ * definition `useAllRuns` below already uses), then stops (refetchInterval →
+ * false) once it reaches a terminal status.
+ *
+ * Live-discovered bug (fixed here): this used to define its own local
+ * "PENDING or RUNNING" check that excluded WAITING, so the instant a run
+ * paused for approval, polling stopped dead. The backend resumes and
+ * completes the run the moment someone approves it elsewhere (verified:
+ * approve → run.resumed → remaining steps run → COMPLETED, all within the
+ * same second) — but this panel never learned about it, because it had
+ * stopped asking. The run looked permanently stuck at "WAITING" until a
+ * manual page refresh, which read as "approving doesn't do anything."
  */
 export function useWorkflowRun(runId: string | null) {
   const accessToken = useSessionStore((s) => s.accessToken);
@@ -577,7 +583,8 @@ export function useWorkflowRun(runId: string | null) {
     queryKey: workflowKeys.run(runId ?? ''),
     queryFn: () => getWorkflowRun(runId as string),
     enabled: Boolean(accessToken && runId),
-    refetchInterval: (query) => (isActive(query.state.data) ? 1000 : false),
+    refetchInterval: (query) =>
+      query.state.data && isRunInFlight(query.state.data.status) ? 1000 : false,
   });
 }
 
