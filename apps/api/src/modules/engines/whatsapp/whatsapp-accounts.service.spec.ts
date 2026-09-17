@@ -115,12 +115,29 @@ describe('WhatsappAccountsService', () => {
      * InstalledSkill.connectionStatus, not WhatsAppAccount.status — without
      * this sync, a real successful connect here would still show as "Not
      * connected" everywhere outside this dedicated form.
+     *
+     * The where-clause includes employeeId (null here, since `dto` has none)
+     * so this only ever flips the InstalledSkill row scoped to the SAME
+     * employee (or company-wide) whose credentials were just verified — see
+     * the next test for the per-employee case. InstalledSkill has a real
+     * `@@unique([companyId, skillKey, employeeId])` dimension, so omitting
+     * employeeId here would flip every whatsapp row in the company, including
+     * ones never actually verified.
      */
-    it('syncs InstalledSkill.connectionStatus to CONNECTED on a successful connect', async () => {
+    it('syncs InstalledSkill.connectionStatus to CONNECTED on a successful connect (company-wide)', async () => {
       const { service, prisma } = build();
       await service.connect('c_1', dto);
       expect(prisma.installedSkill.updateMany).toHaveBeenCalledWith({
-        where: { companyId: 'c_1', skillKey: 'whatsapp' },
+        where: { companyId: 'c_1', skillKey: 'whatsapp', employeeId: null },
+        data: { connectionStatus: 'CONNECTED' },
+      });
+    });
+
+    it('syncs only the InstalledSkill row scoped to the SAME employee when connect() is scoped to one', async () => {
+      const { service, prisma } = build();
+      await service.connect('c_1', { ...dto, employeeId: 'emp_1' });
+      expect(prisma.installedSkill.updateMany).toHaveBeenCalledWith({
+        where: { companyId: 'c_1', skillKey: 'whatsapp', employeeId: 'emp_1' },
         data: { connectionStatus: 'CONNECTED' },
       });
     });

@@ -96,8 +96,15 @@ export class WhatsappAccountsService {
     // updateMany (not update): a company can reach this dedicated connect
     // form before ever installing the catalog entry, so there may be no
     // matching row yet — that's a no-op, not an error.
+    // employeeId is included in the where-clause (same value used above) so
+    // this only flips the InstalledSkill row scoped to the SAME employee (or
+    // company-wide, if null) whose credentials were just verified — not every
+    // whatsapp row in the company. InstalledSkill has a real per-employee
+    // dimension (@@unique([companyId, skillKey, employeeId])), so without
+    // this a verify for one employee's number would falsely mark every other
+    // whatsapp InstalledSkill row CONNECTED too.
     await this.prisma.installedSkill.updateMany({
-      where: { companyId, skillKey: 'whatsapp' },
+      where: { companyId, skillKey: 'whatsapp', employeeId },
       data: { connectionStatus: 'CONNECTED' },
     });
 
