@@ -19,6 +19,7 @@ import {
 } from './storage/storage.provider';
 import { LocalStorageProvider } from './storage/local-storage.provider';
 import { S3StorageProvider } from './storage/s3-storage.provider';
+import { VercelBlobStorageProvider } from './storage/vercel-blob-storage.provider';
 import { queueWorkersEnabled } from '../../common/resilience/queue-workers';
 import { redisConnectionFromUrl } from '../../common/resilience/redis-connection';
 
@@ -56,6 +57,9 @@ export function storageFactory(config: ConfigService): StorageProvider {
   const kind = (config.get<string>('STORAGE_PROVIDER') ?? 'local').toLowerCase();
   if (kind === 's3') {
     return new S3StorageProvider(config);
+  }
+  if (kind === 'platform-api-blob') {
+    return new VercelBlobStorageProvider(config);
   }
   const dir = config.get<string>('STORAGE_DIR') ?? '.storage';
   return new LocalStorageProvider(dir);
