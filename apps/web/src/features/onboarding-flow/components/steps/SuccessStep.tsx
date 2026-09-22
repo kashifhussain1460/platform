@@ -79,7 +79,9 @@ export function SuccessStep() {
         setPhase('error');
         setErrorMessage(err?.message ?? null);
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount, guarded by firedRef
+    // Fires once on mount, guarded by firedRef — `react-hooks` isn't
+    // registered in eslint.config.mjs, so a disable directive for it is
+    // itself a lint error (unknown rule), not a suppression.
   }, []);
 
   const retry = () => {

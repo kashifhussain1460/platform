@@ -223,7 +223,9 @@ export function ConfigureEmployeesStep() {
         // before the user acts can't slip through and retry on its own.
         setCreateError({ role: nextKey, message: err.message || 'Could not create this employee.' });
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally re-runs only when these change
+    // Deps are deliberately just these — `react-hooks` isn't registered in
+    // eslint.config.mjs, so a disable directive for it is itself a lint
+    // error (unknown rule), not a suppression.
   }, [
     activeEmployee,
     visitedEmployeeIds,
